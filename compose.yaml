@@ -1,0 +1,24 @@
+services:
+  worker:
+    build:
+      context: .
+      dockerfile: worker/Dockerfile
+    environment:
+      HATCHET_CLIENT_TOKEN: ${HATCHET_CLIENT_TOKEN:?Load the Hatchet development profile before starting workers}
+      HATCHET_CLIENT_TLS_STRATEGY: ${HATCHET_CLIENT_TLS_STRATEGY:-}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:?Set GITHUB_TOKEN in the root .env file}
+      GITHUB_REPOSITORY: ${GITHUB_REPOSITORY:-phudekar/software-factory}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:?Set OPENAI_API_KEY in the root .env file}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4.1-mini}
+      MAX_PATCH_ITERATIONS: ${MAX_PATCH_ITERATIONS:-10}
+    restart: unless-stopped
+    volumes:
+      - ./shared:/shared
+      - ./data:/data
+    networks:
+      - workers
+
+networks:
+  workers:
+    name: worker-network
+    driver: bridge
