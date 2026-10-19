@@ -12,6 +12,7 @@ from guardrails import (
     count_request_tokens,
     find_sensitive_categories,
     is_allowed_source_path,
+    is_safe_repository_path,
     validate_source_inventory,
 )
 
@@ -42,6 +43,17 @@ class GuardrailTests(unittest.TestCase):
             "src/generated-types.d.ts",
             "README",
             "assets/icon.svg",
+            "Cargo.toml",
+            "backend/Cargo.toml",
+            "package.json",
+            "frontend/package.json",
+            "go.mod",
+            "pom.xml",
+            "pyproject.toml",
+            "requirements.txt",
+            "vite.config.ts",
+            "frontend/vite.config.ts",
+            "vite.config.mjs",
         ]
         denied = [
             ".env",
@@ -55,11 +67,13 @@ class GuardrailTests(unittest.TestCase):
             "Dockerfile",
             "deploy/manifest.json",
             "infra/main.tf",
-            "pyproject.toml",
-            "package.json",
+            "package-lock.json",
+            "Cargo.lock",
+            "src/config.toml",
+            "config/vite.config.ts",
+            "frontend/secret-vite.config.ts",
             "Jenkinsfile",
             "service.yaml",
-            "requirements.txt",
         ]
 
         for path in allowed:
@@ -75,6 +89,28 @@ class GuardrailTests(unittest.TestCase):
         )
 
         self.assertEqual(paths, ["src/app.py"])
+
+    def test_repository_path_validation_still_confines_output_to_workspace(self):
+        for path in (
+            ".github/workflows/deploy.yml",
+            "Cargo.lock",
+            "src/config.toml",
+            "Dockerfile",
+        ):
+            with self.subTest(path=path):
+                self.assertTrue(is_safe_repository_path(path))
+
+        for path in (
+            "",
+            "../outside.py",
+            "/absolute/path.py",
+            "src\\outside.py",
+            "C:/outside.py",
+            ".git/config",
+            "src/.git/hooks/pre-commit",
+        ):
+            with self.subTest(path=path):
+                self.assertFalse(is_safe_repository_path(path))
 
     def test_credential_and_configuration_files_are_not_allowed(self):
         for path in ("src/credentials.py", "src/settings.py", "app/config.py"):

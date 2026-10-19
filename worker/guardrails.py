@@ -31,7 +31,9 @@ _SECRET_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ),
     (
         "high-entropy-assignment",
-        re.compile(r"(?i)\b(?:token|secret|key)\s*[:=]\s*['\"]([A-Za-z0-9+/=_-]{32,})['\"]"),
+        re.compile(
+            r"(?i)\b(?:token|secret|key)\s*[:=]\s*['\"]([A-Za-z0-9+/=_-]{32,})['\"]"
+        ),
     ),
 )
 
@@ -80,26 +82,36 @@ _DENIED_NAMES = {
     "pnpm-lock.yaml",
     "poetry.lock",
     "uv.lock",
-    "pyproject.toml",
     "setup.py",
     "setup.cfg",
-    "pipfile",
-    "cargo.toml",
-    "go.mod",
     "go.sum",
-    "pom.xml",
-    "composer.json",
-    "gemfile",
     "makefile",
     "jenkinsfile",
+    "dockerfile",
+}
+_ALLOWED_DEPENDENCY_MANIFESTS = {
+    "cargo.toml",
+    "composer.json",
+    "gemfile",
+    "go.mod",
     "package.json",
     "package.jsonc",
+    "pom.xml",
+    "pipfile",
+    "pyproject.toml",
+    "requirements-dev.txt",
+    "requirements.in",
+    "requirements.txt",
     "build.gradle",
     "build.gradle.kts",
     "settings.gradle",
     "settings.gradle.kts",
-    "requirements.txt",
-    "dockerfile",
+}
+_ALLOWED_TOOL_CONFIGS = {
+    "vite.config.js",
+    "vite.config.ts",
+    "vite.config.mjs",
+    "vite.config.mts",
 }
 _DENIED_EXTENSIONS = {
     ".7z",
@@ -174,15 +186,28 @@ def assert_safe_text(*values: str) -> None:
         raise SensitiveContentBlocked(categories)
 
 
-def is_allowed_source_path(path: str) -> bool:
-    if not path or path.startswith(("/", "\\")) or "\\" in path:
+def is_safe_repository_path(path: str) -> bool:
+    if not path or path.startswith(("/", "\\")) or "\\" in path or "\0" in path:
         return False
     parts = path.split("/")
-    if any(part in {"", ".", ".."} for part in parts):
+    if (
+        any(part in {"", ".", ".."} for part in parts)
+        or parts[0].endswith(":")
+        or any(part.lower() == ".git" for part in parts)
+    ):
         return False
+    return True
+
+
+def is_allowed_source_path(path: str) -> bool:
+    if not is_safe_repository_path(path):
+        return False
+    parts = path.split("/")
     if any(part.lower() in _DENIED_COMPONENTS for part in parts):
         return False
     filename = parts[-1].lower()
+    if filename in _ALLOWED_DEPENDENCY_MANIFESTS or filename in _ALLOWED_TOOL_CONFIGS:
+        return True
     if filename in _DENIED_NAMES or filename.endswith((".lock", ".pem", ".key")):
         return False
     if filename.startswith(("dockerfile", "compose.")):
@@ -193,7 +218,15 @@ def is_allowed_source_path(path: str) -> bool:
         return False
     if any(
         marker in filename
-        for marker in ("secret", "credential", "password", "passwd", "token", "config", "setting")
+        for marker in (
+            "secret",
+            "credential",
+            "password",
+            "passwd",
+            "token",
+            "config",
+            "setting",
+        )
     ):
         return False
     if filename.startswith(".") or filename.endswith(".min.js"):
@@ -208,7 +241,9 @@ def validate_source_inventory(paths: Iterable[str]) -> list[str]:
     return safe
 
 
-def count_request_tokens(messages: list[dict[str, str]], model: str = MODEL_NAME) -> int:
+def count_request_tokens(
+    messages: list[dict[str, str]], model: str = MODEL_NAME
+) -> int:
     try:
         encoding = tiktoken.encoding_for_model(model)
     except KeyError as error:
@@ -220,5 +255,7 @@ def count_request_tokens(messages: list[dict[str, str]], model: str = MODEL_NAME
         token_count += len(encoding.encode(message["role"]))
         token_count += len(encoding.encode(message["content"]))
     if token_count + MAX_COMPLETION_TOKENS > MAX_CONTEXT_TOKENS:
-        raise ValueError("Model request exceeds the configured 32,000-token total budget")
+        raise ValueError(
+            "Model request exceeds the configured 32,000-token total budget"
+        )
     return token_count

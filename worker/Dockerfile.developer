@@ -1,0 +1,31 @@
+FROM node:24-bookworm-slim
+
+ARG DEVELOPER_AGENT=codex
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates git python3 python3-venv util-linux \
+    && rm -rf /var/lib/apt/lists/* \
+    && python3 -m venv /opt/venv \
+    && groupadd --gid 10001 agent \
+    && useradd --uid 10001 --gid agent --create-home --shell /usr/sbin/nologin agent \
+    && mkdir -p /home/agent/workspaces /home/agent/.codex \
+    && chown -R agent:agent /home/agent
+
+RUN case "$DEVELOPER_AGENT" in \
+      codex) npm install --global @openai/codex ;; \
+      claude) npm install --global @anthropic-ai/claude-code ;; \
+      api) ;; \
+      *) echo "Unsupported DEVELOPER_AGENT: $DEVELOPER_AGENT" >&2; exit 1 ;; \
+    esac
+
+ENV PATH="/opt/venv/bin:$PATH"
+WORKDIR /worker
+
+COPY worker/requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY worker/bootstrap.sh worker/worker.py worker/guardrails.py worker/model_client.py worker/github_client.py worker/cli_agent.py worker/codex_healthcheck.py ./
+COPY worker/check_hatchet_connectivity.py scripts/push_sample_event.py ./
+RUN chmod +x /worker/bootstrap.sh
+
+ENTRYPOINT ["/worker/bootstrap.sh"]

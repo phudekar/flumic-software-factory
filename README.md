@@ -23,6 +23,17 @@ Copy `.env.example` to `.env` and set `GITHUB_TOKEN` and `OPENAI_API_KEY`.
 `GITHUB_REPOSITORY` should remain `phudekar/software-factory` unless the worker
 is intentionally being redirected.
 
+Set `DEVELOPER_AGENT` to `codex` (default), `claude`, or `api` to choose how
+code changes are generated. Codex requires `OPENAI_API_KEY` (or the optional
+`DEVELOPER_OPENAI_API_KEY` override); Claude Code requires `ANTHROPIC_API_KEY`;
+`api` uses the direct OpenAI backend and accepts `DEVELOPER_OPENAI_API_KEY`
+or falls back to `OPENAI_API_KEY`.
+Changing the CLI backend also changes the developer image, so rebuild with
+`./scripts/start-workers.sh -d` after changing this setting.
+For the Codex backend, set `CODEX_MODEL` in `.env` to choose its model
+(default: `gpt-6-luna`). Both code-generation runs and the Codex healthcheck use
+this setting.
+
 The GitHub token needs permission to read issues and source, create comments
 and labels, create/link sub-issues, create branches, and open draft pull requests.
 Configure it only for this repository (`Contents: read/write`,
@@ -37,22 +48,50 @@ variables; the CLI profile store is not copied into the image.
 
 ## Start workers
 
-Start one worker:
+Start the simple and developer workers:
 
 ```sh
 ./scripts/start-workers.sh -d
 ```
 
-Scale to three worker containers:
+Scale the lightweight simple-worker role to three containers:
 
 ```sh
 ./scripts/start-workers.sh --scale worker=3 -d
 ```
 
 The script loads the `development` profile using the CLI's checked two-step
-environment export, then builds and starts the worker. Each container joins
-`worker-network` and has the shared directories mounted read/write at `/shared`
-and `/data`.
+environment export, then builds and starts the services. Hatchet routes intake,
+planning, waiting, and review tasks to workers labeled `worker_type=simple`;
+code generation and PR-feedback changes require `worker_type=developer`.
+Both roles must be running for end-to-end issue processing. The simple workers
+join `worker-network`. All workers have shared directories mounted read/write
+at `/shared` and `/data`.
+
+Developer CLI processes run as the unprivileged `agent` user with a reduced
+environment and receive the configured provider API key directly. They can run
+shell commands in an isolated repository workspace, but can access network
+resources and the mounted shared directories. Treat repositories and their
+model-generated changes as untrusted, and do not place sensitive data in the
+mounted directories.
+
+When `DEVELOPER_AGENT=codex`, Compose checks the developer worker by making a
+small Codex completion request using the configured `CODEX_MODEL` and provider
+key every 10 minutes. The same model is used for Codex code-generation tasks. This
+verifies that Codex can reach and use the configured OpenAI endpoint, not just
+that DNS or TCP connectivity works. The request can incur a small provider
+charge. Check `docker-compose ps developer-worker` for the health status and
+inspect probe output with:
+
+```sh
+docker inspect --format '{{range .State.Health.Log}}{{println .End .ExitCode .Output}}{{end}}' \
+  "$(docker-compose ps -q developer-worker)"
+```
+
+Codex stdout and stderr are logged after the CLI exits, capped at 8,000
+characters per stream, with prompts and recognizable credentials redacted. The
+completion response is not logged. Use `docker-compose logs developer-worker`
+to inspect Codex output and workflow failures.
 
 To check Hatchet connectivity, authenticated GitHub repository access, and
 OpenAI model access from an ephemeral container without starting the worker:
@@ -107,10 +146,13 @@ as creating issues, branches, or pull requests.
    prompts, model responses, and proposed comments/changes. If configured
    secret patterns are detected, processing stops; logs include finding
    categories only, not the matched text.
-6. The model has no GitHub tools, shell, or credentials. The worker validates
-   its structured response and allowed paths, then writes a dedicated
-   `hatchet/issue-N` branch through the GitHub API and opens a draft PR. It does
-   not clone or execute repository code.
+6. Patch generation runs on a `worker_type=developer` worker. With the `api`
+   backend, the model has no GitHub tools, shell, or credentials. With the
+   Codex/Claude backends, the CLI works in a temporary repository workspace as
+   an unprivileged user; it receives the provider API key but no GitHub or
+   Hatchet credentials. The worker validates
+   changed paths and content, then writes a dedicated `hatchet/issue-N` branch
+   through the GitHub API and opens a draft PR.
 7. After creating a draft PR, a separate workflow step compares its diff with
    the issue requirements and comments, the current contents of changed files,
    and up to three related source files selected from the PR branch. It posts
@@ -130,7 +172,7 @@ as creating issues, branches, or pull requests.
    inline review comments, and submitted review bodies are passed as untrusted
    feedback alongside selected files from the PR branch. For actionable code
    requests—including findings in the worker's own post-creation review—the
-   worker commits changes to that same branch; it never opens a second PR. A
+   developer worker commits changes to that same branch; it never opens a second PR. A
    cursor comment and commit marker prevent already-processed feedback from
    being applied repeatedly.
 
@@ -217,19 +259,23 @@ directories `shared/` or `data/`.
 ## Security boundary and limitations
 
 The issue and selected source context are intentionally sent to the configured
-OpenAI model. The scanner and allowlist reduce exposure but cannot prove that
+provider. The scanner and path checks reduce exposure but cannot prove that
 content is free of confidential information; do not enable this workflow unless
 that data-sharing policy is acceptable. Repository files and issue text are
-treated as untrusted instructions. The model request never includes API
-credentials, and model output is not executed as a command.
+treated as untrusted instructions. The simple worker's direct API requests
+contain no GitHub or Hatchet credentials. Codex/Claude CLI agents can run
+commands against the repository as UID 10001 inside the developer container.
+The CLI subprocess receives only its selected provider API key, not the
+worker's GitHub or Hatchet credentials. Since the developer container has
+network access, repository code and CLI subprocesses can use that provider key;
+use a dedicated, restricted provider key if that risk is not acceptable.
 
-The worker can replace existing files only when they were included in the
-approved context. It can also create new UTF-8 text files at safe repository
-paths, provided the path does not already exist. After a PR is merged, those
-new files are included in later issue inventories automatically if they pass
-the same safety and size filters.
-
-The worker does not create or modify secret/credential files, hidden files,
-dependency manifests or lockfiles, CI files, deployment/infrastructure files,
-or binary assets. Review generated patches and configure GitHub branch
-protection and required CI checks before allowing merges.
+Codex/Claude CLI workers receive a full repository archive as their workspace.
+They may create or modify any UTF-8 text file in it, including hidden files,
+dependency lockfiles, CI, deployment, and infrastructure files. They cannot
+modify `.git` metadata or delete files; binary changes are not supported. The
+API-backed worker continues to use the narrower source-path allowlist. All
+changed content is still checked for known secret patterns and size limits, but
+this does not guarantee that content is safe. Review high-impact changes
+carefully and configure GitHub branch protection and required CI checks before
+allowing merges.

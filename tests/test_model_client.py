@@ -570,6 +570,32 @@ class ModelClientTests(unittest.TestCase):
                 existing_paths=set(),
             )
 
+    def test_patch_can_create_an_allowlisted_dependency_manifest(self):
+        self.client._complete = lambda messages: json.dumps(
+            {
+                "pull_title": "Add Rust manifest",
+                "pull_body": "Creates the Cargo manifest.",
+                "is_complete": True,
+                "progress": "Added the manifest.",
+                "changes": [
+                    {
+                        "path": "Cargo.toml",
+                        "content": '[package]\nname = "app"\nversion = "0.1.0"\n',
+                    }
+                ],
+            }
+        )
+
+        plan = self.client.generate_patch(
+            title="Create Rust scaffold",
+            body="Add Cargo.toml.",
+            comments=[],
+            files={},
+            existing_paths=set(),
+        )
+
+        self.assertEqual([change.path for change in plan.changes], ["Cargo.toml"])
+
     def test_request_messages_do_not_include_api_key_from_environment(self):
         api_key = "test-api-key-that-must-not-enter-prompt"
         response_body = json.dumps(

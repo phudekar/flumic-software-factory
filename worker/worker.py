@@ -8,7 +8,13 @@ import re
 from datetime import timedelta
 from typing import Any
 
-from hatchet_sdk import Context, DurableContext, EmptyModel, Hatchet
+from hatchet_sdk import (
+    Context,
+    DesiredWorkerLabel,
+    DurableContext,
+    EmptyModel,
+    Hatchet,
+)
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from github_client import GitHubClient, GitHubError
@@ -16,7 +22,9 @@ from guardrails import (
     assert_safe_text,
     find_sensitive_categories,
     is_allowed_source_path,
+    is_safe_repository_path,
 )
+from cli_agent import generate_patch as generate_cli_patch
 from model_client import (
     MAX_PATCH_FILES,
     IssueWorkPlan,
@@ -40,6 +48,18 @@ PR_FEEDBACK_EVENTS = [
     PR_REVIEW_EVENT,
 ]
 DISCUSSION_POLL_INTERVAL = timedelta(seconds=30)
+WORKER_TYPE = os.getenv("WORKER_TYPE", "simple")
+if WORKER_TYPE not in {"simple", "developer"}:
+    raise ValueError("WORKER_TYPE must be 'simple' or 'developer'")
+DEVELOPER_AGENT = os.getenv("DEVELOPER_AGENT", "api")
+if DEVELOPER_AGENT not in {"api", "codex", "claude"}:
+    raise ValueError("DEVELOPER_AGENT must be 'api', 'codex', or 'claude'")
+SIMPLE_WORKER_LABEL = DesiredWorkerLabel(
+    key="worker_type", value="simple", required=True
+)
+DEVELOPER_WORKER_LABEL = DesiredWorkerLabel(
+    key="worker_type", value="developer", required=True
+)
 
 NEEDS_DISCUSSION = "needs-discussion"
 READY_FOR_AGENT = "ready-for-agent"
@@ -162,6 +182,7 @@ issue_workflow = hatchet.workflow(
 
 @issue_workflow.task(
     name="load-issue",
+    desired_worker_labels=[SIMPLE_WORKER_LABEL],
     execution_timeout=timedelta(minutes=2),
     retries=2,
     backoff_factor=2.0,
@@ -183,6 +204,7 @@ def load_issue(input: IssueInput, ctx: Context) -> IssueState:
 
 @issue_workflow.task(
     name="plan-issue-and-create-sub-issues",
+    desired_worker_labels=[SIMPLE_WORKER_LABEL],
     parents=[load_issue],
     execution_timeout=timedelta(minutes=8),
     retries=2,
@@ -347,6 +369,7 @@ def plan_issue(input: IssueInput, ctx: Context) -> IssuePlanState:
 
 @issue_workflow.task(
     name="triage-issue",
+    desired_worker_labels=[SIMPLE_WORKER_LABEL],
     parents=[load_issue, plan_issue],
     execution_timeout=timedelta(minutes=3),
     retries=2,
@@ -440,8 +463,9 @@ def triage_issue(input: IssueInput, ctx: Context) -> TriageState:
 
 @issue_workflow.task(
     name="generate-and-open-draft-pr",
+    desired_worker_labels=[DEVELOPER_WORKER_LABEL],
     parents=[triage_issue],
-    execution_timeout=timedelta(minutes=30),
+    execution_timeout=timedelta(minutes=60),
     retries=1,
     backoff_factor=2.0,
     backoff_max_seconds=30,
@@ -484,7 +508,7 @@ def generate_and_open_draft_pr(input: IssueInput, ctx: Context) -> PublishState:
     body = str(issue.get("body") or "")
     comments = github.get_issue_comments(input.issue_number)
     issue_paths = triage.source_paths
-    files = github.get_source_files(issue_paths)
+    files = github.get_source_files(issue_paths) if DEVELOPER_AGENT == "api" else {}
     logger.info(
         "Generating pull-request patch: repository=%s issue=%d title=%s "
         "selected_paths=%d",
@@ -493,14 +517,15 @@ def generate_and_open_draft_pr(input: IssueInput, ctx: Context) -> PublishState:
         _log_title(title),
         len(files),
     )
-    plan = ModelClient().generate_patch(
+    plan = _generate_code_patch(
+        github=github,
         title=title,
         body=body,
         comments=comments,
         files=files,
         existing_paths=github.list_repository_paths(),
     )
-    _validate_patch(plan)
+    _validate_patch(plan, allow_all_repository_paths=DEVELOPER_AGENT != "api")
     if not plan.changes:
         logger.info(
             "No safe changes generated: repository=%s issue=%d title=%s",
@@ -560,6 +585,7 @@ def generate_and_open_draft_pr(input: IssueInput, ctx: Context) -> PublishState:
 
 @issue_workflow.task(
     name="review-opened-pull-request",
+    desired_worker_labels=[SIMPLE_WORKER_LABEL],
     parents=[generate_and_open_draft_pr],
     execution_timeout=timedelta(minutes=5),
     retries=2,
@@ -680,6 +706,7 @@ def review_opened_pull_request(input: IssueInput, ctx: Context) -> EventResult:
 
 @issue_workflow.task(
     name="record-workflow-result",
+    desired_worker_labels=[SIMPLE_WORKER_LABEL],
     parents=[review_opened_pull_request],
     execution_timeout=timedelta(seconds=30),
 )
@@ -701,6 +728,7 @@ def record_workflow_result(input: IssueInput, ctx: Context) -> EventResult:
 
 @hatchet.durable_task(
     name="wait-for-ready-for-agent",
+    desired_worker_labels=[SIMPLE_WORKER_LABEL],
     input_validator=IssueInput,
     execution_timeout=timedelta(days=30),
 )
@@ -741,6 +769,7 @@ async def wait_for_ready_for_agent(
 
 @hatchet.durable_task(
     name="wait-for-pr-review-and-merge",
+    desired_worker_labels=[SIMPLE_WORKER_LABEL],
     input_validator=PullInput,
     execution_timeout=timedelta(days=30),
 )
@@ -787,6 +816,7 @@ async def wait_for_pull_review(input: PullInput, ctx: DurableContext) -> dict[st
 
 @hatchet.task(
     name="verify-merged-pr-and-close-issue",
+    desired_worker_labels=[SIMPLE_WORKER_LABEL],
     input_validator=PullInput,
     execution_timeout=timedelta(minutes=2),
     retries=3,
@@ -835,6 +865,7 @@ def verify_merged_pr(input: PullInput, ctx: Context) -> EventResult:
 
 @hatchet.task(
     name="handle-github-issue-event",
+    desired_worker_labels=[SIMPLE_WORKER_LABEL],
     input_validator=GitHubWebhook,
     on_events=[
         "github:issues:opened",
@@ -881,6 +912,7 @@ def handle_github_issue_event(input: GitHubWebhook, ctx: Context) -> EventResult
 
 @hatchet.task(
     name="trigger-issue-from-sample-event",
+    desired_worker_labels=[SIMPLE_WORKER_LABEL],
     input_validator=IssueInput,
     on_events=[ISSUE_EVENT],
     execution_timeout=timedelta(minutes=1),
@@ -899,6 +931,7 @@ def trigger_issue_from_sample_event(input: IssueInput, ctx: Context) -> EventRes
 
 @hatchet.task(
     name="scan-pending-github-issues",
+    desired_worker_labels=[SIMPLE_WORKER_LABEL],
     input_validator=EmptyModel,
     on_crons=[SCAN_CRON],
     execution_timeout=timedelta(minutes=4),
@@ -929,6 +962,7 @@ def scan_pending_issues(input: EmptyModel, ctx: Context) -> ScanResult:
 
 @hatchet.task(
     name="scan-open-pr-feedback",
+    desired_worker_labels=[SIMPLE_WORKER_LABEL],
     input_validator=EmptyModel,
     on_crons=[SCAN_CRON],
     execution_timeout=timedelta(minutes=1),
@@ -958,6 +992,7 @@ def scan_open_pr_feedback(input: EmptyModel, ctx: Context) -> FeedbackScanResult
 
 @hatchet.task(
     name="handle-github-pull-request-feedback-event",
+    desired_worker_labels=[SIMPLE_WORKER_LABEL],
     input_validator=GitHubWebhook,
     on_events=PR_FEEDBACK_EVENTS,
     execution_timeout=timedelta(minutes=1),
@@ -994,8 +1029,9 @@ def handle_pull_request_feedback_event(
 
 @hatchet.task(
     name="process-open-pull-request-feedback",
+    desired_worker_labels=[DEVELOPER_WORKER_LABEL],
     input_validator=PullInput,
-    execution_timeout=timedelta(minutes=30),
+    execution_timeout=timedelta(minutes=60),
     retries=2,
     backoff_factor=2.0,
     backoff_max_seconds=30,
@@ -1062,24 +1098,29 @@ def process_pull_request_feedback(input: PullInput, ctx: Context) -> EventResult
         *feedback_text,
         "\n".join(branch_paths),
     )
-    triage = ModelClient().triage(
-        title=str(issue["title"]),
-        body=str(issue.get("body") or ""),
-        comments=feedback_text,
-        source_paths=branch_paths,
-        discussion_resolved=True,
-    )
-    files = github.get_source_files(triage.source_paths, branch=actual_input.branch)
     existing_paths = github.list_repository_paths(actual_input.branch)
-    plan = ModelClient().generate_patch(
+    if DEVELOPER_AGENT == "api":
+        triage = ModelClient().triage(
+            title=str(issue["title"]),
+            body=str(issue.get("body") or ""),
+            comments=feedback_text,
+            source_paths=branch_paths,
+            discussion_resolved=True,
+        )
+        files = github.get_source_files(triage.source_paths, branch=actual_input.branch)
+    else:
+        files = {}
+    plan = _generate_code_patch(
+        github=github,
         title=str(issue["title"]),
         body=str(issue.get("body") or ""),
         comments=[],
         files=files,
         existing_paths=existing_paths,
         review_feedback=feedback_text,
+        branch=actual_input.branch,
     )
-    _validate_patch(plan)
+    _validate_patch(plan, allow_all_repository_paths=DEVELOPER_AGENT != "api")
     processed_cursor = dict(cursor)
     for item in pending:
         source = str(item["source"])
@@ -1134,6 +1175,7 @@ def process_pull_request_feedback(input: PullInput, ctx: Context) -> EventResult
 
 @hatchet.task(
     name="inspect-github-pull-request-event",
+    desired_worker_labels=[SIMPLE_WORKER_LABEL],
     input_validator=GitHubWebhook,
     on_events=[PR_REVIEW_EVENT, PR_CLOSED_EVENT],
     execution_timeout=timedelta(seconds=30),
@@ -1338,6 +1380,41 @@ def _pending_pull_feedback(
     return pending
 
 
+def _generate_code_patch(
+    *,
+    github: GitHubClient,
+    title: str,
+    body: str,
+    comments: list[str],
+    files: dict[str, str],
+    existing_paths: set[str],
+    review_feedback: list[str] | None = None,
+    branch: str | None = None,
+) -> PatchPlan:
+    if DEVELOPER_AGENT == "api":
+        return ModelClient().generate_patch(
+            title=title,
+            body=body,
+            comments=comments,
+            files=files,
+            existing_paths=existing_paths,
+            review_feedback=review_feedback,
+        )
+    logger.info(
+        "Starting isolated CLI code generation: agent=%s branch=%s",
+        DEVELOPER_AGENT,
+        branch or "default",
+    )
+    return generate_cli_patch(
+        title=title,
+        body=body,
+        comments=comments,
+        existing_paths=existing_paths,
+        archive=github.get_repository_archive(branch),
+        review_feedback=review_feedback,
+    )
+
+
 def _log_title(title: str) -> str:
     if find_sensitive_categories(title):
         return "[redacted]"
@@ -1364,14 +1441,21 @@ def _format_pull_request_review(review: PullRequestReview) -> str:
     return comment
 
 
-def _validate_patch(plan: PatchPlan) -> None:
+def _validate_patch(
+    plan: PatchPlan, *, allow_all_repository_paths: bool = False
+) -> None:
     if not plan.changes:
         return
     if len(plan.changes) > MAX_PATCH_FILES:
         raise ModelError("Patch contains too many files")
     seen: set[str] = set()
     for change in plan.changes:
-        if not is_allowed_source_path(change.path) or change.path in seen:
+        path_is_allowed = (
+            is_safe_repository_path(change.path)
+            if allow_all_repository_paths
+            else is_allowed_source_path(change.path)
+        )
+        if not path_is_allowed or change.path in seen:
             raise ModelError("Patch contains a disallowed or duplicate path")
         seen.add(change.path)
         if len(change.content.encode("utf-8")) > 32_768:
@@ -1380,7 +1464,8 @@ def _validate_patch(plan: PatchPlan) -> None:
 
 
 worker = hatchet.worker(
-    "software-factory-issue-agent",
+    os.getenv("HATCHET_WORKER_NAME", f"software-factory-{WORKER_TYPE}-worker"),
+    labels={"worker_type": WORKER_TYPE},
     workflows=[
         issue_workflow,
         handle_github_issue_event,

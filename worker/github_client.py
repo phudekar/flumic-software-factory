@@ -18,6 +18,7 @@ from guardrails import (
 )
 
 _API_ROOT = "https://api.github.com"
+MAX_REPOSITORY_ARCHIVE_BYTES = 128 * 1024 * 1024
 logger = logging.getLogger("issue-worker.github")
 class GitHubError(RuntimeError):
     pass
@@ -167,6 +168,39 @@ class GitHubClient:
             )
             if entry.get("type") == "blob" and isinstance(entry.get("path"), str)
         }
+
+    def get_repository_archive(self, ref: str | None = None) -> bytes:
+        if ref is None:
+            repository = self._request("GET", "")
+            ref = repository.get("default_branch")
+            if not isinstance(ref, str) or not ref:
+                raise GitHubError("Repository has no configured default branch")
+        encoded_ref = urllib.parse.quote(ref, safe="")
+        request = urllib.request.Request(
+            f"{self._base}/tarball/{encoded_ref}",
+            headers={
+                "Accept": "application/vnd.github+json",
+                "Authorization": f"Bearer {self._token}",
+                "X-GitHub-Api-Version": "2022-11-28",
+                "User-Agent": "hatchet-issue-agent",
+            },
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=60) as response:
+                raw = response.read(MAX_REPOSITORY_ARCHIVE_BYTES + 1)
+        except urllib.error.HTTPError as error:
+            raise GitHubError(
+                f"GitHub repository archive request failed with HTTP {error.code}"
+            ) from None
+        except urllib.error.URLError:
+            raise GitHubError(
+                "GitHub repository archive request failed due to a network error"
+            ) from None
+        if len(raw) > MAX_REPOSITORY_ARCHIVE_BYTES:
+            raise GitHubError("GitHub repository archive exceeds the size limit")
+        if not raw:
+            raise GitHubError("GitHub returned an empty repository archive")
+        return raw
 
     def _get_branch_tree(self, branch: str) -> list[dict[str, Any]]:
         branch_data = self._request(

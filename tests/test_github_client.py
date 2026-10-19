@@ -2,7 +2,7 @@ import sys
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import Mock, call
+from unittest.mock import Mock, call, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "worker"))
 
@@ -107,6 +107,27 @@ class GitHubClientTests(unittest.TestCase):
             },
         )
 
+    def test_repository_archive_uses_authenticated_api_request(self):
+        self.client._token = "test-github-token"
+        self.client._base = "https://api.github.com/repos/owner/repo"
+        response = Mock()
+        response.__enter__ = Mock(return_value=response)
+        response.__exit__ = Mock(return_value=False)
+        response.read.return_value = b"archive-data"
+        repository_response = {"default_branch": "main"}
+        self.client._request.return_value = repository_response
+
+        with patch(
+            "github_client.urllib.request.urlopen", return_value=response
+        ) as urlopen:
+            archive = self.client.get_repository_archive()
+
+        self.assertEqual(archive, b"archive-data")
+        request = urlopen.call_args.args[0]
+        self.assertEqual(
+            request.get_header("Authorization"), "Bearer test-github-token"
+        )
+
     def test_add_sub_issue_uses_github_native_parent_relationship(self):
         self.client._request.return_value = {}
 
@@ -127,12 +148,14 @@ class GitHubClientTests(unittest.TestCase):
 
     def test_feedback_cursor_uses_comment_marker_and_branch_commit(self):
         self.client._list_issue_comments = Mock(
-            return_value=[{
-                "body": (
-                    "Handled feedback. <!-- hatchet-pr-feedback-cursor:"
-                    "conversation=24;inline-review=0;review=0 -->"
-                )
-            }]
+            return_value=[
+                {
+                    "body": (
+                        "Handled feedback. <!-- hatchet-pr-feedback-cursor:"
+                        "conversation=24;inline-review=0;review=0 -->"
+                    )
+                }
+            ]
         )
         self.client._get_branch_sha = Mock(return_value="head-sha")
         self.client._request.return_value = {
@@ -148,9 +171,7 @@ class GitHubClientTests(unittest.TestCase):
             cursor,
             {"conversation": 24, "inline review": 0, "review": 31},
         )
-        self.client._request.assert_called_once_with(
-            "GET", "/git/commits/head-sha"
-        )
+        self.client._request.assert_called_once_with("GET", "/git/commits/head-sha")
 
     def test_feedback_tracking_comment_is_updated_in_place(self):
         self.client._list_issue_comments = Mock(
@@ -198,9 +219,7 @@ class GitHubClientTests(unittest.TestCase):
                 "inline review": 0,
                 "review": 31,
             },
-            changes=[
-                SimpleNamespace(path="src/worker.py", content="updated\n")
-            ],
+            changes=[SimpleNamespace(path="src/worker.py", content="updated\n")],
         )
 
         self.assertEqual(result, "new-sha")

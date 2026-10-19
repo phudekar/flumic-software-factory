@@ -207,8 +207,10 @@ class ModelClient:
             "is_complete, progress, and changes. Each change must contain path and complete "
             "file content. You may replace a supplied file or add a new safe text file at a "
             "path not present in the repository. Do not modify other existing files or create "
-            "configuration, dependency, CI, deployment, or secret files. Do not include "
-            "credentials or confidential data in output."
+            "CI, deployment, or secret files. You may create or modify allowlisted dependency "
+            "manifest files and Vite tool configuration when required by the task, but must "
+            "not create or modify dependency lockfiles. Do not include credentials or "
+            "confidential data in output."
         )
         working_files = dict(files)
         accumulated_changes: dict[str, FileChange] = {}
