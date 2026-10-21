@@ -141,6 +141,28 @@ class CLIAgentTests(unittest.TestCase):
             [change.path for change in changes], ["frontend/vite.config.ts"]
         )
 
+    def test_change_collection_reports_oversized_file_without_contents(self):
+        for size in (
+            cli_agent.MAX_SOURCE_FILE_BYTES,
+            cli_agent.MAX_SOURCE_FILE_BYTES + 1,
+        ):
+            with self.subTest(size=size), tempfile.TemporaryDirectory() as directory:
+                workspace = Path(directory)
+                (workspace / "large.txt").write_bytes(b"x" * size)
+                arguments = dict(
+                    workspace=workspace, baseline={}, previous={}, existing_paths=set()
+                )
+                if size == cli_agent.MAX_SOURCE_FILE_BYTES:
+                    self.assertEqual(len(cli_agent._collect_changes(**arguments)), 1)
+                else:
+                    with self.assertRaises(ModelError) as raised:
+                        cli_agent._collect_changes(**arguments)
+                    self.assertIn(
+                        "large.txt (32769 bytes; maximum 32768 bytes)",
+                        str(raised.exception),
+                    )
+                    self.assertNotIn("x" * 100, str(raised.exception))
+
     def test_change_collection_ignores_generated_python_bytecode(self):
         with tempfile.TemporaryDirectory() as temporary_directory:
             workspace = Path(temporary_directory)

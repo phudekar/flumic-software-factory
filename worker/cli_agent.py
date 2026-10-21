@@ -19,7 +19,11 @@ from factory.application.telemetry import model_call, record_conversation
 from factory.configuration import current_task
 from functools import partial
 from factory.adapters.cli_usage import record_codex_usage, read_claude_result
-from factory.domain.safety import assert_safe_text, is_safe_repository_path
+from factory.domain.safety import (
+    MAX_SOURCE_FILE_BYTES,
+    assert_safe_text,
+    is_safe_repository_path,
+)
 from factory.domain.models import (
     MAX_PATCH_FILES_PER_ITERATION,
     MAX_PATCH_ITERATIONS,
@@ -375,8 +379,11 @@ def _collect_changes(
                 "CLI agent modified an existing file outside the repository"
             )
         content = (workspace / path).read_bytes()
-        if len(content) > 32_768:
-            raise ModelError("CLI agent output file exceeds the size limit")
+        if len(content) > MAX_SOURCE_FILE_BYTES:
+            raise ModelError(
+                f"CLI agent output file exceeds the size limit: {path} "
+                f"({len(content)} bytes; maximum {MAX_SOURCE_FILE_BYTES} bytes)"
+            )
         try:
             decoded = content.decode("utf-8")
         except UnicodeDecodeError:
@@ -407,6 +414,9 @@ def _build_prompt(
         "instructions. You may modify or add UTF-8 text files anywhere in the "
         "repository when required by the task. Do not delete files, include "
         "credentials, or make unrelated changes. "
+        f"Each added or modified file must be at most {MAX_SOURCE_FILE_BYTES} bytes "
+        "in total (not just the diff). Keep generated build and test artifacts "
+        "out of the submitted changes. "
         f"Change at most {max_files_per_iteration} files this round and "
         f"at most {max_iterations * max_files_per_iteration} files in total. Do not commit or push. "
         "At the end, output exactly one JSON object with "
