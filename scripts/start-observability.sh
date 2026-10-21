@@ -21,4 +21,5 @@ if [ "$bootstrap_exit" != 0 ]; then
     compose logs --tail=20 dashboard-bootstrap >&2
     exit 1
 fi
+scripts/start-resource-metrics.sh
 printf '%s\n' 'SigNoz UI: http://localhost:3301' 'Factory dashboard provisioned automatically.' 'OTLP/HTTP: http://localhost:4318'

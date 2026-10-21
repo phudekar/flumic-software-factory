@@ -108,3 +108,18 @@ class WorkerConfiguration(Base):
     factory_revision_id: Mapped[str] = mapped_column(String(36))
     document: Mapped[dict] = mapped_column(JSON)
     created_at: Mapped[float] = mapped_column(Float, default=time.time)
+
+
+class WorkflowControlOperation(Base):
+    __tablename__ = "workflow_control_operations"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=identity)
+    key: Mapped[str] = mapped_column(String(160), unique=True)
+    request_digest: Mapped[str] = mapped_column(String(64))
+    workflow_id: Mapped[str] = mapped_column(String(36), index=True)
+    workflow_name: Mapped[str] = mapped_column(String(120))
+    action: Mapped[str] = mapped_column(String(20))
+    status: Mapped[str] = mapped_column(String(20))
+    result: Mapped[dict] = mapped_column(JSON, default=dict)
+    error: Mapped[str | None] = mapped_column(String(240))
+    created_at: Mapped[float] = mapped_column(Float, default=time.time)
+    updated_at: Mapped[float] = mapped_column(Float, default=time.time)

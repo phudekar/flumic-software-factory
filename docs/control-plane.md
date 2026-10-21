@@ -374,3 +374,57 @@ code blocks. Switching views preserves the prompt text. Preview does not execute
 HTML or load remote images. Saving preserves the original Markdown string;
 workers receive that text as additional system guidance on their next restart.
 Historical versions remain read-only.
+
+## Workflow controls
+
+Open **Workflows** to trigger, pause or resume registered factory workflows.
+**Trigger run** accepts YAML input; replace required null placeholders before
+submitting. Inputs are validated against the existing workflow models and factory
+repository. Triggering a workflow requires a compatible worker to execute it.
+
+**Pause** prevents new runs from starting while current runs continue. Cron and
+scheduled triggers default to **Skip missed triggers**; choose **Queue for resume**
+when missed work should be retained. Queue TTL defaults to 24 hours (maximum 30
+days). Manual/event runs always queue during pause. **Resume** may release queued
+runs, including model calls and GitHub updates. These controls affect the whole
+workflow definition, not worker containers or a single task. Unsupported/unknown
+native pause capability disables the pause control.
+
+**Action history** shows local control receipts and links to submitted runs. A
+completed trigger receipt means the run was submitted, not that it finished.
+Network retries reuse the same idempotency key. An uncertain outcome is never
+automatically retried: inspect action history and workflow runs before issuing a
+new request. Operation IDs are attached to triggered runs as metadata for
+correlation. Audit records contain identities and outcomes, not input bodies.
+See [the architecture](control-plane-workflows.md) for durability and scope.
+
+
+## Host database storage
+
+By default PostgreSQL uses the Docker named volume `control-db`. To keep the
+control database on the host, set `CONTROL_DB_DATA_PATH` to an absolute directory
+in the private `.env.control-plane` file, for example:
+
+```dotenv
+CONTROL_DB_DATA_PATH=/absolute/path/to/factory-data/control-postgres
+```
+
+For a fresh installation, create that directory before starting the stack.
+On Docker Desktop, ensure the directory is shared with Docker. Database files
+contain sensitive data; restrict access and exclude them from Git and file sync.
+Keep the storage on a local filesystem suitable for PostgreSQL.
+
+For an existing installation, do not point PostgreSQL at an empty directory:
+that initializes a separate database. Stop API, reconciler and PostgreSQL first,
+then copy the entire PostgreSQL data directory from the stopped container using
+`docker cp -a factory-control-postgres-1:/var/lib/postgresql/data/. <destination>`.
+Verify the copy, including `PG_VERSION`, before changing the environment setting.
+Use the same PostgreSQL major version. Recreate the services without rebuilding,
+check database recovery and API health, and verify saved profiles and workers.
+Retain the original named volume until the migration and a fresh backup have
+been verified. Never use `docker compose down -v` during migration.
+
+Worker build logs and snapshots already use the host directory
+`data/control-plane`. This setting moves only the control PostgreSQL data;
+SigNoz storage and Docker image layers have separate storage settings. Host
+mapping does not remove the need to monitor and reclaim Docker image space.

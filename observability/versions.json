@@ -2,5 +2,6 @@
   "foundry": "v0.3.0",
   "signoz": "v0.146.0",
   "collector": "v0.144.14",
-  "note": "Foundry-generated deployment with pinned image tags, loopback host ports (UI 3301), and OpAMP hostname corrected to the SigNoz service."
+  "note": "Foundry-generated deployment with pinned image tags, loopback host ports (UI 3301), and OpAMP hostname corrected to the SigNoz service.",
+  "resource_collector": "0.144.0"
 }

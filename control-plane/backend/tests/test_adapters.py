@@ -146,3 +146,72 @@ class AdapterTests(unittest.TestCase):
         runtime = DockerRuntime(Mock(), Mock(), client=client)
         runtime.action("worker-removed", "remove")
         client.containers.get.assert_not_called()
+
+    def test_workflow_controls_are_scoped_and_use_native_pause_options(self):
+        from datetime import timedelta
+
+        client = Mock()
+        client.workflows.get.return_value = {
+            "metadata": {"id": "factory-id"},
+            "name": "scan-pending-github-issues",
+            "isPaused": False,
+        }
+        client.workflows.pause.return_value = {
+            "metadata": {"id": "factory-id"},
+            "name": "scan-pending-github-issues",
+            "isPaused": True,
+        }
+        engine = HatchetEngine(Path("."), client)
+        result = engine.control("factory-id", "pause", {}, 3600, "DROP", "QUEUE")
+        self.assertTrue(result["paused"])
+        client.workflows.pause.assert_called_once_with(
+            "factory-id",
+            queue_ttl=timedelta(seconds=3600),
+            paused_workflow_cron_run_queue_behavior="DROP",
+            paused_workflow_scheduled_run_queue_behavior="QUEUE",
+        )
+        client.workflows.get.return_value = {
+            "name": "unrelated",
+            "metadata": {"id": "other"},
+        }
+        with self.assertRaises(ValueError):
+            engine.control("other", "resume", {})
+        client.workflows.unpause.assert_not_called()
+
+    def test_workflow_trigger_validates_input_and_returns_only_run_identity(self):
+        client = Mock()
+        client.workflows.get.return_value = {
+            "metadata": {"id": "wf"},
+            "name": "software-factory-issue-agent",
+            "isPaused": False,
+        }
+        client.runs.create.return_value = {
+            "run": {
+                "metadata": {"id": "run-id"},
+                "status": "QUEUED",
+                "input": {"hidden": "secret"},
+                "output": {"hidden": "secret"},
+            }
+        }
+        engine = HatchetEngine(Path(__file__).resolve().parents[3], client)
+        with self.assertRaises(ValueError):
+            engine.control("wf", "trigger", {"issue_number": -1})
+        client.runs.create.assert_not_called()
+        result = engine.control(
+            "wf",
+            "trigger",
+            {"repository": "phudekar/software-factory", "issue_number": 13},
+        )
+        self.assertEqual(result["run_id"], "run-id")
+        self.assertNotIn("secret", str(result))
+
+    def test_unknown_pause_capability_is_not_assumed_supported(self):
+        client = Mock()
+        client.workflows.get.return_value = {
+            "metadata": {"id": "wf"},
+            "name": "scan-pending-github-issues",
+        }
+        engine = HatchetEngine(Path("."), client)
+        with self.assertRaisesRegex(ValueError, "pause"):
+            engine.control("wf", "pause", {})
+        client.workflows.pause.assert_not_called()

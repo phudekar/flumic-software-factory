@@ -7,7 +7,7 @@ services:
       POSTGRES_USER: factory_control
       POSTGRES_PASSWORD: ${CONTROL_DB_PASSWORD:?Run scripts/start-control-plane.sh}
     volumes:
-      - control-db:/var/lib/postgresql/data
+      - ${CONTROL_DB_DATA_PATH:-control-db}:/var/lib/postgresql/data
     healthcheck:
       test: [CMD-SHELL, 'pg_isready -U factory_control -d factory_control']
       interval: 5s

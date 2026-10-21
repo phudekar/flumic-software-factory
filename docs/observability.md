@@ -221,3 +221,34 @@ References:
 - [Codex structured events](https://developers.openai.com/codex/noninteractive/)
 - [Claude Code programmatic output](https://code.claude.com/docs/en/headless)
 - [GPT-5 nano pricing](https://developers.openai.com/api/docs/models/gpt-5-nano)
+
+## Infrastructure resources
+
+Start `scripts/start-resource-metrics.sh` after SigNoz. A separate pinned
+OpenTelemetry Collector exports Docker container CPU, memory, network and block
+I/O every 30 seconds over OTLP. New workers are discovered automatically; the
+control API, reconciler and database are included. Container names and allowlisted
+Compose/worker labels identify each series. No environment variables or worker
+credentials are collected. The collector observes all running containers on this
+Docker host, so infrastructure charts also include other local workloads.
+
+The collector exposes no inbound ports. It runs as root to read the Docker
+socket; a read-only socket mount still grants Docker API access. Keep this agent
+on a trusted host. For Kubernetes, deploy a node collector with kubeletstats and
+hostmetrics instead of mounting a Docker socket.
+
+The existing factory dashboard includes container CPU utilization (%), memory
+bytes/percentage, disk read/write bytes per second and network bytes per second.
+Shared disk usage/utilization is grouped by `mountpoint` and `state`: `/` is the
+collector overlay on the Docker image filesystem, `/host-data` is the filesystem
+holding `data/control-plane` on the host. These are capacity metrics, not a claim
+that each worker owns the whole disk. Used utilization is 0–1; alert on used
+space above 0.85 and available space below 0.10. CPU here means CPU utilization,
+not hardware cycles per instruction (CPI). Block I/O availability depends on the
+Docker runtime/cgroup implementation; absent data is unknown, not zero. Stopped
+workers have no live resource metrics; their earlier series remain queryable.
+
+Re-run the dashboard bootstrap after changing its JSON to update the saved
+SigNoz dashboard. New metrics appear after the next scrape and export batch.
+Keep Docker disk capacity and host disk capacity monitored separately, even when
+PostgreSQL is bind-mounted to host storage.

@@ -2,14 +2,26 @@ let csrf = "";
 export function setCsrf(value: string) {
   csrf = value;
 }
-export async function api<T>(path: string, body?: unknown): Promise<T> {
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    public readonly status: number,
+  ) {
+    super(message);
+  }
+}
+export async function api<T>(
+  path: string,
+  body?: unknown,
+  options?: { idempotencyKey?: string },
+): Promise<T> {
   const response = await fetch("/api/v1" + path, {
     method: body === undefined ? "GET" : "POST",
     credentials: "same-origin",
     headers: {
       "Content-Type": "application/json",
       "X-CSRF-Token": csrf,
-      "Idempotency-Key": crypto.randomUUID(),
+      "Idempotency-Key": options?.idempotencyKey ?? crypto.randomUUID(),
     },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
@@ -21,10 +33,11 @@ export async function api<T>(path: string, body?: unknown): Promise<T> {
     const error = await response
       .json()
       .catch(() => ({ detail: "The service is unavailable." }));
-    throw new Error(
+    throw new ApiError(
       typeof error.detail === "string"
         ? error.detail
         : "Please check the submitted values.",
+      response.status,
     );
   }
   return response.json();

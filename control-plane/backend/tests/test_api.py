@@ -358,6 +358,85 @@ class ControlPlaneTests(unittest.TestCase):
         )
         self.assertEqual(retry.status_code, 202)
 
+    def test_workflow_action_idempotency_and_audit_without_persisting_inputs(self):
+        from app.database import Audit
+
+        identifier = str(uuid.uuid4())
+        self.workflow.definition.return_value = {
+            "id": identifier,
+            "name": "scan-pending-github-issues",
+            "paused": False,
+            "pause_supported": True,
+        }
+        self.workflow.validate_input.return_value = {}
+        self.workflow.control.return_value = {"run_id": str(uuid.uuid4())}
+        body = {"action": "trigger", "input": {}}
+        url = f"/api/v1/workflows/{identifier}/actions"
+        first = self.client.post(url, json=body)
+        self.assertEqual(first.status_code, 200, first.text)
+        second = self.client.post(url, json=body)
+        self.assertEqual(second.json()["id"], first.json()["id"])
+        self.workflow.control.assert_called_once()
+        conflict = self.client.post(url, json={"action": "pause"})
+        self.assertEqual(conflict.status_code, 409)
+        with self.sessions() as db:
+            actions = db.scalars(
+                select(Audit).where(Audit.action.like("workflow.%"))
+            ).all()
+            self.assertTrue(actions)
+        history = self.client.get(f"/api/v1/workflows/{identifier}/actions")
+        self.assertEqual(history.status_code, 200)
+        self.assertNotIn("input", history.json()[0])
+
+    @unittest.skipUnless(
+        os.environ.get("CONTROL_TEST_DATABASE_URL"), "PostgreSQL integration only"
+    )
+    def test_concurrent_workflow_trigger_requests_share_one_receipt(self):
+        from concurrent.futures import ThreadPoolExecutor
+
+        identifier = str(uuid.uuid4())
+        self.workflow.definition.return_value = {
+            "id": identifier,
+            "name": "scan-pending-github-issues",
+            "paused": False,
+            "pause_supported": True,
+        }
+        self.workflow.validate_input.return_value = {}
+        self.workflow.control.return_value = {"run_id": str(uuid.uuid4())}
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            responses = list(
+                pool.map(
+                    lambda _: self.client.post(
+                        f"/api/v1/workflows/{identifier}/actions",
+                        json={"action": "trigger"},
+                    ),
+                    range(2),
+                )
+            )
+        self.assertEqual([response.status_code for response in responses], [200, 200])
+        self.assertEqual(responses[0].json()["id"], responses[1].json()["id"])
+        self.workflow.control.assert_called_once()
+
+    def test_uncertain_workflow_trigger_is_never_automatically_retried(self):
+        identifier = str(uuid.uuid4())
+        self.workflow.definition.return_value = {
+            "id": identifier,
+            "name": "scan-pending-github-issues",
+            "paused": False,
+            "pause_supported": True,
+        }
+        self.workflow.validate_input.return_value = {}
+        self.workflow.control.side_effect = TimeoutError(
+            "vendor response containing private details"
+        )
+        url = f"/api/v1/workflows/{identifier}/actions"
+        result = self.client.post(url, json={"action": "trigger"})
+        self.assertEqual(result.status_code, 200)
+        self.assertEqual(result.json()["status"], "uncertain")
+        self.assertNotIn("private details", result.text)
+        self.client.post(url, json={"action": "trigger"})
+        self.workflow.control.assert_called_once()
+
     def test_create_is_stopped_and_idempotent(self):
         worker = self.create_worker()
         self.assertEqual(worker.desired_state, "created")

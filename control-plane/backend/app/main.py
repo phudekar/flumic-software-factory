@@ -135,6 +135,10 @@ def create_app(settings=None, sessions=None, runtime=None, workflow=None):
             workflow = HatchetEngine(settings.root)
         return workflow
 
+    from app.workflow_controls import install as install_workflow_controls
+
+    install_workflow_controls(app, sessions, workflow_adapter)
+
     @app.middleware("http")
     async def security(request, call_next):
         if request.url.path.startswith("/api/") and request.url.path not in {

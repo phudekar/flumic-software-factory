@@ -1,0 +1,22 @@
+# Separate collector: no inbound ports and no application credentials.
+name: factory-resource-metrics
+services:
+  resource-metrics:
+    image: otel/opentelemetry-collector-contrib:0.144.0
+    user: "0:0"
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes:
+      - ./observability/resource-metrics.yaml:/etc/otelcol/config.yaml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      # Host-backed data filesystem, distinct from the Docker VM image disk.
+      - ./data/control-plane:/host-data:ro
+    networks: [observability]
+    restart: unless-stopped
+    mem_limit: 256m
+    cpus: 0.5
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+networks:
+  observability:
+    external: true
+    name: factory-signoz-network

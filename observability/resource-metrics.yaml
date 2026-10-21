@@ -1,0 +1,67 @@
+receivers:
+  docker_stats:
+    endpoint: unix:///var/run/docker.sock
+    collection_interval: 30s
+    timeout: 20s
+    container_labels_to_metric_labels:
+      com.docker.compose.project: compose.project
+      com.docker.compose.service: compose.service
+      factory.instance: factory.worker.id
+      factory.profile: factory.worker.profile
+    metrics:
+      container.cpu.utilization:
+        enabled: true
+      container.memory.percent:
+        enabled: true
+      container.memory.usage.total:
+        enabled: true
+      container.blockio.io_service_bytes_recursive:
+        enabled: true
+      container.network.io.usage.rx_bytes:
+        enabled: true
+      container.network.io.usage.tx_bytes:
+        enabled: true
+  hostmetrics/filesystems:
+    collection_interval: 30s
+    scrapers:
+      filesystem:
+        include_virtual_filesystems: true
+        include_mount_points:
+          match_type: strict
+          mount_points: [/, /host-data]
+        metrics:
+          system.filesystem.utilization:
+            enabled: true
+          system.filesystem.inodes.usage:
+            enabled: true
+processors:
+  memory_limiter:
+    check_interval: 5s
+    limit_mib: 192
+    spike_limit_mib: 32
+  resource:
+    attributes:
+      - key: service.name
+        value: software-factory-infrastructure
+        action: upsert
+      - key: deployment.environment
+        value: development
+        action: upsert
+  batch:
+    timeout: 10s
+    send_batch_size: 1024
+exporters:
+  otlp:
+    endpoint: factory-signoz-ingester:4317
+    tls:
+      insecure: true
+    sending_queue:
+      queue_size: 256
+    retry_on_failure:
+      max_elapsed_time: 300s
+service:
+  pipelines:
+    metrics:
+      receivers: [docker_stats, hostmetrics/filesystems]
+      processors: [memory_limiter, resource, batch]
+      exporters: [otlp]

@@ -140,3 +140,158 @@ class HatchetEngine:
                 }
             )
         return result
+
+    def definition_summary(self, value):
+        row = plain(value)
+        name = row.get("name", "")
+        if not self.allowed(name):
+            raise ValueError("Workflow is outside this factory")
+        paused = row.get("isPaused")
+        return {
+            "id": (row.get("metadata") or {}).get("id"),
+            "name": name,
+            "paused": paused if isinstance(paused, bool) else None,
+            "pause_supported": isinstance(paused, bool),
+            "cron_behavior": row.get("pausedWorkflowCronRunQueueBehavior"),
+            "scheduled_behavior": row.get("pausedWorkflowScheduledRunQueueBehavior"),
+            "input_example": self.input_example(name),
+        }
+
+    def definitions(self):
+        result = []
+        # Filter every page so unrelated tenant definitions cannot hide later
+        # factory definitions or appear in the operator controls.
+        for offset in range(0, 10000, 100):
+            page = items(self.client.workflows.list(limit=100, offset=offset))
+            for value in page:
+                row = plain(value)
+                if self.allowed(row.get("name", "")):
+                    result.append(self.definition_summary(row))
+            if len(page) < 100:
+                return sorted(result, key=lambda row: row["name"])
+        raise ValueError("Workflow list exceeds the supported pagination limit")
+
+    def definition(self, identifier):
+        result = self.definition_summary(self.client.workflows.get(identifier))
+        if result["id"] != identifier:
+            raise ValueError("Workflow identity does not match the request")
+        return result
+
+    @staticmethod
+    def input_model(name):
+        from hatchet_sdk import EmptyModel
+        from factory.domain.models import IssueInput, PullInput
+        from factory.adapters.github_events import GitHubWebhook
+
+        if name in {"scan-pending-github-issues", "scan-open-pr-feedback"}:
+            return EmptyModel
+        if name in {
+            "software-factory-issue-agent",
+            "trigger-issue-from-sample-event",
+            "wait-for-ready-for-agent",
+        }:
+            return IssueInput
+        if name in {
+            "verify-merged-pr-and-close-issue",
+            "process-open-pull-request-feedback",
+            "wait-for-pr-review-and-merge",
+        }:
+            return PullInput
+        return GitHubWebhook
+
+    def input_example(self, name):
+        model = self.input_model(name)
+        fields = model.model_fields
+        if not fields:
+            return {}
+        repository = Settings.load(
+            {"WORKER_CONFIG_FILE": str(self.root / "worker-config.yaml")}
+        ).repository
+        if "action" in fields:
+            return {
+                "action": "opened",
+                "repository": {"full_name": repository},
+                "issue": {
+                    "number": None,
+                    "title": "",
+                    "body": "",
+                    "state": "open",
+                    "labels": [],
+                },
+            }
+        result = {"repository": repository, "issue_number": None}
+        if "pull_number" in fields:
+            result.update(pull_number=None, pull_url="", branch="")
+        return result
+
+    def validate_input(self, name, payload):
+        from pydantic import ValidationError
+        from factory.adapters.github_events import GitHubWebhook
+
+        model = self.input_model(name)
+        if model is not GitHubWebhook and set(payload) - set(model.model_fields):
+            raise ValueError("Unknown workflow input fields")
+        try:
+            parsed = model.model_validate(payload)
+        except ValidationError as exc:
+            fields = sorted(
+                {".".join(str(part) for part in item["loc"]) for item in exc.errors()}
+            )
+            raise ValueError(
+                "Invalid workflow input fields: " + ", ".join(fields)
+            ) from None
+        repository = getattr(parsed, "repository", None)
+        if repository is not None:
+            repository = getattr(repository, "full_name", repository)
+            expected = Settings.load(
+                {"WORKER_CONFIG_FILE": str(self.root / "worker-config.yaml")}
+            ).repository
+            if repository != expected:
+                raise ValueError("Workflow input repository is outside this factory")
+        return parsed.model_dump(mode="json")
+
+    def control(
+        self,
+        identifier,
+        action,
+        payload,
+        queue_ttl_seconds=86400,
+        cron_behavior="DROP",
+        scheduled_behavior="DROP",
+        operation_id=None,
+    ):
+        from datetime import timedelta
+
+        definition = self.definition(identifier)
+        if action in {"pause", "resume"} and not definition["pause_supported"]:
+            raise ValueError(
+                "This Hatchet server does not report native workflow pause support"
+            )
+        if action == "pause":
+            result = self.client.workflows.pause(
+                identifier,
+                queue_ttl=timedelta(seconds=queue_ttl_seconds),
+                paused_workflow_cron_run_queue_behavior=cron_behavior,
+                paused_workflow_scheduled_run_queue_behavior=scheduled_behavior,
+            )
+            return self.definition_summary(result)
+        if action == "resume":
+            return self.definition_summary(self.client.workflows.unpause(identifier))
+        if action == "trigger":
+            value = plain(
+                self.client.runs.create(
+                    definition["name"],
+                    input=self.validate_input(definition["name"], payload),
+                    additional_metadata={"factory_control_operation_id": operation_id}
+                    if operation_id
+                    else {},
+                )
+            )
+            run = value.get("run") or {}
+            identifier = run.get("workflowRunExternalId") or (
+                run.get("metadata") or {}
+            ).get("id")
+            if not identifier:
+                raise RuntimeError("Engine response did not contain a run identity")
+            return {"run_id": identifier, "status": run.get("status")}
+        raise ValueError("Unsupported workflow action")

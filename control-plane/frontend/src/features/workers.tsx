@@ -422,12 +422,19 @@ export function WorkersPage() {
               Instance name
               <input
                 required
-                pattern="[a-z][a-z0-9-]{2,59}"
+                pattern={"[a-z][a-z0-9\\-]{2,59}"}
+                aria-describedby="worker-name-help"
+                title="Use 3–60 lowercase letters, digits, or hyphens, starting with a letter (for example: dev-1)."
                 placeholder="factory-simple-02"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
               />
             </label>
+            <p id="worker-name-help" className="muted">
+              Use 3–60 characters: lowercase letters, digits, and hyphens,
+              starting with a letter. For example: dev-1. Spaces and uppercase
+              letters are not allowed.
+            </p>
             <label>
               Saved worker profile
               <select

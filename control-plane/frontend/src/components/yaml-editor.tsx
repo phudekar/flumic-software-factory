@@ -90,6 +90,7 @@ export function YamlEditor({
       </label>
       <div className="actions">
         <button
+          type="button"
           className="secondary"
           disabled={validating}
           aria-label={`Validate ${label.charAt(0).toLowerCase() + label.slice(1)}`}
@@ -117,6 +118,7 @@ export function YamlEditor({
           {validating ? "Validating…" : "Validate"}
         </button>
         <button
+          type="button"
           className="secondary"
           disabled={readOnly}
           aria-label={`Format ${label.charAt(0).toLowerCase() + label.slice(1)}`}

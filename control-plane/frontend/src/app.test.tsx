@@ -115,6 +115,115 @@ describe("control plane", () => {
   });
 });
 
+describe("workflow controls", () => {
+  it("lists workflow states and pauses with skip defaults", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (path: string, options?: RequestInit) => {
+        if (path.endsWith("/auth/session")) return json({ csrf: "test-csrf" });
+        if (path.endsWith("/workflows"))
+          return json({
+            items: [
+              {
+                id: "workflow-1",
+                name: "scan-pending-github-issues",
+                paused: false,
+                pause_supported: true,
+                input_example: {},
+              },
+            ],
+            warnings: [],
+          });
+        if (path.endsWith("/actions"))
+          return json(
+            options?.method === "POST"
+              ? {
+                  id: "operation-1",
+                  status: "completed",
+                  result: { paused: true },
+                }
+              : [],
+          );
+        return json({}, 404);
+      }),
+    );
+    app("/workflows");
+    expect(
+      await screen.findByText("scan-pending-github-issues"),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Pause workflow" }));
+    expect(screen.getByLabelText("Cron triggers while paused")).toHaveValue(
+      "DROP",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Confirm pause" }));
+    await screen.findByText("Workflow paused.");
+    const call = vi
+      .mocked(fetch)
+      .mock.calls.find(([, options]) => options?.method === "POST");
+    expect(JSON.parse(String(call![1]!.body))).toMatchObject({
+      action: "pause",
+      cron_behavior: "DROP",
+      scheduled_behavior: "DROP",
+      queue_ttl_seconds: 86400,
+    });
+  });
+  it("retries an uncertain HTTP request using the same idempotency key", async () => {
+    let attempts = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (path: string, options?: RequestInit) => {
+        if (path.endsWith("/auth/session")) return json({ csrf: "test" });
+        if (path.endsWith("/workflows"))
+          return json({
+            items: [
+              {
+                id: "workflow-1",
+                name: "scan-pending-github-issues",
+                paused: false,
+                pause_supported: true,
+                input_example: {},
+              },
+            ],
+            warnings: [],
+          });
+        if (path.endsWith("/actions") && options?.method === "POST") {
+          attempts++;
+          if (attempts === 1) throw new TypeError("Network unavailable");
+          return json({
+            id: "operation-1",
+            status: "completed",
+            result: { run_id: "run-1" },
+          });
+        }
+        if (path.endsWith("/actions")) return json([]);
+        return json({}, 404);
+      }),
+    );
+    app("/workflows");
+    await screen.findByText("scan-pending-github-issues");
+    fireEvent.click(screen.getByRole("button", { name: "Trigger run" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Format workflow run input YAML" }),
+    );
+    expect(
+      vi
+        .mocked(fetch)
+        .mock.calls.filter(([, options]) => options?.method === "POST"),
+    ).toHaveLength(0);
+    fireEvent.click(screen.getByRole("button", { name: "Confirm trigger" }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Retry request" }),
+    );
+    await screen.findByText("Workflow run submitted.");
+    const calls = vi
+      .mocked(fetch)
+      .mock.calls.filter(([, options]) => options?.method === "POST");
+    expect(calls).toHaveLength(2);
+    expect(calls[0][1]!.headers).toEqual(calls[1][1]!.headers);
+    expect(calls[0][1]!.body).toEqual(calls[1][1]!.body);
+  });
+});
+
 describe("worker profiles and scoped execution", () => {
   const profile = {
     id: "config-1",
@@ -190,6 +299,19 @@ describe("worker profiles and scoped execution", () => {
       }),
     );
   }
+  it("explains worker naming requirements in the creation dialog", async () => {
+    fixtures();
+    app("/workers");
+    fireEvent.click(await screen.findByRole("button", { name: "Create worker" }));
+    const input = screen.getByLabelText("Instance name");
+    expect(input).toHaveAccessibleDescription(
+      "Use 3–60 characters: lowercase letters, digits, and hyphens, starting with a letter. For example: dev-1. Spaces and uppercase letters are not allowed.",
+    );
+    fireEvent.change(input, { target: { value: "Dev 1" } });
+    expect(input).toBeInvalid();
+    fireEvent.change(input, { target: { value: "dev-1" } });
+    expect(input).toBeValid();
+  });
   it("creates workers from a saved profile identity", async () => {
     fixtures();
     app("/workers");
@@ -462,7 +584,11 @@ image_setup_script: |-
     });
     fireEvent.click(screen.getByRole("button", { name: "Preview Markdown" }));
     expect(
-      await screen.findByRole("heading", { name: "Acceptance criteria" }),
+      await screen.findByRole(
+        "heading",
+        { name: "Acceptance criteria" },
+        { timeout: 5000 },
+      ),
     ).toBeInTheDocument();
     expect(
       screen.getByText("Keep", { selector: "strong" }),

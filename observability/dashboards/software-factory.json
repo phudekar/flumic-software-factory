@@ -499,6 +499,429 @@
             }
           ]
         }
+      },
+      "resource-cpu": {
+        "kind": "Panel",
+        "spec": {
+          "display": {
+            "name": "Container CPU utilization (%)"
+          },
+          "plugin": {
+            "kind": "signoz/TimeSeriesPanel",
+            "spec": {
+              "visualization": {
+                "timePreference": "global_time"
+              },
+              "legend": {
+                "position": "bottom"
+              }
+            }
+          },
+          "queries": [
+            {
+              "kind": "time_series",
+              "spec": {
+                "plugin": {
+                  "kind": "signoz/BuilderQuery",
+                  "spec": {
+                    "name": "A",
+                    "signal": "metrics",
+                    "aggregations": [
+                      {
+                        "metricName": "container.cpu.utilization",
+                        "timeAggregation": "max",
+                        "spaceAggregation": "max",
+                        "reduceTo": "last"
+                      }
+                    ],
+                    "filter": {
+                      "expression": "service.name = 'software-factory-infrastructure'"
+                    },
+                    "groupBy": [
+                      {
+                        "name": "container.name",
+                        "fieldDataType": "string",
+                        "fieldContext": "tag"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "resource-memory": {
+        "kind": "Panel",
+        "spec": {
+          "display": {
+            "name": "Container memory usage (bytes)"
+          },
+          "plugin": {
+            "kind": "signoz/TimeSeriesPanel",
+            "spec": {
+              "visualization": {
+                "timePreference": "global_time"
+              },
+              "legend": {
+                "position": "bottom"
+              }
+            }
+          },
+          "queries": [
+            {
+              "kind": "time_series",
+              "spec": {
+                "plugin": {
+                  "kind": "signoz/BuilderQuery",
+                  "spec": {
+                    "name": "A",
+                    "signal": "metrics",
+                    "aggregations": [
+                      {
+                        "metricName": "container.memory.usage.total",
+                        "timeAggregation": "max",
+                        "spaceAggregation": "max",
+                        "reduceTo": "last"
+                      }
+                    ],
+                    "filter": {
+                      "expression": "service.name = 'software-factory-infrastructure'"
+                    },
+                    "groupBy": [
+                      {
+                        "name": "container.name",
+                        "fieldDataType": "string",
+                        "fieldContext": "tag"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "resource-memory-percent": {
+        "kind": "Panel",
+        "spec": {
+          "display": {
+            "name": "Container memory utilization (%)"
+          },
+          "plugin": {
+            "kind": "signoz/TimeSeriesPanel",
+            "spec": {
+              "visualization": {
+                "timePreference": "global_time"
+              },
+              "legend": {
+                "position": "bottom"
+              }
+            }
+          },
+          "queries": [
+            {
+              "kind": "time_series",
+              "spec": {
+                "plugin": {
+                  "kind": "signoz/BuilderQuery",
+                  "spec": {
+                    "name": "A",
+                    "signal": "metrics",
+                    "aggregations": [
+                      {
+                        "metricName": "container.memory.percent",
+                        "timeAggregation": "max",
+                        "spaceAggregation": "max",
+                        "reduceTo": "last"
+                      }
+                    ],
+                    "filter": {
+                      "expression": "service.name = 'software-factory-infrastructure'"
+                    },
+                    "groupBy": [
+                      {
+                        "name": "container.name",
+                        "fieldDataType": "string",
+                        "fieldContext": "tag"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "resource-io": {
+        "kind": "Panel",
+        "spec": {
+          "display": {
+            "name": "Container disk I/O (bytes/s)"
+          },
+          "plugin": {
+            "kind": "signoz/TimeSeriesPanel",
+            "spec": {
+              "visualization": {
+                "timePreference": "global_time"
+              },
+              "legend": {
+                "position": "bottom"
+              }
+            }
+          },
+          "queries": [
+            {
+              "kind": "time_series",
+              "spec": {
+                "plugin": {
+                  "kind": "signoz/BuilderQuery",
+                  "spec": {
+                    "name": "A",
+                    "signal": "metrics",
+                    "aggregations": [
+                      {
+                        "metricName": "container.blockio.io_service_bytes_recursive",
+                        "timeAggregation": "rate",
+                        "spaceAggregation": "sum",
+                        "reduceTo": "last"
+                      }
+                    ],
+                    "filter": {
+                      "expression": "service.name = 'software-factory-infrastructure'"
+                    },
+                    "groupBy": [
+                      {
+                        "name": "container.name",
+                        "fieldDataType": "string",
+                        "fieldContext": "tag"
+                      },
+                      {
+                        "name": "operation",
+                        "fieldDataType": "string",
+                        "fieldContext": "tag"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "resource-network-rx": {
+        "kind": "Panel",
+        "spec": {
+          "display": {
+            "name": "Container network received (bytes/s)"
+          },
+          "plugin": {
+            "kind": "signoz/TimeSeriesPanel",
+            "spec": {
+              "visualization": {
+                "timePreference": "global_time"
+              },
+              "legend": {
+                "position": "bottom"
+              }
+            }
+          },
+          "queries": [
+            {
+              "kind": "time_series",
+              "spec": {
+                "plugin": {
+                  "kind": "signoz/BuilderQuery",
+                  "spec": {
+                    "name": "A",
+                    "signal": "metrics",
+                    "aggregations": [
+                      {
+                        "metricName": "container.network.io.usage.rx_bytes",
+                        "timeAggregation": "rate",
+                        "spaceAggregation": "sum",
+                        "reduceTo": "last"
+                      }
+                    ],
+                    "filter": {
+                      "expression": "service.name = 'software-factory-infrastructure'"
+                    },
+                    "groupBy": [
+                      {
+                        "name": "container.name",
+                        "fieldDataType": "string",
+                        "fieldContext": "tag"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "resource-network-tx": {
+        "kind": "Panel",
+        "spec": {
+          "display": {
+            "name": "Container network sent (bytes/s)"
+          },
+          "plugin": {
+            "kind": "signoz/TimeSeriesPanel",
+            "spec": {
+              "visualization": {
+                "timePreference": "global_time"
+              },
+              "legend": {
+                "position": "bottom"
+              }
+            }
+          },
+          "queries": [
+            {
+              "kind": "time_series",
+              "spec": {
+                "plugin": {
+                  "kind": "signoz/BuilderQuery",
+                  "spec": {
+                    "name": "A",
+                    "signal": "metrics",
+                    "aggregations": [
+                      {
+                        "metricName": "container.network.io.usage.tx_bytes",
+                        "timeAggregation": "rate",
+                        "spaceAggregation": "sum",
+                        "reduceTo": "last"
+                      }
+                    ],
+                    "filter": {
+                      "expression": "service.name = 'software-factory-infrastructure'"
+                    },
+                    "groupBy": [
+                      {
+                        "name": "container.name",
+                        "fieldDataType": "string",
+                        "fieldContext": "tag"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "resource-disk": {
+        "kind": "Panel",
+        "spec": {
+          "display": {
+            "name": "Shared disk space (bytes): Docker / and host /host-data"
+          },
+          "plugin": {
+            "kind": "signoz/TimeSeriesPanel",
+            "spec": {
+              "visualization": {
+                "timePreference": "global_time"
+              },
+              "legend": {
+                "position": "bottom"
+              }
+            }
+          },
+          "queries": [
+            {
+              "kind": "time_series",
+              "spec": {
+                "plugin": {
+                  "kind": "signoz/BuilderQuery",
+                  "spec": {
+                    "name": "A",
+                    "signal": "metrics",
+                    "aggregations": [
+                      {
+                        "metricName": "system.filesystem.usage",
+                        "timeAggregation": "max",
+                        "spaceAggregation": "max",
+                        "reduceTo": "last"
+                      }
+                    ],
+                    "filter": {
+                      "expression": "service.name = 'software-factory-infrastructure'"
+                    },
+                    "groupBy": [
+                      {
+                        "name": "mountpoint",
+                        "fieldDataType": "string",
+                        "fieldContext": "tag"
+                      },
+                      {
+                        "name": "state",
+                        "fieldDataType": "string",
+                        "fieldContext": "tag"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "resource-disk-utilization": {
+        "kind": "Panel",
+        "spec": {
+          "display": {
+            "name": "Shared disk utilization (0\u20131)"
+          },
+          "plugin": {
+            "kind": "signoz/TimeSeriesPanel",
+            "spec": {
+              "visualization": {
+                "timePreference": "global_time"
+              },
+              "legend": {
+                "position": "bottom"
+              }
+            }
+          },
+          "queries": [
+            {
+              "kind": "time_series",
+              "spec": {
+                "plugin": {
+                  "kind": "signoz/BuilderQuery",
+                  "spec": {
+                    "name": "A",
+                    "signal": "metrics",
+                    "aggregations": [
+                      {
+                        "metricName": "system.filesystem.utilization",
+                        "timeAggregation": "max",
+                        "spaceAggregation": "max",
+                        "reduceTo": "last"
+                      }
+                    ],
+                    "filter": {
+                      "expression": "service.name = 'software-factory-infrastructure'"
+                    },
+                    "groupBy": [
+                      {
+                        "name": "mountpoint",
+                        "fieldDataType": "string",
+                        "fieldContext": "tag"
+                      },
+                      {
+                        "name": "state",
+                        "fieldDataType": "string",
+                        "fieldContext": "tag"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
       }
     },
     "layouts": [
@@ -585,6 +1008,78 @@
               "height": 6,
               "content": {
                 "$ref": "#/spec/panels/duration"
+              }
+            },
+            {
+              "x": 0,
+              "y": 30,
+              "width": 6,
+              "height": 6,
+              "content": {
+                "$ref": "#/spec/panels/resource-cpu"
+              }
+            },
+            {
+              "x": 6,
+              "y": 30,
+              "width": 6,
+              "height": 6,
+              "content": {
+                "$ref": "#/spec/panels/resource-memory"
+              }
+            },
+            {
+              "x": 0,
+              "y": 36,
+              "width": 6,
+              "height": 6,
+              "content": {
+                "$ref": "#/spec/panels/resource-memory-percent"
+              }
+            },
+            {
+              "x": 6,
+              "y": 36,
+              "width": 6,
+              "height": 6,
+              "content": {
+                "$ref": "#/spec/panels/resource-io"
+              }
+            },
+            {
+              "x": 0,
+              "y": 42,
+              "width": 6,
+              "height": 6,
+              "content": {
+                "$ref": "#/spec/panels/resource-network-rx"
+              }
+            },
+            {
+              "x": 6,
+              "y": 42,
+              "width": 6,
+              "height": 6,
+              "content": {
+                "$ref": "#/spec/panels/resource-network-tx"
+              }
+            },
+            {
+              "x": 0,
+              "y": 48,
+              "width": 6,
+              "height": 6,
+              "content": {
+                "$ref": "#/spec/panels/resource-disk"
+              }
+            },
+            {
+              "x": 6,
+              "y": 48,
+              "width": 6,
+              "height": 6,
+              "content": {
+                "$ref": "#/spec/panels/resource-disk-utilization"
               }
             }
           ]
