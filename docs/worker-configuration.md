@@ -153,3 +153,11 @@ prompt/validator, repository source reads and final publication policy all use
 the same configured value. Limits count UTF-8 bytes, not characters. Received
 coding file paths and byte counts are logged before validation, including files
 that are rejected; file contents are not included in these messages.
+
+## Container assembly
+
+Managed profiles may select a `base_image`, additional `system_packages` and an
+`image_setup_script`. The control plane uses `worker/image/Dockerfile.template`
+to install the runtime into that image; standalone Compose builds keep their
+existing Dockerfile behavior. Build fields have no effect on an already running
+standalone container. See [worker image builds](worker-image-builds.md).

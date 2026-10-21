@@ -1,0 +1,18 @@
+FROM __BASE_IMAGE__
+USER root
+WORKDIR /worker
+ENV PATH="/opt/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+COPY image/install-system-dependencies.sh /tmp/factory/install-system-dependencies.sh
+COPY image/system-packages.txt /tmp/factory/system-packages.txt
+RUN /bin/sh /tmp/factory/install-system-dependencies.sh
+COPY worker/requirements.txt /worker/requirements.txt
+RUN python3 -m venv /opt/venv && /opt/venv/bin/pip install --no-cache-dir -r /worker/requirements.txt
+COPY image/install-coding-tools.sh image/coding-tool.txt image/codex-version.txt image/claude-version.txt /tmp/factory/
+RUN /bin/sh /tmp/factory/install-coding-tools.sh
+COPY worker/ /worker/
+COPY image/setup.sh /tmp/factory/setup.sh
+RUN /bin/sh -eu /tmp/factory/setup.sh && chmod +x /worker/bootstrap.sh
+RUN /opt/venv/bin/python -c "import factory.settings, hatchet_sdk, openai, tiktoken"
+LABEL software-factory.control-protocol="3"
+ENTRYPOINT ["/worker/bootstrap.sh"]
+CMD []

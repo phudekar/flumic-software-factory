@@ -130,3 +130,12 @@ class AdapterTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             runtime.configure(Mock(), {}, "unused")
         current.remove.assert_not_called()
+
+    def test_failed_image_build_preserves_stopped_container(self):
+        runtime = DockerRuntime(Mock(), Mock(), client=Mock())
+        current = Mock(status="exited")
+        runtime.container = Mock(return_value=current)
+        runtime.prepare_image = Mock(side_effect=ValueError("build failed"))
+        with self.assertRaisesRegex(ValueError, "build failed"):
+            runtime.configure(Mock(), {}, "unused")
+        current.remove.assert_not_called()

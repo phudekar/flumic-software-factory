@@ -22,6 +22,16 @@ worker:
 document:
   # Worker models, execution limits, logging and startup behavior.
   settings:
+    # Base OS image used to build a managed worker; empty uses the legacy prebuilt image.
+    base_image: python:3.12-slim
+    # Extra apt/apk package names; use names available in the chosen distribution.
+    system_packages: []
+    # Trusted build-time shell commands; no credentials. Cached with the image.
+    image_setup_script: ''
+    # Pinned CLI package versions, installed only for the selected coding adapter.
+    codex_version: '0.163.0'
+    # Pinned Claude CLI package version; ignored when the selected tool is not Claude.
+    claude_version: '2.1.306'
     # Coding adapter if this worker type is assigned coding: api, codex or claude.
     developer_agent: api
     # Model for API-based planning, triage, review and API coding.

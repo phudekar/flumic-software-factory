@@ -22,6 +22,16 @@ worker:
 document:
   # Worker models, execution limits, logging and startup behavior.
   settings:
+    # Base OS image used to build a managed worker; empty uses the legacy prebuilt image.
+    base_image: node:24-bookworm-slim
+    # Extra apt/apk package names; use names available in the chosen distribution.
+    system_packages: []
+    # Trusted build-time shell commands; no credentials. Cached with the image.
+    image_setup_script: ''
+    # Pinned CLI package versions, installed only for the selected coding adapter.
+    codex_version: '0.163.0'
+    # Pinned Claude CLI package version; ignored when the selected tool is not Claude.
+    claude_version: '2.1.306'
     # Coding adapter: codex (this example), claude or api. Use the matching model field.
     developer_agent: codex
     # Model passed to the Codex CLI. API adapters use openai_model; Claude uses claude_model.

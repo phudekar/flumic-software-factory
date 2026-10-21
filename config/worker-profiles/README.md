@@ -36,3 +36,14 @@ scan settings remain in the factory configuration. Startup scripts are trusted
 operator code and run on each worker start. Access credentials stay in the
 injected environment. Saved profile changes apply on the worker's next restart;
 use the control pane's Restart action to load an updated worker image too.
+
+## Building managed worker images
+
+The templates now opt into managed image assembly: `default` uses
+`python:3.12-slim`, and `developer` uses `node:24-bookworm-slim`. The build installs
+the factory runtime and selected coding tool. Set `base_image: ''` to keep using
+legacy prebuilt images. `system_packages` and `image_setup_script` add cached
+build dependencies; `startup_script` runs each time a container starts.
+CLI package versions are pinned in the profile. New image settings are copied
+when cloning and versioned with every profile revision. See
+[worker image architecture](../../docs/worker-image-builds.md).

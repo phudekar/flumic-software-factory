@@ -90,6 +90,15 @@ class Configurations:
 
     # Worker-local knobs. Registration, routing, state and repository policy stay
     # in the factory configuration because workers share workflow definitions.
+    BUILD_FIELDS = frozenset(
+        {
+            "base_image",
+            "system_packages",
+            "image_setup_script",
+            "codex_version",
+            "claude_version",
+        }
+    )
     LOCAL_FIELDS = frozenset(
         {
             "developer_agent",
@@ -111,6 +120,11 @@ class Configurations:
             "reviewer_factory",
             "coding_factory",
             "observer_factory",
+            "base_image",
+            "system_packages",
+            "image_setup_script",
+            "codex_version",
+            "claude_version",
             "startup_script",
             "startup_timeout_seconds",
         }

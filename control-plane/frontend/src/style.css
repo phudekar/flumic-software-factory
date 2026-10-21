@@ -554,7 +554,9 @@ td small {
 .status.running,
 .status.registered,
 .status.completed,
-.status.succeeded {
+.status.succeeded,
+.status.ready,
+.status.cached {
   color: #6fe0b7;
   background: #60d9b00b;
   border-color: #60d9b025;
@@ -568,7 +570,9 @@ td small {
 .status.pending,
 .status.queued,
 .status.started,
-.status.starting {
+.status.starting,
+.status.resolving,
+.status.building {
   color: #e4bd72;
   background: #e4bd720a;
   border-color: #e4bd722b;

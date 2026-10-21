@@ -55,7 +55,7 @@ class DockerRuntime:
             raise ValueError("Managed worker runtime was not found")
         return items[0]
 
-    def create(self, worker, document, token):
+    def create(self, worker, document, token, image=None):
         try:
             return self.container(worker.id).id
         except ValueError:
@@ -77,18 +77,7 @@ class DockerRuntime:
             path.write_text(encoded)
             path.chmod(0o444)
         role = snapshot["defaults"]["worker_type"]
-        image = (
-            "hatchet-test-developer-worker:latest"
-            if role == "developer"
-            else "hatchet-test-worker:latest"
-        )
-        approved_image = self.client.images.get(image)  # Never pull arbitrary images.
-        if (approved_image.attrs.get("Config", {}).get("Labels") or {}).get(
-            "software-factory.control-protocol"
-        ) != "3":
-            raise ValueError(
-                "Rebuild worker images before creating instrumented workers"
-            )
+        image = image or self.prepare_image(worker, snapshot)
         credentials = {
             key: os.environ[key]
             for key in [
@@ -153,6 +142,41 @@ class DockerRuntime:
             pass
         return container.id
 
+    def prepare_image(self, worker, snapshot):
+        role = snapshot["defaults"]["worker_type"]
+        image = (
+            "hatchet-test-developer-worker:latest"
+            if role == "developer"
+            else "hatchet-test-worker:latest"
+        )
+        if snapshot["defaults"].get("base_image"):
+            from pydantic import TypeAdapter
+            from factory.settings import Settings
+            from app.adapters.image_builder import WorkerImageBuilder, BuildStore
+
+            build_settings = TypeAdapter(Settings).validate_python(
+                {**snapshot["defaults"], "tasks": snapshot["tasks"]}
+            )
+            # A separate client allows long build streams without changing the
+            # short timeout used for runtime observation and lifecycle calls.
+            build_client = docker.from_env(timeout=600)
+            try:
+                image = WorkerImageBuilder(
+                    self.settings.root,
+                    build_client,
+                    BuildStore(self.settings.snapshot_root.parent / "builds"),
+                ).prepare(build_settings, worker.id)
+            finally:
+                build_client.close()
+        approved_image = self.client.images.get(image)
+        if (approved_image.attrs.get("Config", {}).get("Labels") or {}).get(
+            "software-factory.control-protocol"
+        ) != "3":
+            raise ValueError(
+                "Rebuild worker images before creating instrumented workers"
+            )
+        return image
+
     def configure(self, worker, document, token):
         try:
             current = self.container(worker.id)
@@ -161,8 +185,14 @@ class DockerRuntime:
         if current is not None:
             if current.status == "running":
                 raise ValueError("Stop the worker before changing its configuration")
+        self.config_service.validate(document)
+        snapshot = self.config_service.snapshot(
+            document, worker.profile, worker.name, worker.revision_id
+        )
+        image = self.prepare_image(worker, snapshot)
+        if current is not None:
             current.remove()
-        return self.create(worker, document, token)
+        return self.create(worker, document, token, image=image)
 
     def action(self, worker_id, action):
         container = self.container(worker_id)

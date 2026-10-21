@@ -22,6 +22,8 @@ from app.database import (
     Event,
     Conversation,
     Operation,
+    WorkerConfiguration,
+    Revision,
 )
 from app.settings import AppSettings
 from app.main import create_app
@@ -151,6 +153,162 @@ class ControlPlaneTests(unittest.TestCase):
             ).status_code,
             403,
         )
+
+    def test_profile_build_settings_persist_and_compile(self):
+        profile = self.client.get("/api/v1/worker-profiles").json()[0]
+        document = profile["document"]
+        document["settings"].update(
+            base_image="python:3.12-slim",
+            system_packages=["curl"],
+            image_setup_script="echo install-extra",
+        )
+        response = self.save_profile(profile, document=document)
+        self.assertEqual(response.status_code, 201, response.text)
+        saved = response.json()
+        self.assertEqual(
+            saved["document"]["settings"]["base_image"], "python:3.12-slim"
+        )
+        self.assertEqual(saved["document"]["settings"]["system_packages"], ["curl"])
+        with self.sessions() as db:
+            cfg = db.get(WorkerConfiguration, saved["id"])
+            resolved = Configurations(ROOT).compose(
+                db.get(Revision, cfg.factory_revision_id).document,
+                cfg.profile,
+                cfg.document,
+            )
+            self.assertEqual(
+                resolved["defaults"]["image_setup_script"], "echo install-extra"
+            )
+
+    def test_bootstrap_defers_profile_build_changes_until_container_replacement(self):
+        profile = self.saved_profile()
+        worker = self.profile_worker(profile, "image-linked")
+        reconcile_once(self.sessions, self.runtime, self.settings)
+        self.runtime.list.return_value = [
+            {
+                "instance_id": worker.id,
+                "revision_id": worker.revision_id,
+                "status": "exited",
+                "managed": True,
+            }
+        ]
+        document = copy.deepcopy(profile["document"])
+        document["settings"]["image_setup_script"] = "echo new-image-dependency"
+        saved = self.save_profile(profile, document=document)
+        self.assertEqual(saved.status_code, 201)
+        response = self.client.get(
+            "/api/v1/worker-bootstrap",
+            headers={
+                "X-Worker-Id": worker.id,
+                "Authorization": "Bearer " + worker_token(self.settings, worker.id),
+            },
+        )
+        self.assertEqual(
+            response.json()["defaults"]["control_revision"], worker.revision_id
+        )
+        with self.sessions() as db:
+            self.assertEqual(db.get(Worker, worker.id).config_id, profile["id"])
+
+    def test_start_retries_failed_replacement_instead_of_starting_old_image(self):
+        profile = self.saved_profile()
+        worker = self.profile_worker(profile, "retry-build")
+        reconcile_once(self.sessions, self.runtime, self.settings)
+        self.runtime.list.return_value = [
+            {
+                "instance_id": worker.id,
+                "revision_id": worker.revision_id,
+                "status": "exited",
+                "managed": True,
+            }
+        ]
+        document = copy.deepcopy(profile["document"])
+        document["settings"]["image_setup_script"] = "echo new-image"
+        self.save_profile(profile, document=document)
+        self.client.headers["Idempotency-Key"] = str(uuid.uuid4())
+        self.client.post(
+            f"/api/v1/workers/{worker.id}/actions", json={"action": "start"}
+        )
+        self.runtime.configure.side_effect = ValueError("Worker image build failed")
+        reconcile_once(self.sessions, self.runtime, self.settings)
+        self.client.headers["Idempotency-Key"] = str(uuid.uuid4())
+        retry = self.client.post(
+            f"/api/v1/workers/{worker.id}/actions", json={"action": "start"}
+        )
+        self.assertEqual(retry.status_code, 202)
+        self.assertEqual(retry.json()["action"], "configure_start")
+        bootstrap = self.client.get(
+            "/api/v1/worker-bootstrap",
+            headers={
+                "X-Worker-Id": worker.id,
+                "Authorization": "Bearer " + worker_token(self.settings, worker.id),
+            },
+        )
+        self.assertEqual(
+            bootstrap.json()["defaults"]["control_revision"], worker.revision_id
+        )
+
+    def test_build_only_fields_are_not_delivered_to_worker_processes(self):
+        worker = self.create_worker()
+        response = self.client.get(
+            "/api/v1/worker-bootstrap",
+            headers={
+                "X-Worker-Id": worker.id,
+                "Authorization": "Bearer " + worker_token(self.settings, worker.id),
+            },
+        )
+        self.assertEqual(response.status_code, 200)
+        for field in (
+            "base_image",
+            "system_packages",
+            "image_setup_script",
+            "codex_version",
+            "claude_version",
+        ):
+            self.assertNotIn(field, response.json()["defaults"])
+        self.assertIn("startup_script", response.json()["defaults"])
+
+    def test_worker_build_logs_are_scoped_and_available_before_container_creation(self):
+        from app.adapters.image_builder import BuildStore
+
+        worker = self.create_worker()
+        store = BuildStore(self.settings.snapshot_root.parent / "builds")
+        store.write(
+            worker.id,
+            "building",
+            "Installing worker dependencies\n",
+            "factory:build-test",
+        )
+        response = self.client.get(f"/api/v1/workers/{worker.id}/build")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["status"], "building")
+        self.assertIn("Installing worker", response.json()["content"])
+        listing = self.client.get("/api/v1/workers").json()["managed"][0]
+        self.assertEqual(listing["build"]["status"], "building")
+        self.assertNotIn("content", listing["build"])
+        self.assertEqual(
+            self.client.get(
+                "/api/v1/workers/00000000-0000-0000-0000-000000000000/build"
+            ).status_code,
+            404,
+        )
+        self.client.cookies.clear()
+        self.assertEqual(
+            self.client.get(f"/api/v1/workers/{worker.id}/build").status_code, 401
+        )
+
+    def test_lifecycle_heartbeat_renews_long_build_lease(self):
+        import time
+        from app.reconciler import operation_heartbeat
+
+        self.create_worker()
+        with self.sessions.begin() as db:
+            operation = db.scalar(select(Operation))
+            identifier = operation.id
+            operation.status, operation.updated_at = "running", 1
+        with operation_heartbeat(self.sessions, identifier, interval=0.01):
+            time.sleep(0.06)
+        with self.sessions() as db:
+            self.assertGreater(db.get(Operation, identifier).updated_at, 1)
 
     def test_create_is_stopped_and_idempotent(self):
         worker = self.create_worker()

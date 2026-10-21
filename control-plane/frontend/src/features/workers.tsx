@@ -13,7 +13,7 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import type { FactoryEvent, WorkerConfig } from "../api";
+import type { FactoryEvent, WorkerConfig, WorkerBuild } from "../api";
 import { ScopedUsage } from "./runs";
 import { RuntimeLogView } from "../components/logs";
 import { date } from "../components/ui";
@@ -173,6 +173,9 @@ export function WorkersPage() {
                         {w.operations[0] ? (
                           <>
                             <Status value={w.operations[0].status} />
+                            {w.build && w.build.status !== "not_requested" && (
+                              <small>Image: {w.build.status}</small>
+                            )}
                             {w.operations[0].error && (
                               <small className="error-text">
                                 {w.operations[0].error}
@@ -188,8 +191,7 @@ export function WorkersPage() {
                           <button
                             disabled={
                               pending ||
-                              !w.runtime ||
-                              w.runtime.status === "running" ||
+                              w.runtime?.status === "running" ||
                               w.operations.some((o) =>
                                 ["pending", "running"].includes(o.status),
                               )
@@ -239,6 +241,12 @@ export function WorkersPage() {
                           >
                             <FileSliders size={13} />
                           </button>
+                          <Link
+                            className="text-link"
+                            to={"/workers/" + w.id + "#image-build"}
+                          >
+                            Build logs
+                          </Link>
                           <button
                             disabled={!w.runtime}
                             onClick={async () => {
@@ -374,7 +382,9 @@ export function WorkersPage() {
             </div>
             <p>
               A new instance uses an immutable configuration snapshot and is
-              created stopped.
+              created stopped. Profiles with a base OS image build or reuse a
+              cached worker image first; build progress appears on the worker
+              page.
             </p>
             <label>
               Instance name
@@ -533,6 +543,7 @@ export function WorkerPage() {
           View worker profile →
         </Link>
       )}
+      <WorkerBuildView id={id ?? ""} />
       <ScopedUsage query={query} />
       <Section
         title="Executed stage attempts"
@@ -612,5 +623,35 @@ export function WorkerPage() {
         )}
       </Section>
     </>
+  );
+}
+
+function WorkerBuildView({ id }: { id: string }) {
+  const build = useData<WorkerBuild>(
+    "worker-build",
+    "/workers/" + encodeURIComponent(id) + "/build",
+  );
+  return (
+    <div id="image-build">
+      <Section title="Worker image build">
+        <Failure error={build.error} />
+        {build.data && build.data.status !== "not_requested" ? (
+          <>
+            <Status value={build.data.status} />
+            {build.data.image && <p className="mono">{build.data.image}</p>}
+            <p className="muted">
+              Build logs refresh every 10 seconds. Image setup runs during
+              build; startup scripts run when the worker starts.
+            </p>
+            <RuntimeLogView content={build.data.content ?? ""} />
+          </>
+        ) : (
+          <p className="muted">
+            No image build recorded. Profiles without a base image use a
+            prebuilt worker image.
+          </p>
+        )}
+      </Section>
+    </div>
   );
 }

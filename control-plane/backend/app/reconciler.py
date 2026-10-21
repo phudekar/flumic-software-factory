@@ -2,6 +2,8 @@
 
 import hmac
 import time
+import threading
+from contextlib import contextmanager
 from sqlalchemy import select, delete
 from app.database import (
     Operation,
@@ -18,6 +20,35 @@ def worker_token(settings, worker_id):
     return hmac.new(
         settings.encryption_key.encode(), worker_id.encode(), "sha256"
     ).hexdigest()
+
+
+@contextmanager
+def operation_heartbeat(sessions, identifier, interval=20):
+    """Keep long image builds from being reclaimed as abandoned operations."""
+    stopped = threading.Event()
+
+    def renew():
+        while not stopped.wait(interval):
+            try:
+                with sessions.begin() as db:
+                    operation = db.get(Operation, identifier)
+                    if operation is None or operation.status != "running":
+                        return
+                    operation.updated_at = time.time()
+            except Exception:
+                # A later tick retries; the durable stale lease still provides
+                # crash recovery when the process itself disappears.
+                import logging
+
+                logging.getLogger(__name__).exception("Lifecycle lease renewal failed")
+
+    thread = threading.Thread(target=renew, daemon=True)
+    thread.start()
+    try:
+        yield
+    finally:
+        stopped.set()
+        thread.join(timeout=5)
 
 
 def reconcile_once(sessions, runtime, settings):
@@ -47,17 +78,18 @@ def reconcile_once(sessions, runtime, settings):
         action = operation.action
         token = worker_token(settings, worker.id)
     try:
-        if action in {"restart", "configure_start"}:
-            if action == "restart":
-                runtime.action(worker.id, "stop")
-            runtime.configure(worker, revision.document, token)
-            runtime.action(worker.id, "start")
-        elif action == "configure":
-            runtime.configure(worker, revision.document, token)
-        elif action == "create":
-            runtime.create(worker, revision.document, token)
-        else:
-            runtime.action(worker.id, action)
+        with operation_heartbeat(sessions, identifier):
+            if action in {"restart", "configure_start"}:
+                if action == "restart":
+                    runtime.action(worker.id, "stop")
+                runtime.configure(worker, revision.document, token)
+                runtime.action(worker.id, "start")
+            elif action == "configure":
+                runtime.configure(worker, revision.document, token)
+            elif action == "create":
+                runtime.create(worker, revision.document, token)
+            else:
+                runtime.action(worker.id, action)
         status, error = "completed", None
     except Exception as exc:
         status = "failed"

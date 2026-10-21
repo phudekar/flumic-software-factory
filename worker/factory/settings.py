@@ -61,6 +61,11 @@ class Settings:
     telemetry_endpoint: str = "http://factory-signoz-ingester:4318"
     deployment_environment: str = "development"
     pricing_file: str = ""
+    base_image: str = ""
+    system_packages: list[str] = field(default_factory=list)
+    image_setup_script: str = ""
+    codex_version: str = "0.163.0"
+    claude_version: str = "2.1.306"
     startup_script: str = ""
     startup_timeout_seconds: int = 600
     control_revision: str = ""
@@ -103,6 +108,34 @@ class Settings:
         if self.log_format not in {"json", "text"}:
             raise ValueError("LOG_FORMAT must be 'json' or 'text'")
 
+        if self.base_image and (
+            not isinstance(self.base_image, str)
+            or len(self.base_image) > 255
+            or not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9._:/@-]*", self.base_image)
+        ):
+            raise ValueError("base_image must be a Docker image reference")
+        if not isinstance(self.base_image, str):
+            raise ValueError("base_image must be a string")
+        if (
+            not isinstance(self.system_packages, list)
+            or len(self.system_packages) > 100
+            or any(
+                not isinstance(package, str)
+                or not re.fullmatch(r"[a-z0-9][a-z0-9+._-]{0,99}", package)
+                for package in self.system_packages
+            )
+        ):
+            raise ValueError("system_packages must contain valid package names")
+        for name in ("codex_version", "claude_version"):
+            if not isinstance(getattr(self, name), str) or not re.fullmatch(
+                r"[0-9]+\.[0-9]+\.[0-9]+(?:-[a-zA-Z0-9.-]+)?", getattr(self, name)
+            ):
+                raise ValueError(name + " must be a pinned version")
+        if (
+            not isinstance(self.image_setup_script, str)
+            or len(self.image_setup_script.encode()) > 32768
+        ):
+            raise ValueError("image_setup_script must be at most 32 KiB")
         if (
             not isinstance(self.startup_script, str)
             or len(self.startup_script.encode()) > 32768

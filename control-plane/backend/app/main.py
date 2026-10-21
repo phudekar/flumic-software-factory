@@ -311,10 +311,23 @@ def create_app(settings=None, sessions=None, runtime=None, workflow=None):
                     (entry for entry in actual if entry["instance_id"] == worker.id),
                     None,
                 )
+                if (
+                    item["runtime"]
+                    and item["runtime"].get("revision_id") != worker.revision_id
+                ):
+                    item["profile_update_pending"] = True
                 item["engine"] = next(
                     (entry for entry in engine_workers if entry["name"] == worker.name),
                     None,
                 )
+                from app.adapters.image_builder import BuildStore
+
+                build = BuildStore(settings.snapshot_root.parent / "builds").read(
+                    worker.id
+                )
+                item["build"] = {
+                    key: value for key, value in build.items() if key != "content"
+                }
                 item["operations"] = [
                     row(op)
                     for op in db.scalars(
@@ -459,15 +472,20 @@ def create_app(settings=None, sessions=None, runtime=None, workflow=None):
                     .order_by(desc(WorkerConfiguration.created_at))
                     .limit(1)
                 )
-                if latest.id != current.id:
-                    actual = next(
-                        (
-                            item
-                            for item in runtime_adapter().list()
-                            if item.get("instance_id") == identifier
-                        ),
-                        None,
-                    )
+                actual = next(
+                    (
+                        item
+                        for item in runtime_adapter().list()
+                        if item.get("instance_id") == identifier
+                    ),
+                    None,
+                )
+                needs_configuration = (
+                    latest.id != current.id
+                    or not actual
+                    or actual.get("revision_id") != worker.revision_id
+                )
+                if needs_configuration:
                     if (
                         body.action == "start"
                         and actual
@@ -477,10 +495,13 @@ def create_app(settings=None, sessions=None, runtime=None, workflow=None):
                             409,
                             "Worker is running; restart to apply the latest profile",
                         )
-                    worker.config_id = latest.id
-                    worker.revision_id = compile_revision(db, config, latest).id
+                    if latest.id != current.id:
+                        worker.config_id = latest.id
+                        worker.revision_id = compile_revision(db, config, latest).id
                     action = (
-                        "restart" if body.action == "restart" else "configure_start"
+                        "restart"
+                        if body.action == "restart" and actual
+                        else "configure_start"
                     )
             operation = Operation(
                 id=str(uuid.uuid4()),
@@ -492,6 +513,17 @@ def create_app(settings=None, sessions=None, runtime=None, workflow=None):
             db.add(Audit(action="worker." + body.action, resource=identifier))
             db.flush()
             return row(operation)
+
+    @app.get("/api/v1/workers/{identifier}/build")
+    def worker_build(identifier: uuid.UUID):
+        with sessions() as db:
+            if db.get(Worker, str(identifier)) is None:
+                raise HTTPException(404, "Worker not found")
+        from app.adapters.image_builder import BuildStore
+
+        return redact(
+            BuildStore(settings.snapshot_root.parent / "builds").read(str(identifier))
+        )
 
     @app.get("/api/v1/runtime/{identifier}/logs")
     def runtime_logs(identifier: str):
@@ -613,6 +645,26 @@ def create_app(settings=None, sessions=None, runtime=None, workflow=None):
                 )
             ):
                 raise HTTPException(401, "Invalid worker credentials")
+            # The container label identifies the installed image's configuration.
+            # Desired DB state may already point at a replacement whose build failed.
+            actual = next(
+                (
+                    item
+                    for item in runtime_adapter().list()
+                    if item.get("instance_id") == identifier
+                ),
+                None,
+            )
+            applied_id = actual.get("revision_id") if actual else worker.revision_id
+            applied = db.get(Revision, applied_id or worker.revision_id)
+            if applied is None:
+                raise HTTPException(
+                    409,
+                    "Worker image configuration is unavailable; recreate the worker",
+                )
+            snapshot = config.snapshot(
+                applied.document, worker.profile, worker.name, applied.id
+            )
             if worker.config_id:
                 current = db.get(WorkerConfiguration, worker.config_id)
                 latest = db.scalar(
@@ -621,14 +673,43 @@ def create_app(settings=None, sessions=None, runtime=None, workflow=None):
                     .order_by(desc(WorkerConfiguration.created_at))
                     .limit(1)
                 )
-                if latest.id != current.id:
-                    worker.config_id = latest.id
-                    worker.revision_id = compile_revision(db, config, latest).id
-                    db.add(Audit(action="worker.profile-bootstrap", resource=worker.id))
-            revision = db.get(Revision, worker.revision_id)
-            return config.snapshot(
-                revision.document, worker.profile, worker.name, revision.id
-            )
+                candidate = config.compose(
+                    db.get(Revision, latest.factory_revision_id).document,
+                    latest.profile,
+                    latest.document,
+                )
+                candidate_snapshot = config.snapshot(
+                    candidate, worker.profile, worker.name, "candidate"
+                )
+                build_fields = config.BUILD_FIELDS | {
+                    "worker_type",
+                    "developer_agent",
+                    "coding_factory",
+                }
+                same_build = all(
+                    snapshot["defaults"].get(field)
+                    == candidate_snapshot["defaults"].get(field)
+                    for field in build_fields
+                )
+                if same_build:
+                    if latest.id != current.id:
+                        worker.config_id = latest.id
+                        worker.revision_id = compile_revision(db, config, latest).id
+                        db.add(
+                            Audit(action="worker.profile-bootstrap", resource=worker.id)
+                        )
+                    desired = db.get(Revision, worker.revision_id)
+                    snapshot = config.snapshot(
+                        desired.document, worker.profile, worker.name, desired.id
+                    )
+                # Otherwise keep the installed image's configuration. A lifecycle
+                # Start/Restart will prepare and replace its image before applying it.
+            # Build settings belong to the runtime adapter, not the process.
+            # Omitting them also preserves compatibility with protocol-3 images
+            # built before profile-driven image assembly was introduced.
+            for field in config.BUILD_FIELDS:
+                snapshot["defaults"].pop(field, None)
+            return snapshot
 
     @app.post("/api/v1/ingest", status_code=202)
     def ingest(body: list[Incoming], request: Request):

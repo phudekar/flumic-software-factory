@@ -219,6 +219,61 @@ describe("worker profiles and scoped execution", () => {
       target_id: "local-docker",
     });
   });
+  it("shows build logs before a worker container exists", async () => {
+    fixtures();
+    const original = fetch;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string, options?: RequestInit) => {
+        if (input.endsWith("/workers/worker-1/build"))
+          return json({
+            status: "building",
+            image: "factory:pending",
+            content: "Installing worker dependencies",
+          });
+        return original(input, options);
+      }),
+    );
+    app("/workers/worker-1");
+    expect(
+      await screen.findByText("Installing worker dependencies"),
+    ).toBeInTheDocument();
+    expect(screen.getByText("building")).toBeInTheDocument();
+    expect(screen.getByText("factory:pending")).toBeInTheDocument();
+  });
+  it("saves image build settings in a worker profile", async () => {
+    fixtures();
+    app("/config");
+    const base = await screen.findByLabelText("Base OS image");
+    await waitFor(() =>
+      expect(screen.getByLabelText("Startup script")).toHaveValue("echo ready"),
+    );
+    fireEvent.change(base, { target: { value: "python:3.12-slim" } });
+    fireEvent.change(screen.getByLabelText("System packages"), {
+      target: { value: "git " },
+    });
+    expect(screen.getByLabelText("System packages")).toHaveValue("git ");
+    fireEvent.change(screen.getByLabelText("System packages"), {
+      target: { value: "git curl" },
+    });
+    fireEvent.change(screen.getByLabelText("Image setup script"), {
+      target: { value: "echo build prerequisites" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save revision" }));
+    await screen.findByText(/Linked workers pick up profile edits/);
+    const call = vi
+      .mocked(fetch)
+      .mock.calls.find(
+        ([path, options]) =>
+          String(path).endsWith("/worker-profiles") &&
+          options?.method === "POST",
+      );
+    const settings = JSON.parse(String(call![1]!.body)).document.settings;
+    expect(settings.base_image).toBe("python:3.12-slim");
+    expect(settings.system_packages).toEqual(["git", "curl"]);
+    expect(settings.image_setup_script).toBe("echo build prerequisites");
+    expect(settings.startup_script).toBe("echo ready");
+  });
   it("saves a startup script on the selected profile without a worker action", async () => {
     fixtures();
     app("/config");

@@ -47,7 +47,14 @@ export interface Operation {
   status: string;
   error: string | null;
 }
+export interface WorkerBuild {
+  status: string;
+  image: string | null;
+  content?: string;
+  updated_at?: number;
+}
 export interface Worker {
+  build?: WorkerBuild;
   config_id: string | null;
   worker_profile_id: string | null;
   worker_profile_name: string | null;

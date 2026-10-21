@@ -289,3 +289,29 @@ Startup/bootstrap failures happen before stage registration and remain available
 in the worker's runtime logs. Control-plane outages can prevent ingestion; events
 missing from historical records cannot be reconstructed by changing the viewer.
 See [the error-path audit](telemetry-error-audit.md) for covered boundaries.
+
+## Worker images from a base OS
+
+Worker profiles can define `base_image`, `system_packages`, `image_setup_script`,
+`codex_version`, and `claude_version`. Use **Configuration → Worker image build**.
+Debian/Ubuntu and Alpine are supported; choose a base containing `/bin/sh` and a
+working package manager. For CLI workers, `node:24-bookworm-slim` supplies Node
+and npm; API workers can use `python:3.12-slim`.
+
+Create assembles the worker runtime and creates a stopped container. Identical
+build inputs reuse the resulting image. View **Build logs** on the Workers table
+or open the worker detail page for live polling, including failed builds that
+never created a container. Changes to build settings take effect on the next
+control-plane Start/Restart that replaces the runtime. A plain Docker restart
+cannot replace an image. Startup scripts remain separate and run on every start.
+
+Profiles with an empty base image retain legacy prebuilt-image behavior. Existing
+saved profiles are not changed by editing bootstrap YAML. To opt in, save a profile
+revision with a base image. If creation fails, correct the profile and apply it
+using the worker's **Change profile** action, then start the resulting container.
+
+Build scripts run as root during image assembly and must never contain secrets.
+Runtime integration credentials are injected only into the created container.
+Build logs are bounded/redacted. The first build can take several minutes and
+requires registry/package-network access. See [the architecture](worker-image-builds.md)
+for cache, context and lifecycle details.

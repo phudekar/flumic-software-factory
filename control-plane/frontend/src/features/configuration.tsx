@@ -440,6 +440,77 @@ export function Configuration({ prompts = false }: { prompts?: boolean }) {
         </Section>
       )}
       {!factoryMode && !prompts && (
+        <Section title="Worker image build">
+          <div className="editor-body">
+            <p>
+              Build a reusable worker image from a Debian, Ubuntu or Alpine
+              base. Leave the base image empty to use the existing prebuilt
+              worker image. Build changes apply when creating or restarting a
+              worker.
+            </p>
+            <label>
+              Base OS image
+              <input
+                readOnly={historical}
+                value={String(settings.base_image ?? "")}
+                placeholder="python:3.12-slim or node:24-bookworm-slim"
+                onChange={(e) => updateSetting("base_image", e.target.value)}
+              />
+            </label>
+            <label>
+              System packages
+              <PackageInput
+                readOnly={historical}
+                value={
+                  Array.isArray(settings.system_packages)
+                    ? (settings.system_packages as string[])
+                    : []
+                }
+                onChange={(packages) =>
+                  updateSetting("system_packages", packages)
+                }
+              />
+            </label>
+            <label>
+              Codex CLI version
+              <input
+                readOnly={historical}
+                value={String(settings.codex_version ?? "0.163.0")}
+                onChange={(e) => updateSetting("codex_version", e.target.value)}
+              />
+            </label>
+            <label>
+              Claude CLI version
+              <input
+                readOnly={historical}
+                value={String(settings.claude_version ?? "2.1.306")}
+                onChange={(e) =>
+                  updateSetting("claude_version", e.target.value)
+                }
+              />
+            </label>
+            <label>
+              Image setup script
+              <textarea
+                className="prompt-editor"
+                readOnly={historical}
+                value={String(settings.image_setup_script ?? "")}
+                placeholder="python -m pip install extra-library"
+                onChange={(e) =>
+                  updateSetting("image_setup_script", e.target.value)
+                }
+              />
+            </label>
+            <small>
+              Runs during the image build and is cached with the installed
+              dependencies. Use the startup script below for commands that run
+              on every start. Keep credentials out of build scripts and image
+              layers.
+            </small>
+          </div>
+        </Section>
+      )}
+      {!factoryMode && !prompts && (
         <Section title="Startup script">
           <div className="editor-body">
             <p>
@@ -507,5 +578,36 @@ export function Configuration({ prompts = false }: { prompts?: boolean }) {
         )}
       </div>
     </>
+  );
+}
+
+function PackageInput({
+  value,
+  readOnly,
+  onChange,
+}: {
+  value: string[];
+  readOnly: boolean;
+  onChange: (packages: string[]) => void;
+}) {
+  const [text, setText] = useState(value.join(" "));
+  const serialized = JSON.stringify(value);
+  useEffect(() => {
+    setText((current) =>
+      JSON.stringify(current.split(/\s+/).filter(Boolean)) === serialized
+        ? current
+        : (JSON.parse(serialized) as string[]).join(" "),
+    );
+  }, [serialized]);
+  return (
+    <input
+      readOnly={readOnly}
+      value={text}
+      placeholder="git curl build-essential"
+      onChange={(e) => {
+        setText(e.target.value);
+        onChange(e.target.value.split(/\s+/).filter(Boolean));
+      }}
+    />
   );
 }
