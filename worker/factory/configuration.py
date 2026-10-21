@@ -102,10 +102,50 @@ def read_configuration(path):
                 raise ValueError(
                     "Configuration includes must stay within the manifest directory"
                 )
-            combined = merge(combined, read(child, (*stack, file)))
+            fragment = read(child, (*stack, file))
+            if "document" in fragment and "profile" in fragment:
+                fragment = profile_fragment(fragment)
+            combined = merge(combined, fragment)
         return merge(combined, config)
 
     return read(root)
+
+
+def profile_fragment(value):
+    """Compile a shared profile template into the standalone manifest schema."""
+    if (
+        set(value) != {"version", "name", "profile", "worker", "document"}
+        or value["version"] != 1
+    ):
+        raise ValueError("Invalid worker profile template")
+    profile = value["profile"]
+    worker = value["worker"]
+    document = value["document"]
+    if profile not in {"simple", "developer"} or not isinstance(worker, dict):
+        raise ValueError("Invalid worker profile definition")
+    if (
+        set(worker) != {"worker_type", "worker_name", "path_policy"}
+        or worker["worker_type"] != profile
+        or not isinstance(worker["worker_name"], str)
+        or not worker["worker_name"].strip()
+        or worker["path_policy"] not in {"source", "repository"}
+    ):
+        raise ValueError("Invalid worker registration settings")
+    if not isinstance(document, dict) or set(document) != {"settings", "tasks"}:
+        raise ValueError("Invalid worker profile document")
+    if not isinstance(document["settings"], dict) or not isinstance(
+        document["tasks"], dict
+    ):
+        raise ValueError("Invalid worker profile settings or tasks")
+    return {
+        "workers": {
+            profile: {**worker, **document["settings"], "tasks": document["tasks"]},
+            profile + "-observed": {
+                "extends": profile,
+                "observer_factory": "factory.adapters.otel:otel_observer",
+            },
+        }
+    }
 
 
 def load_settings(path, profile):
@@ -133,7 +173,9 @@ def load_settings(path, profile):
         raise ValueError("Unknown or invalid WORKER_PROFILE")
     valid_fields = {field.name for field in fields(Settings)} - {"tasks"}
     for values in [defaults, *workers.values()]:
-        if not isinstance(values, dict) or set(values) - (valid_fields | {"extends"}):
+        if not isinstance(values, dict) or set(values) - (
+            valid_fields | {"extends", "tasks"}
+        ):
             raise ValueError(
                 "Unknown worker setting; credentials belong in the environment"
             )
@@ -176,9 +218,22 @@ def load_settings(path, profile):
         parent = worker.pop("extends", None)
         return {**(resolve(parent, (*seen, name)) if parent else {}), **worker}
 
+    selected = resolve(profile)
+    local_tasks = selected.pop("tasks", {})
+    if not isinstance(local_tasks, dict) or set(local_tasks) - set(TASK_DEFAULTS):
+        raise ValueError("Unknown workflow task in worker profile")
+    for name, override in local_tasks.items():
+        if not isinstance(override, dict) or set(override) - {
+            "model",
+            "additional_system_prompt",
+        }:
+            raise ValueError("Worker task overrides may only set model and prompt")
+        task_values[name] = TaskSettings.model_validate(
+            {**task_values[name].model_dump(), **override}
+        )
     if "extends" in defaults:
         raise ValueError("Only worker profiles may extend another profile")
-    values = {**defaults, **resolve(profile), "tasks": task_values}
+    values = {**defaults, **selected, "tasks": task_values}
     return TypeAdapter(Settings).validate_python(values)
 
 

@@ -1,0 +1,72 @@
+# Bootstrap profile for planning, triage and review workers.
+# Standalone workers read this file on start. The control plane imports it only
+# when the profile store is empty. Editing this file
+# does not overwrite saved profiles; edit those in the UI. Workers load saved
+# profile changes on restart. Shared factory settings and credentials stay separate.
+
+# Reference-file schema version, independent of the saved profile revision number.
+version: 1
+# Human-readable saved profile name shown in the control pane.
+name: default
+# Existing factory worker type to inherit; simple handles planning/triage/review.
+profile: simple
+# Standalone registration and repository access policy for this worker type.
+worker:
+  # Workflow task registration type.
+  worker_type: simple
+  # Standalone engine worker name; managed workers receive a unique name.
+  worker_name: software-factory-simple-worker
+  # Allowed path policy: source files or the complete repository.
+  path_policy: source
+# Worker-local overrides; missing values inherit the pinned factory revision.
+document:
+  # Worker models, execution limits, logging and startup behavior.
+  settings:
+    # Coding adapter if this worker type is assigned coding: api, codex or claude.
+    developer_agent: api
+    # Model for API-based planning, triage, review and API coding.
+    openai_model: gpt-5-nano
+    # Maximum number of incremental coding rounds (1–20).
+    max_patch_iterations: 10
+    # Maximum changed files in one round (1–5); total cap is rounds × this value.
+    max_files_per_iteration: 5
+    # Maximum UTF-8 bytes per source/output file; 65536 bytes is 64 KiB.
+    max_file_bytes: 65536
+    # Total API request budget, including reserved completion tokens.
+    max_context_tokens: 32000
+    # API completion token reservation; must be below max_context_tokens.
+    max_completion_tokens: 16000
+    # API-client retries (0–20); shared workflow/engine retries are configured separately.
+    api_max_retries: 2
+    # Timeout in seconds for an API-client request, independent of engine task timeouts.
+    api_timeout_seconds: 90
+    # Minimum Python log severity: DEBUG, INFO, WARNING, ERROR or CRITICAL.
+    log_level: INFO
+    # Runtime log encoding: json (structured) or text.
+    log_format: json
+    # Conversation history mode: redacted, metadata_only or disabled.
+    conversation_capture: redacted
+    # Optional trusted /bin/sh -eu script, run before registration on every start.
+    # Keep commands idempotent; use injected environment credentials, never literals.
+    startup_script: ''
+    # Maximum startup script duration in seconds (1–3600); failure stops startup.
+    startup_timeout_seconds: 600
+  # Per-task overrides; unlisted tasks retain their inherited model and guidance.
+  tasks:
+    # Settings for the plan_issue workflow task; routing/retries stay factory-owned.
+    plan_issue:
+      # Null uses the worker's backend model; a string overrides it for this task.
+      model: null
+      # Additional system guidance replaces inherited task guidance, but preserves
+      # built-in safety instructions and required response schemas (16000 chars max).
+      additional_system_prompt: |
+        Produce a small, ordered plan with concrete acceptance criteria.
+        Use relevant repository context and avoid overlapping subtasks.
+    # Settings for the triage_issue workflow task.
+    triage_issue:
+      # Null uses openai_model; set a model identifier for a task-specific choice.
+      model: null
+      # Extra system guidance for triage; deterministic tasks ignore this field.
+      additional_system_prompt: |
+        Check whether the issue is actionable and identify only relevant source files.
+        Ask for clarification only when missing information blocks implementation.

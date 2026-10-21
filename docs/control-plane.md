@@ -76,6 +76,17 @@ worker type, or rename/edit a selected profile and **Clone as new profile**.
 A clone has its own identity and revision history. Create workers by selecting
 one of these saved profiles; multiple workers can share a profile.
 
+The profile picker lists one entry per saved profile at its latest version.
+Choose **Version history** to inspect older revisions. Historical versions are
+read-only; use **Back to latest version** to edit, or clone the historical version
+into a new profile. Existing revision URLs continue to open the requested version.
+
+Fresh installations seed the commented [`default`](../config/worker-profiles/default.yaml)
+and [`developer`](../config/worker-profiles/developer.yaml) profiles from the
+repository. See the [bootstrap profile guide](../config/worker-profiles/README.md)
+for inheritance, validation and use with an existing installation. Existing saved
+profiles are never overwritten from these files.
+
 A profile includes models, coding backend, model/patch limits, API retries,
 logging, capture policy, task model overrides, additional system prompts and a
 startup script. The **Worker prompts** view edits prompts for the selected
@@ -257,7 +268,10 @@ an interrupted operation can resume; Docker create is idempotent by ownership ID
 
 Use **Parsed / Raw** to switch stage logs or worker runtime output. Stage raw
 mode shows the same redacted, filtered API records as parsed mode, and its URL
-parameter survives reload. Runtime raw mode preserves text and JSON lines;
+parameter survives reload. Structured JSON inside an engine log message is parsed
+into message, severity and stage columns; its embedded severity takes precedence
+over the transport envelope. Plain or malformed messages are preserved as text.
+Raw mode retains the original redacted record. Runtime raw mode preserves text and JSON lines;
 parsed mode preserves plain traceback lines as messages. Raw does not bypass
 redaction or decrypt conversations automatically.
 

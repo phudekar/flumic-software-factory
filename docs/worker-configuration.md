@@ -7,9 +7,8 @@
 | `config/runtime.yaml` | Repository, integrations, logging, state, telemetry |
 | `config/models.yaml` | Model choices, token budgets, API retries and timeouts |
 | `config/workflow.yaml` | Schedules, labels, patch limits, task templates and overrides |
-| `config/workers/simple.yaml` | Simple worker profile |
-| `config/workers/developer.yaml` | Coding worker profile |
-| `config/workers/observed.yaml` | Telemetry variants inheriting the base profiles |
+| `config/worker-profiles/default.yaml` | Simple worker definition, local settings, prompts and startup script |
+| `config/worker-profiles/developer.yaml` | Coding worker definition, local settings, prompts and startup script |
 
 Compose mounts the manifest and `config/` tree read-only. Restart workers after
 editing them. Credentials stay in `.env` or the Hatchet CLI profile; unknown
@@ -25,7 +24,11 @@ language in these files.
 
 Workers reuse common settings through `defaults` and profile `extends`. Compose
 selects `simple`/`developer`; its telemetry overlay selects their observed
-variants. Changing the base developer profile also updates its observed variant.
+variants. The loader generates these compatibility variants from the shared profile
+files, adding the OpenTelemetry observer. Changing the base profile updates its
+observed variant too. The same files seed control-plane profiles on fresh installs;
+existing saved profiles remain database-owned. The `worker` block defines standalone
+registration, while `document` defines editable worker settings and task prompts.
 
 Tasks reuse `task_defaults` and named `task_templates`. Effective settings are:
 built-in compatibility defaults → `task_defaults` → selected template → task

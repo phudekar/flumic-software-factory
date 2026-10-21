@@ -1,8 +1,0 @@
-# Observed variants inherit their base worker profile.
-workers:
-  simple-observed:
-    extends: simple
-    observer_factory: factory.adapters.otel:otel_observer
-  developer-observed:
-    extends: developer
-    observer_factory: factory.adapters.otel:otel_observer

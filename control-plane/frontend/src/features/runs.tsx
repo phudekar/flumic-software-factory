@@ -17,7 +17,7 @@ import {
 } from "../components/ui";
 import { useData } from "../hooks";
 import { Calls } from "./history";
-import { LogViewToggle } from "../components/logs";
+import { LogViewToggle, logLevel, parseLogMessage } from "../components/logs";
 
 export function RunsPage() {
   const runs = useData<{ items: Run[]; warnings: string[] }>("runs", "/runs");
@@ -464,19 +464,21 @@ export function Logs({
         record: unknown;
       },
     }));
-  for (const item of (!attempt ? logs.data?.items : []) ?? [])
+  for (const item of (!attempt ? logs.data?.items : []) ?? []) {
+    const parsed = parseLogMessage(item.message);
     rows.push({
       id: "engine-" + rows.length,
       at: date(String(item.createdAt ?? "")),
       order: Date.parse(String(item.createdAt ?? "")) / 1000,
-      level: String(item.level ?? "INFO").toUpperCase(),
+      level: logLevel(parsed?.level, logLevel(item.level)),
       kind: "Engine log",
-      stage: "Selected task",
+      stage: typeof parsed?.stage === "string" ? parsed.stage : "Selected task",
       worker: "Hatchet",
-      message: String(item.message ?? ""),
+      message: String(parsed?.message ?? item.message ?? ""),
       event: null,
       raw: { source: "hatchet", record: item },
     });
+  }
   for (const failure of engineFailures)
     rows.push({
       id: "engine-failure-" + failure.id,

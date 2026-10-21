@@ -4,6 +4,5 @@ includes:
 - config/runtime.yaml
 - config/models.yaml
 - config/workflow.yaml
-- config/workers/simple.yaml
-- config/workers/developer.yaml
-- config/workers/observed.yaml
+- config/worker-profiles/default.yaml
+- config/worker-profiles/developer.yaml

@@ -106,6 +106,31 @@ class ControlPlaneTests(unittest.TestCase):
             headers={"X-Worker-Id": worker.id, "Authorization": "Bearer " + token},
         )
 
+    def test_bootstrap_files_seed_named_profiles_without_overwriting_edits(self):
+        from app.worker_configs import bootstrap
+
+        profiles = self.client.get("/api/v1/worker-profiles").json()
+        self.assertEqual(
+            {profile["name"] for profile in profiles}, {"default", "developer"}
+        )
+        default = next(profile for profile in profiles if profile["name"] == "default")
+        developer = next(
+            profile for profile in profiles if profile["name"] == "developer"
+        )
+        self.assertEqual(default["profile"], "simple")
+        self.assertEqual(default["document"]["settings"]["developer_agent"], "api")
+        self.assertEqual(developer["profile"], "developer")
+        self.assertEqual(developer["document"]["settings"]["developer_agent"], "codex")
+        self.assertEqual(default["document"]["settings"]["max_file_bytes"], 65536)
+        saved = self.save_profile(default, name="Customized default")
+        self.assertEqual(saved.status_code, 201, saved.text)
+        with self.sessions.begin() as db:
+            bootstrap(db, Configurations(ROOT))
+        after = self.client.get("/api/v1/worker-profiles").json()
+        self.assertEqual(len(after), 3)
+        self.assertEqual(after[0]["id"], saved.json()["id"])
+        self.assertEqual(after[0]["name"], "Customized default")
+
     def test_authentication_csrf_and_origin(self):
         self.client.cookies.clear()
         self.assertEqual(self.client.get("/api/v1/workers").status_code, 401)

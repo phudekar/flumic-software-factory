@@ -1,0 +1,62 @@
+# Bootstrap profile for developer workers using the Codex CLI.
+# Standalone workers read this file on start. The control plane imports it only
+# when the profile store is empty. Editing this file
+# does not overwrite saved profiles; edit those in the UI. Workers load saved
+# profile changes on restart. Shared factory settings and credentials stay separate.
+
+# Reference-file schema version, independent of the saved profile revision number.
+version: 1
+# Human-readable saved profile name shown in the control pane.
+name: developer
+# Existing factory worker type to inherit; developer receives repository coding tasks.
+profile: developer
+# Standalone registration and repository access policy for this worker type.
+worker:
+  # Workflow task registration type.
+  worker_type: developer
+  # Standalone engine worker name; managed workers receive a unique name.
+  worker_name: software-factory-developer-worker
+  # Allowed path policy: source files or the complete repository.
+  path_policy: repository
+# Worker-local overrides; missing values inherit the pinned factory revision.
+document:
+  # Worker models, execution limits, logging and startup behavior.
+  settings:
+    # Coding adapter: codex (this example), claude or api. Use the matching model field.
+    developer_agent: codex
+    # Model passed to the Codex CLI. API adapters use openai_model; Claude uses claude_model.
+    codex_model: gpt-6-luna
+    # Timeout in seconds for each CLI process; shared engine task timeout is separate.
+    cli_timeout_seconds: 240
+    # Maximum number of incremental coding rounds (1–20).
+    max_patch_iterations: 10
+    # Maximum changed files in one round (1–5); total cap is rounds × this value.
+    max_files_per_iteration: 5
+    # Maximum UTF-8 bytes per source/output file; 65536 bytes is 64 KiB.
+    max_file_bytes: 65536
+    # Minimum Python log severity: DEBUG, INFO, WARNING, ERROR or CRITICAL.
+    log_level: INFO
+    # Runtime log encoding: json (structured) or text.
+    log_format: json
+    # Conversation history mode: redacted, metadata_only or disabled.
+    # CLI capture includes the submitted prompt and final result, not internal reasoning.
+    conversation_capture: redacted
+    # Optional trusted /bin/sh -eu script, run before registration on every start.
+    # Example: python -m pip install --no-cache-dir -r /data/requirements.txt
+    # The script has container permissions, environment, network and data mounts.
+    # Keep commands idempotent; shell exports do not change the Python worker environment.
+    startup_script: ''
+    # Maximum startup script duration in seconds (1–3600); failure stops startup.
+    startup_timeout_seconds: 600
+  # Per-task overrides; unlisted tasks retain their inherited model and guidance.
+  tasks:
+    # Settings for the generate_and_open_draft_pr workflow task.
+    generate_and_open_draft_pr:
+      # Null uses codex_model for this backend; set a string to override this task's model.
+      model: null
+      # Additional system guidance replaces inherited task guidance, but preserves
+      # built-in safety instructions and required response schemas (16000 chars max).
+      additional_system_prompt: |
+        Implement the issue with focused changes and run the relevant tests.
+        Respect configured file-size and file-count limits, including lockfiles.
+        Report what changed, the checks performed, and any remaining limitations.

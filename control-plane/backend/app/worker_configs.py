@@ -3,6 +3,7 @@
 import uuid
 from fastapi import HTTPException
 from pydantic import BaseModel, ConfigDict, Field
+from factory.configuration import read_configuration, profile_fragment
 from sqlalchemy import select, desc, text
 from app.database import Revision, WorkerConfiguration, Worker, Audit
 
@@ -17,15 +18,45 @@ def bootstrap(db, config):
         .limit(1)
     )
     if not db.scalar(select(WorkerConfiguration.id).limit(1)):
-        for profile in latest.document["workers"]:
+        paths = sorted((config.root / "config/worker-profiles").glob("*.yaml"))
+        if not paths:
+            raise ValueError("Bootstrap worker profile files are missing")
+        names = set()
+        for path in paths:
+            value = read_configuration(path)
+            if (
+                not isinstance(value, dict)
+                or set(value) != {"version", "name", "profile", "worker", "document"}
+                or value["version"] != 1
+            ):
+                raise ValueError("Invalid bootstrap worker profile file: " + path.name)
+            profile_fragment(value)
+            # Reuse the operator API schema and full worker validation so bootstrap
+            # files cannot introduce credentials, factory settings or unknown fields.
+            parsed = WorkerConfigEdit.model_validate(
+                {
+                    "name": value["name"],
+                    "profile": value["profile"],
+                    "factory_revision_id": latest.id,
+                    "document": value["document"],
+                }
+            )
+            if parsed.profile not in latest.document["workers"]:
+                raise ValueError(
+                    "Bootstrap profile references an unknown factory worker type"
+                )
+            if parsed.name in names:
+                raise ValueError("Duplicate bootstrap worker profile name")
+            names.add(parsed.name)
+            resolved = config.compose(latest.document, parsed.profile, parsed.document)
             db.add(
                 WorkerConfiguration(
                     id=str(uuid.uuid4()),
                     family_id=str(uuid.uuid4()),
-                    name=profile + " default",
-                    profile=profile,
+                    name=parsed.name,
+                    profile=parsed.profile,
                     factory_revision_id=latest.id,
-                    document=config.split(latest.document, profile)[1],
+                    document=config.split(resolved, parsed.profile)[1],
                 )
             )
     for worker in db.scalars(select(Worker).where(Worker.config_id.is_(None))):

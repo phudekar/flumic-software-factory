@@ -3,17 +3,19 @@ import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import type { WorkerConfig, WorkerDocument } from "../api";
 import { api } from "../api";
-import { Failure, PageTitle, Section } from "../components/ui";
+import { date, Failure, PageTitle, Section } from "../components/ui";
 import { useData } from "../hooks";
 
 export function WorkerDocumentEditor({
   source,
   onChange,
   prompts = false,
+  readOnly = false,
 }: {
   source: string;
   onChange: (value: string) => void;
   prompts?: boolean;
+  readOnly?: boolean;
 }) {
   const [task, setTask] = useState("plan_issue");
   if (!prompts)
@@ -22,6 +24,7 @@ export function WorkerDocumentEditor({
         className="config-editor"
         aria-label="Worker configuration document"
         spellCheck={false}
+        readOnly={readOnly}
         value={source}
         onChange={(e) => onChange(e.target.value)}
       />
@@ -61,6 +64,7 @@ export function WorkerDocumentEditor({
           <label>
             Task model override
             <input
+              readOnly={readOnly}
               value={document.tasks[selected].model ?? ""}
               placeholder="Use worker backend model"
               onChange={(e) => update("model", e.target.value)}
@@ -70,6 +74,7 @@ export function WorkerDocumentEditor({
             Additional system prompt
             <textarea
               className="prompt-editor"
+              readOnly={readOnly}
               maxLength={16000}
               value={document.tasks[selected].additional_system_prompt ?? ""}
               onChange={(e) =>
@@ -106,11 +111,28 @@ export function Configuration({ prompts = false }: { prompts?: boolean }) {
     "/worker-configs/template/" + archetype,
   );
   const factoryMode = !prompts && params.get("scope") === "factory";
-  const current = creating
-    ? template.data
-    : (configs.data?.find((c) => c.id === params.get("config")) ??
-      configs.data?.find((c) => c.family_id === params.get("profile")) ??
-      configs.data?.[0]);
+  const ordered = [...(configs.data ?? [])].sort(
+    (a, b) => b.created_at - a.created_at,
+  );
+  const latestProfiles = [
+    ...new Map(
+      ordered
+        .slice()
+        .reverse()
+        .map((c) => [c.family_id, c]),
+    ).values(),
+  ].sort((a, b) => a.name.localeCompare(b.name));
+  const requested = ordered.find((c) => c.id === params.get("config"));
+  const profileId = requested?.family_id ?? params.get("profile");
+  const latest =
+    latestProfiles.find((c) => c.family_id === profileId) ?? latestProfiles[0];
+  const versions = ordered.filter((c) => c.family_id === latest?.family_id);
+  const current = creating ? template.data : (requested ?? latest);
+  const historical =
+    !creating && !factoryMode && !!current && current.id !== latest?.id;
+  const version =
+    versions.length - versions.findIndex((c) => c.id === current?.id);
+  const showHistory = params.get("history") === "1";
   const [source, setSource] = useState("");
   const [name, setName] = useState("");
   const [factoryId, setFactoryId] = useState("");
@@ -172,7 +194,7 @@ export function Configuration({ prompts = false }: { prompts?: boolean }) {
               : { parent_id: current.id }),
         });
         await client.invalidateQueries({ queryKey: ["worker-configs"] });
-        setParams({ config: saved.id });
+        setParams({ profile: saved.family_id });
       }
       setMessage(
         "Saved immutable revision. Linked workers pick up profile edits on their next start or restart.",
@@ -216,22 +238,106 @@ export function Configuration({ prompts = false }: { prompts?: boolean }) {
       {!factoryMode && !creating && (
         <div className="toolbar">
           <label>
-            Profile revision
+            Worker profile
             <select
               aria-label="Worker profile"
-              value={current?.id ?? ""}
-              onChange={(e) => setParams({ config: e.target.value })}
+              value={latest?.family_id ?? ""}
+              onChange={(e) => {
+                setParams({ profile: e.target.value });
+                setError("");
+                setMessage("");
+              }}
             >
-              {configs.data?.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name} · {c.profile} · {c.id.slice(0, 8)}
+              {latestProfiles.map((c) => (
+                <option key={c.family_id} value={c.family_id}>
+                  {c.name} · v
+                  {ordered.filter((r) => r.family_id === c.family_id).length}{" "}
+                  (latest)
                 </option>
               ))}
             </select>
           </label>
+          <button
+            className="secondary"
+            disabled={!latest}
+            onClick={() => {
+              const next = new URLSearchParams(params);
+              if (showHistory) next.delete("history");
+              else next.set("history", "1");
+              setParams(next);
+            }}
+          >
+            {showHistory ? "Hide version history" : "Version history"}
+          </button>
+          {current && (
+            <span className="tag">
+              {historical ? "Viewing" : "Latest"} v{version} ·{" "}
+              {current.id.slice(0, 8)}
+            </span>
+          )}
           <Link to="/workers" className="text-link">
             Create worker from saved profile →
           </Link>
+        </div>
+      )}
+      {!factoryMode && !creating && showHistory && (
+        <Section title={"Version history · " + (latest?.name ?? "")}>
+          <div className="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Version</th>
+                  <th>Profile name</th>
+                  <th>Saved</th>
+                  <th>Revision</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {versions.map((revision, index) => (
+                  <tr key={revision.id}>
+                    <td>
+                      v{versions.length - index}
+                      {index === 0 ? " (latest)" : ""}
+                    </td>
+                    <td>{revision.name}</td>
+                    <td>{date(revision.created_at)}</td>
+                    <td className="mono">{revision.id.slice(0, 8)}</td>
+                    <td>
+                      <button
+                        className="secondary"
+                        onClick={() =>
+                          setParams(
+                            index === 0
+                              ? { profile: revision.family_id, history: "1" }
+                              : {
+                                  profile: revision.family_id,
+                                  config: revision.id,
+                                  history: "1",
+                                },
+                          )
+                        }
+                      >
+                        View v{versions.length - index}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Section>
+      )}
+      {historical && (
+        <div className="notice">
+          Viewing previous version v{version}. This version is read-only.{" "}
+          <button
+            className="secondary"
+            onClick={() => setParams({ profile: latest!.family_id })}
+          >
+            Back to latest version
+          </button>{" "}
+          You can also clone this version into a new profile.
         </div>
       )}
       {!factoryMode && (
@@ -263,6 +369,7 @@ export function Configuration({ prompts = false }: { prompts?: boolean }) {
             Profile name
             <input
               value={name}
+              readOnly={historical}
               maxLength={100}
               onChange={(e) => setName(e.target.value)}
             />
@@ -271,6 +378,7 @@ export function Configuration({ prompts = false }: { prompts?: boolean }) {
             Pinned factory revision
             <select
               value={factoryId}
+              disabled={historical}
               onChange={(e) => setFactoryId(e.target.value)}
             >
               {revisions.data?.map((r) => (
@@ -303,6 +411,7 @@ export function Configuration({ prompts = false }: { prompts?: boolean }) {
             source={source}
             onChange={setSource}
             prompts={prompts}
+            readOnly={historical}
           />
         )}
       </Section>
@@ -315,6 +424,7 @@ export function Configuration({ prompts = false }: { prompts?: boolean }) {
                 type="number"
                 min={1}
                 step={1}
+                readOnly={historical}
                 value={Number(settings.max_file_bytes ?? 65536)}
                 onChange={(e) =>
                   updateSetting("max_file_bytes", Number(e.target.value))
@@ -344,6 +454,7 @@ export function Configuration({ prompts = false }: { prompts?: boolean }) {
               <textarea
                 className="prompt-editor"
                 aria-label="Startup script"
+                readOnly={historical}
                 placeholder={
                   "python -m pip install --no-cache-dir -r /data/requirements.txt"
                 }
@@ -359,6 +470,7 @@ export function Configuration({ prompts = false }: { prompts?: boolean }) {
                 type="number"
                 min={1}
                 max={3600}
+                readOnly={historical}
                 value={Number(settings.startup_timeout_seconds ?? 600)}
                 onChange={(e) =>
                   updateSetting(
@@ -379,7 +491,7 @@ export function Configuration({ prompts = false }: { prompts?: boolean }) {
       <div className="actions">
         <button
           className="primary"
-          disabled={pending || !source}
+          disabled={pending || !source || historical}
           onClick={() => save()}
         >
           {creating ? "Save worker profile" : "Save revision"}

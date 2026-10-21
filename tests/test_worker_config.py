@@ -57,6 +57,23 @@ class WorkerConfigTests(unittest.TestCase):
                 "custom-pr",
             )
 
+    def test_shared_profile_files_feed_standalone_settings(self):
+        for filename, profile in (("default", "simple"), ("developer", "developer")):
+            template = read_configuration(
+                ROOT / f"config/worker-profiles/{filename}.yaml"
+            )
+            settings = self.load(profile=profile)
+            self.assertEqual(
+                settings.startup_script,
+                template["document"]["settings"]["startup_script"],
+            )
+            for task, values in template["document"]["tasks"].items():
+                self.assertEqual(
+                    settings.task(task).additional_system_prompt,
+                    values["additional_system_prompt"],
+                )
+            self.assertEqual(settings.worker_type, template["worker"]["worker_type"])
+
     def test_invalid_includes_fail(self):
         for contents in (
             "version: 1\nincludes: [worker-config.yaml]\n",
@@ -129,8 +146,8 @@ class WorkerConfigTests(unittest.TestCase):
     def test_invalid_configuration_fails_before_creating_clients(self):
         mutations = [
             lambda c: c["defaults"].update(openai_api_key="placeholder"),
-            lambda c: c["defaults"].update(log_level="TYPO"),
-            lambda c: c["defaults"].update(max_patch_iterations=21),
+            lambda c: c["workers"]["developer"].update(log_level="TYPO"),
+            lambda c: c["workers"]["developer"].update(max_patch_iterations=21),
             lambda c: c["defaults"].update(max_completion_tokens=40000),
             lambda c: c["defaults"].update(scan_cron="invalid"),
             lambda c: c["tasks"]["plan_issue"].update(retries=-1),

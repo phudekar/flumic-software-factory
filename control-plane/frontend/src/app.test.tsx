@@ -7,6 +7,7 @@ import {
   screen,
   fireEvent,
   waitFor,
+  within,
 } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
@@ -477,5 +478,130 @@ describe("worker profiles and scoped execution", () => {
     ).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Raw" }));
     expect(screen.getByLabelText("Raw runtime logs").textContent).toBe(content);
+  });
+  it("shows unique profiles at latest version and opens older versions only through history", async () => {
+    fixtures();
+    const base = vi.mocked(fetch).getMockImplementation()!;
+    const newest = {
+      ...profile,
+      id: "newest-config",
+      parent_id: profile.id,
+      created_at: 2,
+      document: {
+        ...profile.document,
+        settings: {
+          ...profile.document.settings,
+          startup_script: "echo newest",
+        },
+      },
+    };
+    const other = {
+      ...profile,
+      id: "other-config",
+      family_id: "other-family",
+      name: "Reviewer worker",
+      created_at: 3,
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string, options?: RequestInit) =>
+        input.endsWith("/worker-profiles") && options?.method !== "POST"
+          ? json([profile, other, newest])
+          : base(input, options),
+      ),
+    );
+    app("/config");
+    const selector = await screen.findByRole("combobox", {
+      name: "Worker profile",
+    });
+    await waitFor(() =>
+      expect(within(selector).getAllByRole("option")).toHaveLength(2),
+    );
+    expect(
+      within(selector).getByRole("option", {
+        name: "Backend worker · v2 (latest)",
+      }),
+    ).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.getByLabelText("Startup script")).toHaveValue(
+        "echo newest",
+      ),
+    );
+    expect(
+      screen.queryByRole("button", { name: "View v1" }),
+    ).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Version history" }));
+    fireEvent.click(await screen.findByRole("button", { name: "View v1" }));
+    await waitFor(() =>
+      expect(screen.getByLabelText("Startup script")).toHaveValue("echo ready"),
+    );
+    expect(screen.getByLabelText("Startup script")).toHaveAttribute("readonly");
+    expect(
+      screen.getByRole("button", { name: "Save revision" }),
+    ).toBeDisabled();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Back to latest version" }),
+    );
+    await waitFor(() =>
+      expect(screen.getByLabelText("Startup script")).toHaveValue(
+        "echo newest",
+      ),
+    );
+    expect(screen.getByRole("button", { name: "Save revision" })).toBeEnabled();
+  });
+  it("parses engine JSON messages using their own severity and preserves the raw record", async () => {
+    fixtures();
+    const base = vi.mocked(fetch).getMockImplementation()!;
+    const structured = JSON.stringify({
+      timestamp: "2026-10-21 05:00:50,732",
+      level: "INFO",
+      message: "Operation started",
+      stage: "generate_and_open_draft_pr",
+      attempt_id: "example-attempt",
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string, options?: RequestInit) =>
+        input.includes("/engine/tasks/")
+          ? json({
+              items: [
+                {
+                  createdAt: "2026-10-21T05:00:50.732Z",
+                  level: "ERROR",
+                  message: structured,
+                },
+                {
+                  createdAt: "2026-10-21T05:00:51Z",
+                  level: "ERROR",
+                  message: "Plain engine error",
+                },
+              ],
+            })
+          : base(input, options),
+      ),
+    );
+    app("/runs/run-1?task=task-1&tab=logs");
+    expect(await screen.findByText("Operation started")).toBeInTheDocument();
+    const row = screen.getByText("Operation started").closest("tr")!;
+    expect(within(row).getByText("INFO")).toBeInTheDocument();
+    expect(
+      within(row).getByText("generate_and_open_draft_pr"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(structured)).not.toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Severity"), {
+      target: { value: "ERROR" },
+    });
+    expect(screen.queryByText("Operation started")).not.toBeInTheDocument();
+    expect(screen.getByText("Plain engine error")).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Severity"), {
+      target: { value: "" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Raw" }));
+    expect(await screen.findByLabelText("Raw stage logs")).toHaveTextContent(
+      "example-attempt",
+    );
+    expect(screen.getByLabelText("Raw stage logs")).toHaveTextContent(
+      '\\"level\\":\\"INFO\\"',
+    );
   });
 });
