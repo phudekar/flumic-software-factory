@@ -38,6 +38,7 @@ MAX_ARCHIVE_UNPACKED_BYTES = 512 * 1024 * 1024
 MAX_CLI_OUTPUT_BYTES = 4 * 1024 * 1024
 MAX_CLI_ERROR_BYTES = 4_000
 MAX_CLI_LOG_BYTES = 8_000
+GENERATED_DIRECTORY_NAMES = frozenset({"node_modules", ".venv", "venv", "__pycache__"})
 _CODEX_AUTH_LOCK = threading.Lock()
 _CODEX_AUTHENTICATED_KEY_HASH: str | None = None
 _CLI_ERROR_MARKERS = re.compile(
@@ -144,6 +145,11 @@ def generate_patch(
         _scan_text_files(workspace)
         _set_agent_ownership(workspace)
         baseline = _snapshot(workspace)
+        original_directories = {
+            path.relative_to(workspace).as_posix()
+            for path in workspace.rglob("*")
+            if path.is_dir()
+        }
         previous_snapshot = baseline
         accumulated: dict[str, FileChange] = {}
         previous_progress = ""
@@ -178,12 +184,15 @@ def generate_patch(
                 record_conversation(response=response, coverage="cli_prompt_and_result")
             completion = _parse_completion(response)
             assert_safe_text(completion.progress)
-            current = _snapshot(workspace)
+            current = _snapshot(
+                workspace, baseline=baseline, original_directories=original_directories
+            )
             round_changes = _collect_changes(
                 workspace=workspace,
                 baseline=baseline,
                 previous=previous_snapshot,
                 existing_paths=existing_paths,
+                original_directories=original_directories,
             )
             changed_paths = {change.path for change in round_changes}
             if len(changed_paths) > max_files_per_iteration:
@@ -295,13 +304,38 @@ def _set_agent_ownership(workspace: Path) -> None:
     os.chown(AGENT_HOME, AGENT_UID, AGENT_GID)
 
 
-def _snapshot(workspace: Path) -> dict[str, str]:
+def _snapshot(
+    workspace: Path,
+    *,
+    baseline: dict[str, str] | None = None,
+    original_directories: set[str] | None = None,
+) -> dict[str, str]:
+    protected_directories = set(original_directories or ())
+    for relative in baseline or {}:
+        protected_directories.update(
+            parent.as_posix() for parent in PurePosixPath(relative).parents
+        )
     result: dict[str, str] = {}
-    for path in workspace.rglob("*"):
-        if path.is_symlink():
-            raise ModelError("CLI agent created a symbolic link")
-        if path.is_file():
+    for directory, directories, files in os.walk(workspace, followlinks=False):
+        for name in directories[:]:
+            path = Path(directory) / name
             relative = path.relative_to(workspace).as_posix()
+            if path.is_symlink():
+                raise ModelError(f"CLI agent created a symbolic link: {relative}")
+            # Prune before inspecting contents, but never hide original directories.
+            if (
+                baseline is not None
+                and name in GENERATED_DIRECTORY_NAMES
+                and relative not in protected_directories
+            ):
+                directories.remove(name)
+        for name in files:
+            path = Path(directory) / name
+            relative = path.relative_to(workspace).as_posix()
+            if path.is_symlink():
+                raise ModelError(f"CLI agent created a symbolic link: {relative}")
+            if not path.is_file():
+                continue
             relative_path = PurePosixPath(relative)
             if "__pycache__" in relative_path.parts or relative_path.suffix in {
                 ".pyc",
@@ -318,8 +352,11 @@ def _collect_changes(
     baseline: dict[str, str],
     previous: dict[str, str],
     existing_paths: set[str],
+    original_directories: set[str] | None = None,
 ) -> list[FileChange]:
-    current = _snapshot(workspace)
+    current = _snapshot(
+        workspace, baseline=baseline, original_directories=original_directories
+    )
     if set(previous) - set(current):
         raise ModelError("CLI agent deleted files; file deletions are not supported")
     changes: list[FileChange] = []

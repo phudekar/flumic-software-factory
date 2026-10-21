@@ -58,7 +58,12 @@ class CLIAgentTests(unittest.TestCase):
                     (workspace / "src/main.py").write_text(
                         "print('updated')\n", encoding="utf-8"
                     )
+                    dependencies = workspace / "node_modules/.bin"
+                    dependencies.mkdir(parents=True)
+                    (dependencies / "tool").symlink_to("../tool/bin.js")
+                    (dependencies.parent / "generated.txt").write_text("dependency")
                 else:
+                    self.assertTrue((workspace / "node_modules/.bin/tool").is_symlink())
                     (workspace / "src/extra.py").write_text(
                         "print('extra')\n", encoding="utf-8"
                     )
@@ -185,6 +190,85 @@ class CLIAgentTests(unittest.TestCase):
             )
 
         self.assertEqual({change.path for change in changes}, set(changed_files))
+
+    def test_change_collection_prunes_new_generated_directories(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            workspace = Path(temporary_directory)
+            source = workspace / "src/main.py"
+            source.parent.mkdir()
+            source.write_text("before\n")
+            baseline = cli_agent._snapshot(workspace)
+            source.write_text("after\n")
+            for name in cli_agent.GENERATED_DIRECTORY_NAMES:
+                generated = workspace / "frontend" / name
+                generated.mkdir(parents=True)
+                (generated / "generated.txt").write_text("not a patch\n")
+                (generated / "external").symlink_to("/outside/workspace")
+                (generated / "loop").symlink_to(generated, target_is_directory=True)
+
+            changes = cli_agent._collect_changes(
+                workspace=workspace,
+                baseline=baseline,
+                previous=baseline,
+                existing_paths=set(baseline),
+            )
+
+        self.assertEqual(
+            [(c.path, c.content) for c in changes], [("src/main.py", "after\n")]
+        )
+
+    def test_original_generated_directory_files_remain_visible(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            workspace = Path(temporary_directory)
+            source = workspace / "venv/source.py"
+            source.parent.mkdir()
+            source.write_text("before\n")
+            baseline = cli_agent._snapshot(workspace)
+            source.write_text("after\n")
+            changes = cli_agent._collect_changes(
+                workspace=workspace,
+                baseline=baseline,
+                previous=baseline,
+                existing_paths=set(baseline),
+            )
+            self.assertEqual([c.path for c in changes], ["venv/source.py"])
+            source.unlink()
+            with self.assertRaisesRegex(ModelError, "deleted files"):
+                cli_agent._collect_changes(
+                    workspace=workspace,
+                    baseline=baseline,
+                    previous=baseline,
+                    existing_paths=set(baseline),
+                )
+
+    def test_snapshot_rejects_source_and_generated_root_symlinks(self):
+        for name, target in [
+            ("source.py", "missing.py"),
+            ("source.py", "/etc/passwd"),
+            ("node_modules", "/tmp"),
+        ]:
+            with (
+                self.subTest(name=name, target=target),
+                tempfile.TemporaryDirectory() as temporary_directory,
+            ):
+                workspace = Path(temporary_directory)
+                (workspace / name).symlink_to(target)
+                with self.assertRaisesRegex(ModelError, f"symbolic link: {name}"):
+                    cli_agent._snapshot(workspace, baseline={})
+
+    def test_snapshot_preserves_original_empty_generated_directory(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            workspace = Path(temporary_directory)
+            generated = workspace / "node_modules"
+            generated.mkdir()
+            baseline = cli_agent._snapshot(workspace)
+            (generated / "link").symlink_to("missing")
+            with self.assertRaisesRegex(ModelError, "symbolic link: node_modules/link"):
+                cli_agent._snapshot(
+                    workspace,
+                    baseline=baseline,
+                    original_directories={"node_modules"},
+                )
 
     def test_cli_receives_provider_key_but_not_worker_credentials(self):
         completion = '{"is_complete":true,"progress":"done","pull_title":"Done","pull_body":"Completed."}'
