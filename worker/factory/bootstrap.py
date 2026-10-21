@@ -38,7 +38,7 @@ def build_service(settings, dispatch):
     # The conditional is at composition only; use cases know capabilities, not names.
     return FactoryService(
         repository=settings.repository,
-        repositories=GitHubClient,
+        repositories=partial(GitHubClient, max_file_bytes=settings.max_file_bytes),
         planner=partial(load_factory(settings.planner_factory), settings),
         reviewer=partial(load_factory(settings.reviewer_factory), settings),
         coding_agent=partial(load_factory(coding_path), settings),

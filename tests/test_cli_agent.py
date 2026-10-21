@@ -158,10 +158,40 @@ class CLIAgentTests(unittest.TestCase):
                     with self.assertRaises(ModelError) as raised:
                         cli_agent._collect_changes(**arguments)
                     self.assertIn(
-                        "large.txt (32769 bytes; maximum 32768 bytes)",
+                        f"large.txt ({cli_agent.MAX_SOURCE_FILE_BYTES + 1} bytes; maximum {cli_agent.MAX_SOURCE_FILE_BYTES} bytes)",
                         str(raised.exception),
                     )
                     self.assertNotIn("x" * 100, str(raised.exception))
+
+    def test_configured_limit_uses_utf8_bytes_and_logs_all_received_paths(self):
+        with tempfile.TemporaryDirectory() as directory:
+            workspace = Path(directory)
+            (workspace / "a.txt").write_text("é" * 7)
+            (workspace / "b.txt").write_text("safe")
+            with self.assertLogs("issue-worker.cli-agent", level="INFO") as logs:
+                with self.assertRaisesRegex(
+                    ModelError, r"a.txt \(14 bytes; maximum 12 bytes\)"
+                ):
+                    cli_agent._collect_changes(
+                        workspace=workspace,
+                        baseline={},
+                        previous={},
+                        existing_paths=set(),
+                        max_file_bytes=12,
+                    )
+            output = "\n".join(logs.output)
+            self.assertIn("a.txt", output)
+            self.assertIn("b.txt", output)
+            self.assertNotIn("é", output)
+            (workspace / "a.txt").write_text("é" * 6)
+            changes = cli_agent._collect_changes(
+                workspace=workspace,
+                baseline={},
+                previous={},
+                existing_paths=set(),
+                max_file_bytes=12,
+            )
+            self.assertEqual(len(changes), 2)
 
     def test_change_collection_ignores_generated_python_bytecode(self):
         with tempfile.TemporaryDirectory() as temporary_directory:

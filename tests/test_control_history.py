@@ -81,6 +81,70 @@ class ControlHistoryTests(unittest.TestCase):
         self.assertEqual(records[-1].args[1]["outcome"], "failed")
         observer.shutdown()
 
+    def test_stage_and_model_failures_capture_redacted_factory_error_messages(self):
+        from factory.domain.models import RepositoryError
+
+        observer, publisher = self.capture()
+        try:
+            with patch.dict(
+                os.environ, {"GITHUB_TOKEN": "synthetic-secret-credential"}
+            ):
+                with (
+                    self.assertRaises(RepositoryError),
+                    observer.observe("load_issue", {"factory_run_id": "failed-run"}),
+                ):
+                    with model_call("openai", "example"):
+                        raise RepositoryError(
+                            "Selected source file exceeds the size limit: src/large.py synthetic-secret-credential"
+                        )
+            records = publisher.emit.call_args_list
+            for kind in ("attempt.completed", "model.completed"):
+                payload = next(item.args[1] for item in records if item.args[0] == kind)
+                self.assertEqual(payload["outcome"], "failed")
+                self.assertEqual(payload["error_type"], "RepositoryError")
+                self.assertIn("src/large.py", payload["error_message"])
+                self.assertNotIn(
+                    "synthetic-secret-credential", payload["error_message"]
+                )
+            error_logs = [
+                item.args[1]
+                for item in records
+                if item.args[0] == "log" and item.args[1]["level"] == "ERROR"
+            ]
+            self.assertTrue(error_logs)
+            self.assertIn("size limit", error_logs[0]["message"])
+        finally:
+            observer.shutdown()
+
+    def test_dispatch_enqueue_failure_is_inside_observed_boundary(self):
+        from types import SimpleNamespace
+        from factory.adapters.orchestration.hatchet import HatchetDispatch
+        from factory.domain.models import IssueInput, RepositoryError
+
+        observer, publisher = self.capture()
+        dispatch = HatchetDispatch()
+        dispatch.observer = observer
+        dispatch.tasks = SimpleNamespace(issue_workflow=Mock())
+        dispatch.tasks.issue_workflow.run.side_effect = RepositoryError(
+            "Queue submission failed"
+        )
+        try:
+            with self.assertRaises(RepositoryError):
+                dispatch.enqueue_issue(
+                    IssueInput(repository="owner/repo", issue_number=1)
+                )
+            failed = [
+                item
+                for item in publisher.emit.call_args_list
+                if item.args[0] == "attempt.completed"
+            ]
+            self.assertEqual(failed[0].args[1]["outcome"], "failed")
+            self.assertEqual(
+                failed[0].args[1]["error_message"], "Queue submission failed"
+            )
+        finally:
+            observer.shutdown()
+
     def test_only_actual_nested_accounting_excludes_parent(self):
         observer, publisher = self.capture()
         with observer.observe("generate_and_open_draft_pr", {}):

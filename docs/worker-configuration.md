@@ -90,7 +90,7 @@ one CLI subprocess invocation. Local execution uses the same prompts/models and
 application limits; engine retry/concurrency/schedule settings apply to Hatchet.
 
 Patch limits can be narrowed to 1–5 files per iteration, 1–20 iterations, and at
-most 32,768 bytes per file. The aggregate file limit is the product of iterations
+most `max_file_bytes` bytes per file (default 65,536 / 64 KiB). The aggregate file limit is the product of iterations
 and files per iteration, with the shared schema's absolute 100-file ceiling.
 Token budgets apply to direct API calls; CLI tools manage their own model
 contexts. The native Codex healthcheck uses `codex_model` from the same file.
@@ -142,3 +142,11 @@ A saved profile contains worker-local settings, per-task model/prompt overrides
 and startup hooks; workers created from it follow the latest profile revision on
 restart. Factory routing, engine retries/timeouts/concurrency, repository and
 state settings remain separate and pinned by factory revision.
+
+
+`max_file_bytes` defaults to **65,536 bytes (64 KiB)** and can be set per worker
+profile. It must be a positive integer. The CLI prompt/collector, API coding
+prompt/validator, repository source reads and final publication policy all use
+the same configured value. Limits count UTF-8 bytes, not characters. Received
+coding file paths and byte counts are logged before validation, including files
+that are rejected; file contents are not included in these messages.

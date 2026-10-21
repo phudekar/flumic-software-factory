@@ -121,7 +121,9 @@ Process startup resolves its current saved profile without modifying that mounte
 snapshot; telemetry records the actual loaded configuration revision. Container
 labels describe the creation snapshot and can differ after a direct Docker
 restart. Host mounts and images remain server-controlled. Approved images must
-carry control-protocol version 2 for profile refresh and startup scripts.
+carry control-protocol version 3 for configurable file limits and error capture.
+Older containers need a restart through the control plane to receive the updated
+image; a direct Docker restart retains the older code.
 
 ### Startup scripts
 
@@ -249,3 +251,27 @@ Production schema changes run with Alembic before API startup. No production
 `create_all` runs on requests. The reconciler is a separate process and claims
 commands with row locks and skip-locked semantics. After a bounded stale lease,
 an interrupted operation can resume; Docker create is idempotent by ownership ID.
+
+
+## Error visibility and log formats
+
+Use **Parsed / Raw** to switch stage logs or worker runtime output. Stage raw
+mode shows the same redacted, filtered API records as parsed mode, and its URL
+parameter survives reload. Runtime raw mode preserves text and JSON lines;
+parsed mode preserves plain traceback lines as messages. Raw does not bypass
+redaction or decrypt conversations automatically.
+
+Failed attempts and failed model calls include `error_type` and a bounded,
+redacted `error_message`. Known factory/validation/database error messages are
+included. Arbitrary SDK exception bodies remain excluded; model request failures
+preserve exception class and HTTP status without provider response bodies.
+Stage failures appear at ERROR level, including historical failed-attempt records
+whose message is missing (clearly labelled as not captured). The workflow adapter
+also exposes Hatchet's redacted latest task error. These engine errors appear
+when viewing all retries, and are excluded from individual retry filters because
+Hatchet's latest error may belong to another attempt.
+
+Startup/bootstrap failures happen before stage registration and remain available
+in the worker's runtime logs. Control-plane outages can prevent ingestion; events
+missing from historical records cannot be reconstructed by changing the viewer.
+See [the error-path audit](telemetry-error-audit.md) for covered boundaries.

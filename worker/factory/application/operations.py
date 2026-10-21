@@ -10,7 +10,6 @@ def operation(stage: str, *, exclusive: bool = False):
     def decorate(method):
         @wraps(method)
         def execute(self, input, *args, **kwargs):
-            self.validate_repository(input.repository)
             resource = f"{input.repository}:issue:{input.issue_number}"
             attributes = {
                 "repository": input.repository,
@@ -26,6 +25,7 @@ def operation(stage: str, *, exclusive: bool = False):
                 self.observer.observe(stage, attributes),
                 claim,
             ):
+                self.validate_repository(input.repository)
                 result = method(self, input, *args, **kwargs)
                 if exclusive:
                     self.state.put(

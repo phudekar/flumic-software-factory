@@ -11,6 +11,7 @@ import {
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { App } from "./main";
+import { RuntimeLogView } from "./components/logs";
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -408,5 +409,73 @@ describe("worker profiles and scoped execution", () => {
         .mocked(fetch)
         .mock.calls.some(([path]) => String(path).includes("/engine/tasks/")),
     ).toBe(false);
+  });
+  it("shows failed-attempt errors in parsed and raw log views without losing stage filters", async () => {
+    fixtures();
+    const base = vi.mocked(fetch).getMockImplementation()!;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string, options?: RequestInit) => {
+        if (input.includes("/engine/tasks/")) return json({ items: [] });
+        if (
+          input.includes("/events?") &&
+          !input.includes("kind=attempt.started")
+        )
+          return json([
+            {
+              id: "failure-1",
+              kind: "attempt.completed",
+              worker_id: "worker-1",
+              run_id: "run-1",
+              attempt_id: "attempt-1",
+              stage: "load_issue",
+              occurred_at: 100,
+              payload: {
+                outcome: "failed",
+                error_type: "RepositoryError",
+                error_message:
+                  "Selected source file exceeds the size limit: src/large.py",
+              },
+            },
+          ]);
+        return base(input, options);
+      }),
+    );
+    app("/runs/run-1?task=task-1&attempt=attempt-1&tab=logs");
+    expect(
+      await screen.findByText(
+        "RepositoryError: Selected source file exceeds the size limit: src/large.py",
+      ),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Raw" }));
+    expect(await screen.findByLabelText("Raw stage logs")).toHaveTextContent(
+      '"error_message": "Selected source file exceeds the size limit: src/large.py"',
+    );
+    expect(screen.getByLabelText("Stage filter")).toHaveValue("task-1");
+    expect(
+      screen.queryByRole("columnheader", { name: "Timestamp" }),
+    ).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Parsed" }));
+    expect(
+      await screen.findByRole("columnheader", { name: "Timestamp" }),
+    ).toBeInTheDocument();
+  });
+  it("preserves structured and plain runtime lines when toggling raw output", () => {
+    const content =
+      JSON.stringify({
+        timestamp: "2026-10-20 23:00:00",
+        level: "ERROR",
+        stage: "load_issue",
+        message: "Source file exceeds the size limit",
+      }) + "\nPlain traceback continuation";
+    render(<RuntimeLogView content={content} />);
+    expect(
+      screen.getByText("Source file exceeds the size limit"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("Plain traceback continuation"),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Raw" }));
+    expect(screen.getByLabelText("Raw runtime logs").textContent).toBe(content);
   });
 });

@@ -17,6 +17,7 @@ import {
 } from "../components/ui";
 import { useData } from "../hooks";
 import { Calls } from "./history";
+import { LogViewToggle } from "../components/logs";
 
 export function RunsPage() {
   const runs = useData<{ items: Run[]; warnings: string[] }>("runs", "/runs");
@@ -85,7 +86,12 @@ export function RunPage() {
   );
   const engine = useData<{
     run: Run;
-    tasks: { id: string; name: string; status: string }[];
+    tasks: {
+      id: string;
+      name: string;
+      status: string;
+      error_message?: string | null;
+    }[];
   }>("run", "/runs/" + id);
   const tab =
     params.get("tab") === "logs"
@@ -256,6 +262,15 @@ export function RunPage() {
                   <div>
                     <strong>{e.stage}</strong>
                     <small>{e.attempt_id}</small>
+                    {e.payload.outcome === "failed" && (
+                      <small className="error-text">
+                        {String(e.payload.error_type ?? "Stage failure")}:{" "}
+                        {String(
+                          e.payload.error_message ??
+                            "Error details were not captured by this worker version.",
+                        )}
+                      </small>
+                    )}
                   </div>
                   <Status value={String(e.payload.outcome ?? "started")} />
                   <time>{date(e.occurred_at)}</time>
@@ -269,7 +284,19 @@ export function RunPage() {
         </Section>
       )}
       {tab === "logs" && (
-        <Logs events={list} task={selected} attempt={attempt} />
+        <Logs
+          events={list}
+          task={selected}
+          attempt={attempt}
+          engineFailures={
+            attempt || stage
+              ? []
+              : (engine.data?.tasks ?? []).filter(
+                  (task) =>
+                    task.error_message && (!selected || task.id === selected),
+                )
+          }
+        />
       )}
       {tab === "model calls" && (
         <Calls events={list.filter((x) => x.kind === "model.completed")} />
@@ -377,11 +404,19 @@ export function Logs({
   events,
   task,
   attempt = "",
+  engineFailures = [],
 }: {
   events: FactoryEvent[];
   task: string;
   attempt?: string;
+  engineFailures?: {
+    id: string;
+    name: string;
+    error_message?: string | null;
+  }[];
 }) {
+  const [viewParams, setViewParams] = useSearchParams();
+  const raw = viewParams.get("log_view") === "raw";
   const [level, setLevel] = useState("");
   const [kind, setKind] = useState("");
   const logs = useQuery<{ items: Record<string, unknown>[] }>({
@@ -390,7 +425,12 @@ export function Logs({
     enabled: !!task && !attempt,
   });
   const rows = events
-    .filter((e) => e.kind === "log" || e.kind === "model.completed")
+    .filter(
+      (e) =>
+        e.kind === "log" ||
+        e.kind === "model.completed" ||
+        (e.kind === "attempt.completed" && e.payload.outcome === "failed"),
+    )
     .map((e) => ({
       id: e.id,
       at: date(e.occurred_at),
@@ -398,16 +438,31 @@ export function Logs({
       level: String(
         e.payload.level ?? (e.payload.outcome === "failed" ? "ERROR" : "INFO"),
       ).toUpperCase(),
-      kind: e.kind === "model.completed" ? "Model exchange" : "Worker log",
+      kind:
+        e.kind === "model.completed"
+          ? "Model exchange"
+          : e.kind === "attempt.completed"
+            ? "Stage failure"
+            : "Worker log",
       stage: e.stage ?? "—",
       worker: e.worker_id,
       message: String(
         e.payload.message ??
+          (e.kind === "attempt.completed"
+            ? (e.payload.error_type ?? "Stage failure") +
+              ": " +
+              (e.payload.error_message ??
+                "Error details were not captured by this worker version.")
+            : undefined) ??
           (e.payload.model ?? "Unknown model") +
             " · " +
             (e.payload.outcome ?? "unknown"),
       ),
       event: e.kind === "model.completed" ? e : null,
+      raw: { source: "worker", record: e } as {
+        source: string;
+        record: unknown;
+      },
     }));
   for (const item of (!attempt ? logs.data?.items : []) ?? [])
     rows.push({
@@ -420,6 +475,27 @@ export function Logs({
       worker: "Hatchet",
       message: String(item.message ?? ""),
       event: null,
+      raw: { source: "hatchet", record: item },
+    });
+  for (const failure of engineFailures)
+    rows.push({
+      id: "engine-failure-" + failure.id,
+      at: "Latest task failure",
+      order: Number.MAX_SAFE_INTEGER,
+      level: "ERROR",
+      kind: "Stage failure",
+      stage: failure.name,
+      worker: "Hatchet",
+      message: failure.error_message ?? "Task failed",
+      event: null,
+      raw: {
+        source: "hatchet",
+        record: {
+          task_id: failure.id,
+          error_message: failure.error_message,
+          scope: "latest task attempt",
+        },
+      },
     });
   const filtered = rows
     .filter((r) => (!level || r.level === level) && (!kind || r.kind === kind))
@@ -430,6 +506,15 @@ export function Logs({
       aside={<span className="tag">Redacted · latest page</span>}
     >
       <div className="toolbar">
+        <LogViewToggle
+          raw={raw}
+          onChange={(value) => {
+            const next = new URLSearchParams(viewParams);
+            if (value) next.set("log_view", "raw");
+            else next.delete("log_view");
+            setViewParams(next);
+          }}
+        />
         <label>
           Severity
           <select value={level} onChange={(e) => setLevel(e.target.value)}>
@@ -443,7 +528,12 @@ export function Logs({
           Entry type
           <select value={kind} onChange={(e) => setKind(e.target.value)}>
             <option value="">All entries</option>
-            {["Worker log", "Model exchange", "Engine log"].map((k) => (
+            {[
+              "Worker log",
+              "Model exchange",
+              "Engine log",
+              "Stage failure",
+            ].map((k) => (
               <option key={k}>{k}</option>
             ))}
           </select>
@@ -461,6 +551,10 @@ export function Logs({
           title="No matching log entries"
           detail="Select a stage or change the filters. Historical input and output require captured conversations."
         />
+      ) : raw ? (
+        <pre className="log-view" aria-label="Raw stage logs">
+          {filtered.map((row) => JSON.stringify(row.raw, null, 2)).join("\n")}
+        </pre>
       ) : (
         <div className="table-scroll">
           <table className="structured-logs">

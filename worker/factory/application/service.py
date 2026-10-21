@@ -955,6 +955,7 @@ class FactoryService:
             )
         )
 
+    @operation("wait_for_ready_for_agent")
     def discussion_status(self, input: IssueInput) -> str:
         self.validate_repository(input.repository)
         issue = self.repositories(input.repository).get_issue(input.issue_number)
@@ -964,6 +965,7 @@ class FactoryService:
             "ready" if self.labels.ready_for_agent in labels_for(issue) else "waiting"
         )
 
+    @operation("wait_for_pull_review")
     def pull_wait_status(self, input: PullInput) -> str:
         self.validate_repository(input.repository)
         github = self.repositories(input.repository)

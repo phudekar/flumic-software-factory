@@ -99,7 +99,7 @@ not a process sandbox or a network restriction.
 
 `defaults.max_patch_iterations` is read at startup and passed explicitly to the built-in
 adapters. Runtime policy caps the aggregate patch at `defaults.max_files_per_iteration` files per configured
-iteration, with up to 20 iterations, and 32,768 bytes per file. The shared schema
+iteration, with up to 20 iterations, and `max_file_bytes` bytes per file (default 65,536 / 64 KiB). The shared schema
 has an absolute 100-file ceiling. Incomplete patches cannot be published.
 Deletions, binaries, renames, and executable-bit changes remain unsupported by
 the replacement-content change contract.

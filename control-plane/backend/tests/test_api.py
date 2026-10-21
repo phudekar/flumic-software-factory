@@ -363,6 +363,28 @@ class ControlPlaneTests(unittest.TestCase):
         self.assertEqual(usage["input_tokens"], 100)
         self.assertEqual(usage["output_tokens"], 10)
 
+    def test_failed_attempt_error_survives_ingestion_and_redaction(self):
+        worker = self.create_worker()
+        event = {
+            "id": str(uuid.uuid4()),
+            "kind": "attempt.completed",
+            "occurred_at": time.time(),
+            "attempt_id": "failed-attempt",
+            "stage": "load_issue",
+            "payload": {
+                "outcome": "failed",
+                "error_type": "RepositoryError",
+                "error_message": "Selected source file exceeds the size limit: src/large.py\nsk-syntheticcredential1234567890",
+            },
+        }
+        self.assertEqual(self.ingest(worker, [event]).status_code, 202)
+        response = self.client.get("/api/v1/events?attempt_id=failed-attempt")
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()[0]["payload"]
+        self.assertIn("src/large.py", payload["error_message"])
+        self.assertNotIn("sk-syntheticcredential1234567890", response.text)
+        self.assertEqual(payload["error_type"], "RepositoryError")
+
     def test_unknown_costs_and_parent_aggregates_are_not_added(self):
         worker = self.create_worker()
         events = [

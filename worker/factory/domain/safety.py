@@ -6,7 +6,8 @@ from typing import Iterable
 
 
 MAX_SOURCE_PATHS = 500
-MAX_SOURCE_FILE_BYTES = 32_768
+# Default for standalone callers; worker settings override this value.
+MAX_SOURCE_FILE_BYTES = 65_536
 logger = logging.getLogger("issue-worker.guardrails")
 
 _SECRET_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (

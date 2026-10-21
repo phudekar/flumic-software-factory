@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from datetime import timedelta
 from types import SimpleNamespace
 from hatchet_sdk import Context, DesiredWorkerLabel, DurableContext, EmptyModel
@@ -48,42 +49,46 @@ class HatchetDispatch:
         self.tasks = None
         self.observer = None
 
+    @contextmanager
     def _prepare(self, command):
         if self.observer is None:
-            return command
+            yield command
+            return
         with (
             incoming_trace(command.trace_context),
             self.observer.observe(
                 "dispatch", {"factory_run_id": command.factory_run_id}
             ),
         ):
-            return command.model_copy(
+            yield command.model_copy(
                 update={"trace_context": capture_trace() or command.trace_context}
             )
 
     def enqueue_issue(self, issue):
-        issue = self._prepare(issue)
-        self.tasks.issue_workflow.run(issue, wait_for_result=False)
+        with self._prepare(issue) as issue:
+            self.tasks.issue_workflow.run(issue, wait_for_result=False)
 
     def wait_for_discussion(self, issue):
-        issue = self._prepare(issue)
-        self.tasks.wait_for_ready_for_agent.run(
-            issue, wait_for_result=False, child_key=f"discussion-{issue.issue_number}"
-        )
+        with self._prepare(issue) as issue:
+            self.tasks.wait_for_ready_for_agent.run(
+                issue,
+                wait_for_result=False,
+                child_key=f"discussion-{issue.issue_number}",
+            )
 
     def wait_for_review(self, pull):
-        pull = self._prepare(pull)
-        self.tasks.wait_for_pull_review.run(
-            pull, wait_for_result=False, child_key=f"pull-review-{pull.pull_number}"
-        )
+        with self._prepare(pull) as pull:
+            self.tasks.wait_for_pull_review.run(
+                pull, wait_for_result=False, child_key=f"pull-review-{pull.pull_number}"
+            )
 
     def enqueue_feedback(self, pull):
-        pull = self._prepare(pull)
-        self.tasks.process_pull_request_feedback.run(pull, wait_for_result=False)
+        with self._prepare(pull) as pull:
+            self.tasks.process_pull_request_feedback.run(pull, wait_for_result=False)
 
     def verify_merge(self, pull):
-        pull = self._prepare(pull)
-        self.tasks.verify_merged_pr.run(pull, wait_for_result=False)
+        with self._prepare(pull) as pull:
+            self.tasks.verify_merged_pr.run(pull, wait_for_result=False)
 
 
 def build_worker(hatchet, service, settings, dispatch):

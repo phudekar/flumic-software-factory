@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from typing import Mapping
 
 from factory.configuration import Labels, TaskSettings
+from factory.domain.safety import MAX_SOURCE_FILE_BYTES
 
 
 def parse_max_patch_iterations(value: str) -> int:
@@ -46,7 +47,7 @@ class Settings:
     codex_model: str = "gpt-6-luna"
     claude_model: str = ""
     max_files_per_iteration: int = 5
-    max_file_bytes: int = 32768
+    max_file_bytes: int = MAX_SOURCE_FILE_BYTES
     max_context_tokens: int = 32000
     max_completion_tokens: int = 16000
     api_max_retries: int = 2
@@ -139,8 +140,8 @@ class Settings:
             raise ValueError("api_max_retries must be between 0 and 20")
         if not 1 <= self.max_files_per_iteration <= 5:
             raise ValueError("max_files_per_iteration must be between 1 and 5")
-        if self.max_file_bytes > 32768:
-            raise ValueError("max_file_bytes exceeds the 32768-byte safety ceiling")
+        if not isinstance(self.max_file_bytes, int):
+            raise ValueError("max_file_bytes must be a positive integer")
         if self.max_completion_tokens >= self.max_context_tokens:
             raise ValueError("max_completion_tokens must be below max_context_tokens")
         if len(self.scan_cron.split()) != 5:

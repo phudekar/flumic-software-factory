@@ -1186,3 +1186,9 @@ pre {
   padding: 0 5px;
   font-size: 11px;
 }
+
+.log-view-toggle button[aria-pressed="true"] {
+  border-color: #66bc9d;
+  background: #19372e;
+  color: #9be1c1;
+}

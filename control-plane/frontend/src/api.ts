@@ -31,6 +31,7 @@ export async function api<T>(path: string, body?: unknown): Promise<T> {
 }
 export interface Runtime {
   profile_refresh_supported?: boolean;
+  protocol_current?: boolean;
   id: string;
   instance_id: string | null;
   name: string;

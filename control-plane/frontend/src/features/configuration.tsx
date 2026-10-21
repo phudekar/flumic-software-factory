@@ -307,6 +307,29 @@ export function Configuration({ prompts = false }: { prompts?: boolean }) {
         )}
       </Section>
       {!factoryMode && !prompts && (
+        <Section title="File limits">
+          <div className="editor-body">
+            <label>
+              Maximum file size (bytes)
+              <input
+                type="number"
+                min={1}
+                step={1}
+                value={Number(settings.max_file_bytes ?? 65536)}
+                onChange={(e) =>
+                  updateSetting("max_file_bytes", Number(e.target.value))
+                }
+              />
+            </label>
+            <small>
+              Default 65,536 bytes (64 KiB), measured as UTF-8 bytes per file.
+              Applies to repository reads, coding output and final publication
+              validation. Changes take effect on worker restart.
+            </small>
+          </div>
+        </Section>
+      )}
+      {!factoryMode && !prompts && (
         <Section title="Startup script">
           <div className="editor-body">
             <p>

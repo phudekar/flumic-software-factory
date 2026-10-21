@@ -35,7 +35,8 @@ class AdapterTests(unittest.TestCase):
             "tasks": [
                 {
                     "taskExternalId": "task-1",
-                    "status": "COMPLETED",
+                    "status": "FAILED",
+                    "errorMessage": "RepositoryError: Selected source file exceeds the size limit",
                     "input": {"secret": "never return"},
                 }
             ],
@@ -46,6 +47,10 @@ class AdapterTests(unittest.TestCase):
         self.assertNotIn("never return", str(engine.runs()))
         self.assertNotIn("never return", str(engine.run("run-1")))
         self.assertEqual(engine.run("run-1")["tasks"][0]["id"], "task-1")
+        self.assertIn(
+            "Selected source file exceeds",
+            engine.run("run-1")["tasks"][0]["error_message"],
+        )
 
     def test_docker_scope_blocks_unrelated_containers(self):
         client = Mock()

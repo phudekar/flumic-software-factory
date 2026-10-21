@@ -6,7 +6,7 @@ defaults:
   discussion_poll_seconds: 30
   max_patch_iterations: 10
   max_files_per_iteration: 5
-  max_file_bytes: 32768
+  max_file_bytes: 65536
   worker_label_key: worker_type
   labels:
     needs_discussion: needs-discussion

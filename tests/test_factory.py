@@ -101,6 +101,35 @@ class FactoryTests(unittest.TestCase):
             status="ready", issue_number=2, source_paths=["src/app.py"]
         )
 
+    def test_polling_repository_failures_are_observed_without_holding_wait_interval(
+        self,
+    ):
+        from factory.adapters.control import ControlObserver
+        from factory.adapters.telemetry import LoggingObserver
+        from factory.domain.models import RepositoryError
+        from factory.settings import Settings
+
+        publisher = Mock()
+        observer = ControlObserver(LoggingObserver(), Settings(), publisher=publisher)
+        self.service.observer = observer
+        self.repository.get_issue.side_effect = RepositoryError(
+            "GitHub API request failed with HTTP 503"
+        )
+        try:
+            with self.assertRaises(RepositoryError):
+                self.service.discussion_status(self.command)
+            failed = [
+                call.args
+                for call in publisher.emit.call_args_list
+                if call.args[0] == "attempt.completed"
+            ]
+            self.assertEqual(failed[0][2]["stage"], "wait_for_ready_for_agent")
+            self.assertEqual(
+                failed[0][1]["error_message"], "GitHub API request failed with HTTP 503"
+            )
+        finally:
+            observer.shutdown()
+
     def test_custom_labels_and_task_context_reach_application_adapters(self):
         from factory.configuration import Labels, TaskSettings, current_task
 

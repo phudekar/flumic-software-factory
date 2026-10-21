@@ -165,6 +165,21 @@ class Publisher:
         self.thread.join(timeout=4)
 
 
+def failure_details(error):
+    """Factory errors have controlled text; never copy arbitrary SDK response bodies."""
+    known = (
+        type(error).__module__.startswith("factory.")
+        or type(error).__module__ == "sqlite3"
+        or type(error) is ValueError
+    )
+    message = (
+        redact(str(error))
+        if known
+        else "Unexpected exception; inspect redacted runtime logs for details."
+    )
+    return {"error_type": type(error).__name__, "error_message": message[:4096]}
+
+
 class CapturedCall:
     def __init__(self, delegate, observer, provider, model, agent, iteration):
         self.delegate, self.observer = delegate, observer
@@ -237,7 +252,7 @@ class Recorder:
                 yield call
                 call.payload["outcome"] = "completed"
             except BaseException as error:
-                call.payload.update(outcome="failed", error_type=type(error).__name__)
+                call.payload.update(outcome="failed", **failure_details(error))
                 raise
             finally:
                 _parent_call.reset(parent_token)
@@ -264,7 +279,15 @@ class ControlLogHandler(logging.Handler):
         ):
             self.publisher.emit(
                 "log",
-                {"message": redact(record.getMessage()), "level": record.levelname},
+                {
+                    "message": redact(record.getMessage()),
+                    "level": record.levelname,
+                    **{
+                        key: redact(getattr(record, key))
+                        for key in ("error_type", "error_message", "outcome")
+                        if hasattr(record, key)
+                    },
+                },
                 metadata,
             )
 
@@ -288,17 +311,26 @@ class ControlObserver:
             )
             started = time.monotonic()
             outcome = "completed"
+            failure = {}
             try:
                 with use_recorder(Recorder(self, current_recorder())):
                     yield
-            except BaseException:
+            except BaseException as error:
                 outcome = "failed"
+                failure = failure_details(error)
+                logging.getLogger("issue-worker.failure").error(
+                    "Stage failed: %s: %s",
+                    failure["error_type"],
+                    failure["error_message"],
+                    extra=failure,
+                )
                 raise
             finally:
                 self.publisher.emit(
                     "attempt.completed",
                     {
                         "outcome": outcome,
+                        **failure,
                         "duration_seconds": time.monotonic() - started,
                     },
                     metadata,

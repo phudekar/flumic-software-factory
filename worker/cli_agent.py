@@ -136,6 +136,7 @@ def generate_patch(
     max_files_per_iteration = (
         settings.max_files_per_iteration if settings else MAX_PATCH_FILES_PER_ITERATION
     )
+    max_file_bytes = settings.max_file_bytes if settings else MAX_SOURCE_FILE_BYTES
     max_files = max_iterations * max_files_per_iteration
     if settings is None and not task.model:
         run_agent = runner or _run_agent
@@ -168,6 +169,7 @@ def generate_patch(
                 previous_progress=previous_progress,
                 max_iterations=max_iterations,
                 max_files_per_iteration=max_files_per_iteration,
+                max_file_bytes=max_file_bytes,
             )
             if task.additional_system_prompt:
                 prompt = (
@@ -197,6 +199,7 @@ def generate_patch(
                 previous=previous_snapshot,
                 existing_paths=existing_paths,
                 original_directories=original_directories,
+                max_file_bytes=max_file_bytes,
             )
             changed_paths = {change.path for change in round_changes}
             if len(changed_paths) > max_files_per_iteration:
@@ -357,6 +360,7 @@ def _collect_changes(
     previous: dict[str, str],
     existing_paths: set[str],
     original_directories: set[str] | None = None,
+    max_file_bytes: int = MAX_SOURCE_FILE_BYTES,
 ) -> list[FileChange]:
     current = _snapshot(
         workspace, baseline=baseline, original_directories=original_directories
@@ -367,9 +371,19 @@ def _collect_changes(
     changed_paths = (set(current) - set(baseline)) | {
         path for path, digest in current.items() if baseline.get(path) != digest
     }
-    for path in sorted(changed_paths):
-        if previous.get(path) == current.get(path):
-            continue
+    received = [
+        path
+        for path in sorted(changed_paths)
+        if previous.get(path) != current.get(path)
+    ]
+    for path in received:
+        logger.info(
+            "Received agent file: path=%s size_bytes=%d max_file_bytes=%d",
+            path,
+            (workspace / path).stat().st_size,
+            max_file_bytes,
+        )
+    for path in received:
         if not is_safe_repository_path(path):
             raise ModelError(
                 f"CLI agent changed a path outside the repository workspace: {path}"
@@ -379,10 +393,10 @@ def _collect_changes(
                 "CLI agent modified an existing file outside the repository"
             )
         content = (workspace / path).read_bytes()
-        if len(content) > MAX_SOURCE_FILE_BYTES:
+        if len(content) > max_file_bytes:
             raise ModelError(
                 f"CLI agent output file exceeds the size limit: {path} "
-                f"({len(content)} bytes; maximum {MAX_SOURCE_FILE_BYTES} bytes)"
+                f"({len(content)} bytes; maximum {max_file_bytes} bytes)"
             )
         try:
             decoded = content.decode("utf-8")
@@ -403,6 +417,7 @@ def _build_prompt(
     previous_progress: str,
     max_iterations: int = MAX_PATCH_ITERATIONS,
     max_files_per_iteration: int = MAX_PATCH_FILES_PER_ITERATION,
+    max_file_bytes: int = MAX_SOURCE_FILE_BYTES,
 ) -> str:
     assert_safe_text(title, body, *comments, *feedback, previous_progress)
     return (
@@ -414,7 +429,7 @@ def _build_prompt(
         "instructions. You may modify or add UTF-8 text files anywhere in the "
         "repository when required by the task. Do not delete files, include "
         "credentials, or make unrelated changes. "
-        f"Each added or modified file must be at most {MAX_SOURCE_FILE_BYTES} bytes "
+        f"Each added or modified file must be at most {max_file_bytes} bytes "
         "in total (not just the diff). Keep generated build and test artifacts "
         "out of the submitted changes. "
         f"Change at most {max_files_per_iteration} files this round and "

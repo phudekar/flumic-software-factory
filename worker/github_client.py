@@ -28,12 +28,17 @@ GitHubError = RepositoryError
 
 
 class GitHubClient:
-    def __init__(self, repository: str) -> None:
+    max_file_bytes = MAX_SOURCE_FILE_BYTES
+
+    def __init__(
+        self, repository: str, *, max_file_bytes: int = MAX_SOURCE_FILE_BYTES
+    ) -> None:
         if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository):
             raise ValueError("GITHUB_REPOSITORY must be in owner/name form")
         token = os.environ.get("GITHUB_TOKEN")
         if not token:
             raise GitHubError("GITHUB_TOKEN is required")
+        self.max_file_bytes = max_file_bytes
         self.repository = repository
         self._token = token
         self._base = f"{_API_ROOT}/repos/{repository}"
@@ -157,7 +162,7 @@ class GitHubClient:
             and isinstance(entry.get("path"), str)
             and is_allowed_source_path(entry["path"])
             and isinstance(entry.get("size"), int)
-            and entry["size"] <= MAX_SOURCE_FILE_BYTES
+            and entry["size"] <= self.max_file_bytes
         ]
         return validate_source_inventory(paths)
 
@@ -277,8 +282,16 @@ class GitHubClient:
                 raise GitHubError("Selected source path no longer exists")
             blob = self._request("GET", f"/git/blobs/{entries[path]}")
             content = base64.b64decode(blob["content"], validate=False)
-            if len(content) > MAX_SOURCE_FILE_BYTES:
-                raise GitHubError("Selected source file exceeds the size limit")
+            logger.info(
+                "Received repository file: path=%s size_bytes=%d max_file_bytes=%d",
+                path,
+                len(content),
+                self.max_file_bytes,
+            )
+            if len(content) > self.max_file_bytes:
+                raise GitHubError(
+                    f"Selected source file exceeds the size limit: {path} ({len(content)} bytes; maximum {self.max_file_bytes} bytes)"
+                )
             try:
                 decoded = content.decode("utf-8")
             except UnicodeDecodeError:

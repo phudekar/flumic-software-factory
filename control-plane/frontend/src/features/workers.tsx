@@ -15,6 +15,7 @@ import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import type { FactoryEvent, WorkerConfig } from "../api";
 import { ScopedUsage } from "./runs";
+import { RuntimeLogView } from "../components/logs";
 import { date } from "../components/ui";
 import type { Operation, Worker, Workers } from "../api";
 import { api } from "../api";
@@ -85,12 +86,12 @@ export function WorkersPage() {
         </div>
       ))}
       {data.data?.managed.some(
-        (w) => w.runtime?.profile_refresh_supported === false,
+        (w) => w.runtime?.protocol_current === false,
       ) && (
         <div className="notice">
-          Existing worker images need one control-plane Restart to enable
-          automatic profile refresh and startup scripts. This upgrade has left
-          them running.
+          A worker runtime update is available. Restart through the control
+          plane to use configurable file limits and complete error capture.
+          Running workers have been left unchanged.
         </div>
       )}
       <div className="toolbar">
@@ -486,7 +487,7 @@ export function WorkersPage() {
                 <X />
               </button>
             </div>
-            <pre>{logs || "No log output captured."}</pre>
+            <RuntimeLogView content={logs} />
           </div>
         </div>
       )}

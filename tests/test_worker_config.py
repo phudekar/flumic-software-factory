@@ -194,6 +194,37 @@ class WorkerConfigTests(unittest.TestCase):
                 messages, max_context_tokens=10, max_completion_tokens=5
             )
 
+    def test_cli_uses_profile_file_limit_above_default(self):
+        import cli_agent
+        from dataclasses import replace
+
+        settings = replace(self.load(), max_file_bytes=70000)
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            (home / "workspaces").mkdir()
+
+            def run(agent, workspace, prompt, **options):
+                self.assertIn("at most 70000 bytes", prompt)
+                (workspace / "large.txt").write_text("x" * 66000)
+                return '{"is_complete":true,"progress":"done","pull_title":"Done","pull_body":"Complete"}'
+
+            with (
+                patch.object(cli_agent, "AGENT_HOME", home),
+                patch.object(cli_agent, "_extract_archive"),
+                patch.object(cli_agent, "_set_agent_ownership"),
+            ):
+                plan = cli_agent.generate_patch(
+                    title="Implement",
+                    body="Description",
+                    comments=[],
+                    existing_paths=set(),
+                    archive=b"",
+                    agent="codex",
+                    settings=settings,
+                    runner=run,
+                )
+            self.assertEqual(len(plan.changes[0].content), 66000)
+
     def test_cli_receives_task_model_prompt_and_timeout(self):
         import cli_agent
 

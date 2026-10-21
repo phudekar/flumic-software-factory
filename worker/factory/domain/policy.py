@@ -2,6 +2,7 @@ from dataclasses import dataclass
 
 from factory.domain.models import ModelError, PatchPlan
 from factory.domain.safety import (
+    MAX_SOURCE_FILE_BYTES,
     assert_safe_text,
     is_allowed_source_path,
     is_safe_repository_path,
@@ -12,7 +13,7 @@ from factory.domain.safety import (
 class ExecutionPolicy:
     path_scope: str = "source"
     max_files: int = 50
-    max_file_bytes: int = 32_768
+    max_file_bytes: int = MAX_SOURCE_FILE_BYTES
 
     def __post_init__(self):
         if self.path_scope not in {"source", "repository"}:
@@ -35,5 +36,8 @@ class ExecutionPolicy:
                 raise ModelError("Patch contains a disallowed or duplicate path")
             seen.add(change.path)
             if len(change.content.encode("utf-8")) > self.max_file_bytes:
-                raise ModelError("Patch file exceeds the size limit")
+                raise ModelError(
+                    f"Patch file exceeds the size limit: {change.path} "
+                    f"({len(change.content.encode('utf-8'))} bytes; maximum {self.max_file_bytes} bytes)"
+                )
             assert_safe_text(change.path, change.content)

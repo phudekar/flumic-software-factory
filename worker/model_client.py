@@ -10,7 +10,11 @@ from factory.configuration import current_task
 from openai import OpenAI
 from pydantic import ValidationError
 
-from factory.domain.safety import assert_safe_text, is_allowed_source_path
+from factory.domain.safety import (
+    MAX_SOURCE_FILE_BYTES,
+    assert_safe_text,
+    is_allowed_source_path,
+)
 from factory.adapters.token_budget import MAX_COMPLETION_TOKENS, count_request_tokens
 
 from factory.domain.models import (  # noqa: F401
@@ -35,6 +39,7 @@ logger = logging.getLogger("issue-worker.model")
 class ModelClient:
     max_patch_iterations = MAX_PATCH_ITERATIONS
     max_patch_files = MAX_PATCH_FILES
+    max_file_bytes = MAX_SOURCE_FILE_BYTES
     max_files_per_iteration = MAX_PATCH_FILES_PER_ITERATION
     max_context_tokens = 32000
     max_completion_tokens = MAX_COMPLETION_TOKENS
@@ -49,6 +54,9 @@ class ModelClient:
             settings.max_files_per_iteration
             if settings
             else MAX_PATCH_FILES_PER_ITERATION
+        )
+        self.max_file_bytes = (
+            settings.max_file_bytes if settings else MAX_SOURCE_FILE_BYTES
         )
         self.max_patch_files = self.max_patch_iterations * self.max_files_per_iteration
         key = os.environ.get("OPENAI_API_KEY")
@@ -164,7 +172,7 @@ class ModelClient:
             f"{review_instructions} Implement the requested work in up to "
             f"{self.max_patch_iterations} incremental rounds with no more than "
             f"{self.max_files_per_iteration} file changes per round and "
-            f"{self.max_patch_files} changed files total. In each round, make a focused set "
+            f"{self.max_patch_files} changed files total. Each added or modified file must be at most {self.max_file_bytes} bytes of UTF-8 text. In each round, make a focused set "
             "of changes and inspect the current working files and progress from prior "
             "rounds. Set is_complete=true only when all issue requirements or actionable "
             "review feedback are satisfied; otherwise set it to false and use progress to "
@@ -219,9 +227,21 @@ class ModelClient:
                     "Patch response exceeds the configured per-iteration file limit"
                 )
 
+            for change in plan.changes:
+                logger.info(
+                    "Received model file: path=%s size_bytes=%d max_file_bytes=%d",
+                    change.path,
+                    len(change.content.encode("utf-8")),
+                    self.max_file_bytes,
+                )
             changed_this_round = False
             seen_paths: set[str] = set()
             for change in plan.changes:
+                size = len(change.content.encode("utf-8"))
+                if size > self.max_file_bytes:
+                    raise ModelError(
+                        f"Model output file exceeds the size limit: {change.path} ({size} bytes; maximum {self.max_file_bytes} bytes)"
+                    )
                 if not is_allowed_source_path(change.path):
                     raise ModelError("Patch contains a protected or unsupported path")
                 if change.path in seen_paths:
@@ -425,8 +445,16 @@ class ModelClient:
                     response_format={"type": "json_object"},
                     max_completion_tokens=self.max_completion_tokens,
                 )
-            except Exception:
-                raise ModelError("Model request failed") from None
+            except Exception as error:
+                # Preserve useful failure classification without copying provider
+                # response bodies, prompts or request headers into normal logs.
+                details = [type(error).__name__]
+                status = getattr(error, "status_code", None)
+                if isinstance(status, int) and not isinstance(status, bool):
+                    details.append(f"HTTP {status}")
+                raise ModelError(
+                    "Model request failed (" + ", ".join(details) + ")"
+                ) from None
             usage = getattr(response, "usage", None)
             if usage is not None:
                 prompt_details = getattr(usage, "prompt_tokens_details", None)

@@ -36,7 +36,9 @@ class DockerRuntime:
                     "profile_refresh_supported": labels.get(
                         "software-factory.control-protocol"
                     )
-                    == "2",
+                    in {"2", "3"},
+                    "protocol_current": labels.get("software-factory.control-protocol")
+                    == "3",
                     "profile": labels.get("factory.profile"),
                     "revision_id": labels.get("factory.revision"),
                     "target_id": "local-docker",
@@ -83,7 +85,7 @@ class DockerRuntime:
         approved_image = self.client.images.get(image)  # Never pull arbitrary images.
         if (approved_image.attrs.get("Config", {}).get("Labels") or {}).get(
             "software-factory.control-protocol"
-        ) != "2":
+        ) != "3":
             raise ValueError(
                 "Rebuild worker images before creating instrumented workers"
             )

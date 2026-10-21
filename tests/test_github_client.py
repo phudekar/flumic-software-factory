@@ -15,6 +15,36 @@ class GitHubClientTests(unittest.TestCase):
         self.client.repository = "owner/repo"
         self.client._request = Mock()
 
+    def test_repository_reads_honor_configured_file_limit(self):
+        import base64
+
+        self.client.max_file_bytes = 40000
+        self.client._get_default_branch_tree = Mock(
+            return_value=[
+                {"path": "src/large.py", "type": "blob", "size": 40000, "sha": "one"},
+                {
+                    "path": "src/oversized.py",
+                    "type": "blob",
+                    "size": 40001,
+                    "sha": "two",
+                },
+            ]
+        )
+        self.assertEqual(self.client.list_source_paths(), ["src/large.py"])
+        self.client._request.return_value = {
+            "content": base64.b64encode(b"x" * 40000).decode()
+        }
+        self.assertEqual(
+            len(self.client.get_source_files(["src/large.py"])["src/large.py"]), 40000
+        )
+        self.client._request.return_value = {
+            "content": base64.b64encode(b"x" * 40001).decode()
+        }
+        with self.assertRaisesRegex(
+            Exception, "src/large.py.*40001 bytes; maximum 40000"
+        ):
+            self.client.get_source_files(["src/large.py"])
+
     def test_feedback_collection_includes_conversation_inline_and_review_comments(self):
         self.client._request.side_effect = [
             [

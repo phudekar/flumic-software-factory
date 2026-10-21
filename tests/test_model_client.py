@@ -19,6 +19,52 @@ class ModelClientTests(unittest.TestCase):
     def setUp(self):
         self.client = ModelClient.__new__(ModelClient)
 
+    def test_model_file_limit_uses_utf8_bytes_and_logs_filename(self):
+        self.client.max_file_bytes = 12
+        result = {
+            "is_complete": True,
+            "progress": "done",
+            "pull_title": "Done",
+            "pull_body": "Complete",
+            "changes": [{"path": "src/large.py", "content": "é" * 7}],
+        }
+        self.client._complete = Mock(return_value=json.dumps(result))
+        with self.assertLogs("issue-worker.model", level="INFO") as logs:
+            with self.assertRaisesRegex(ModelError, "14 bytes; maximum 12 bytes"):
+                self.client.generate_patch(
+                    title="Task",
+                    body="Description",
+                    comments=[],
+                    files={},
+                    existing_paths=set(),
+                )
+        self.assertIn("src/large.py", "\n".join(logs.output))
+        self.assertNotIn("é", "\n".join(logs.output))
+        result["changes"][0]["content"] = "é" * 6
+        self.client._complete.return_value = json.dumps(result)
+        plan = self.client.generate_patch(
+            title="Task",
+            body="Description",
+            comments=[],
+            files={},
+            existing_paths=set(),
+        )
+        self.assertEqual(plan.changes[0].content, "é" * 6)
+
+    def test_provider_failure_keeps_type_and_status_without_response_body(self):
+        class RateLimitError(Exception):
+            status_code = 429
+
+        self.client.model = "gpt-4.1-mini"
+        self.client.client = Mock()
+        self.client.client.chat.completions.create.side_effect = RateLimitError(
+            "private provider response body"
+        )
+        with self.assertRaises(ModelError) as raised:
+            self.client._complete([{"role": "user", "content": "Task"}])
+        self.assertIn("RateLimitError, HTTP 429", str(raised.exception))
+        self.assertNotIn("private provider response body", str(raised.exception))
+
     def test_patch_iteration_setting_accepts_values_within_configured_bounds(self):
         self.assertEqual(_parse_max_patch_iterations("1"), 1)
         self.assertEqual(_parse_max_patch_iterations("10"), 10)

@@ -1,5 +1,6 @@
 """Bounded Hatchet reads. Payloads are allowlisted, never raw SDK responses."""
 
+from app.security import redact
 from factory.settings import Settings
 from factory.adapters.orchestration.hatchet import create_client
 
@@ -110,6 +111,7 @@ class HatchetEngine:
                     "name": task.get("displayName"),
                     "status": task.get("status"),
                     "attempt": task.get("attempt"),
+                    "error_message": redact(task.get("errorMessage")),
                     "started_at": task.get("startedAt"),
                     "finished_at": task.get("finishedAt"),
                 }
