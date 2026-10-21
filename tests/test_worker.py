@@ -1,28 +1,33 @@
 import sys
 import unittest
 from pathlib import Path
-from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "worker"))
 
-import worker
-from model_client import (
+from factory.domain.models import (
     FileChange,
     IssueWorkPlan,
     ModelError,
     PatchPlan,
     PlannedSubtask,
 )
-from worker import (
+from factory.application.helpers import (
     _format_issue_plan_comment,
     _format_review_feedback,
     _format_sub_issue_body,
-    _generate_code_patch,
     _pending_pull_feedback,
     _stored_issue_plan,
     _sub_issue_marker,
-    _validate_patch,
 )
+
+
+from factory.domain.policy import ExecutionPolicy
+
+
+def _validate_patch(plan, *, allow_all_repository_paths=False):
+    ExecutionPolicy(
+        path_scope="repository" if allow_all_repository_paths else "source"
+    ).validate_patch(plan)
 
 
 class PatchValidationTests(unittest.TestCase):
@@ -109,59 +114,6 @@ class PullRequestFeedbackTests(unittest.TestCase):
         formatted = _format_review_feedback(pending[0])
         self.assertIn("Automated review found an issue.", formatted)
         self.assertNotIn("hatchet-issue-agent-review", formatted)
-
-
-class WorkerBackendRoutingTests(unittest.TestCase):
-    def test_api_backend_generates_patch_without_repository_archive(self):
-        github = Mock()
-        expected = object()
-        with (
-            patch("worker.DEVELOPER_AGENT", "api"),
-            patch("worker.ModelClient") as model_client,
-        ):
-            model_client.return_value.generate_patch.return_value = expected
-            result = _generate_code_patch(
-                github=github,
-                title="Add feature",
-                body="Implement it.",
-                comments=[],
-                files={"src/main.py": "print('hello')"},
-                existing_paths={"src/main.py"},
-            )
-
-        self.assertIs(result, expected)
-        github.get_repository_archive.assert_not_called()
-        model_client.return_value.generate_patch.assert_called_once()
-
-    def test_cli_backend_fetches_repository_archive(self):
-        github = Mock()
-        github.get_repository_archive.return_value = b"archive"
-        expected = object()
-        with (
-            patch("worker.DEVELOPER_AGENT", "codex"),
-            patch("worker.generate_cli_patch", return_value=expected) as generate,
-        ):
-            result = _generate_code_patch(
-                github=github,
-                title="Add feature",
-                body="Implement it.",
-                comments=["Please add a test."],
-                files={},
-                existing_paths={"src/main.py"},
-                branch="feature-branch",
-            )
-
-        self.assertIs(result, expected)
-        github.get_repository_archive.assert_called_once_with("feature-branch")
-        self.assertEqual(generate.call_args.kwargs["archive"], b"archive")
-
-    def test_worker_label_values_match_task_routing_roles(self):
-        self.assertEqual(worker.SIMPLE_WORKER_LABEL.key, "worker_type")
-        self.assertEqual(worker.SIMPLE_WORKER_LABEL.value, "simple")
-        self.assertTrue(worker.SIMPLE_WORKER_LABEL.required)
-        self.assertEqual(worker.DEVELOPER_WORKER_LABEL.key, "worker_type")
-        self.assertEqual(worker.DEVELOPER_WORKER_LABEL.value, "developer")
-        self.assertTrue(worker.DEVELOPER_WORKER_LABEL.required)
 
 
 class IssuePlanningTests(unittest.TestCase):

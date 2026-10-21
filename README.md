@@ -6,6 +6,22 @@ changes on an isolated branch, and opens a draft pull request. Hatchet handles
 the task DAG, three concurrent issue workflows, five-minute scan schedule,
 event triggers, and durable waits.
 
+## Architecture and migration
+
+The factory now separates application operations from Hatchet, coding agents,
+state, and telemetry. See [the migration plan](docs/architecture-migration.md)
+and [the implemented architecture and extension guide](docs/architecture.md).
+Planning, implementation, review, state, and observation adapters can be selected
+independently. Existing Hatchet task names and GitHub recovery markers remain.
+
+## Worker and model dashboards
+
+An optional SigNoz stack visualizes worker activity, issue traces, models, token
+usage, and estimated costs. See [the observability guide](docs/observability.md).
+Start it with `./scripts/start-observability.sh`, open `http://localhost:3301`,
+and the factory dashboard is provisioned automatically. Start factory
+workers with telemetry using `./scripts/start-observed-workers.sh -d`.
+
 ## Prerequisites
 
 - Docker Engine and the standalone `docker-compose` command
@@ -20,19 +36,16 @@ event triggers, and durable waits.
 ## Configure credentials
 
 Copy `.env.example` to `.env` and set `GITHUB_TOKEN` and `OPENAI_API_KEY`.
-`GITHUB_REPOSITORY` should remain `phudekar/software-factory` unless the worker
-is intentionally being redirected.
+[`worker-config.yaml`](worker-config.yaml) includes related files under `config/` for models,
+agent selection, limits, task retries/timeouts, per-task additional prompts,
+GitHub labels, scan cron, logging, and telemetry. See the
+[configuration guide](docs/worker-configuration.md) for examples and precedence.
 
-Set `DEVELOPER_AGENT` to `codex` (default), `claude`, or `api` to choose how
-code changes are generated. Codex requires `OPENAI_API_KEY` (or the optional
-`DEVELOPER_OPENAI_API_KEY` override); Claude Code requires `ANTHROPIC_API_KEY`;
-`api` uses the direct OpenAI backend and accepts `DEVELOPER_OPENAI_API_KEY`
-or falls back to `OPENAI_API_KEY`.
-Changing the CLI backend also changes the developer image, so rebuild with
-`./scripts/start-workers.sh -d` after changing this setting.
-For the Codex backend, set `CODEX_MODEL` in `.env` to choose its model
-(default: `gpt-6-luna`). Both code-generation runs and the Codex healthcheck use
-this setting.
+Set `workers.developer.developer_agent` to `codex`, `claude`, or `api`.
+Codex/API coding requires `OPENAI_API_KEY` (or `DEVELOPER_OPENAI_API_KEY`);
+Claude Code requires `ANTHROPIC_API_KEY`. The developer image includes both CLIs.
+`defaults.codex_model` selects the model used by coding and the Codex healthcheck.
+Restart workers after editing YAML; rebuild once to apply this migration.
 
 The GitHub token needs permission to read issues and source, create comments
 and labels, create/link sub-issues, create branches, and open draft pull requests.
@@ -66,7 +79,9 @@ planning, waiting, and review tasks to workers labeled `worker_type=simple`;
 code generation and PR-feedback changes require `worker_type=developer`.
 Both roles must be running for end-to-end issue processing. The simple workers
 join `worker-network`. All workers have shared directories mounted read/write
-at `/shared` and `/data`.
+at `/shared` and `/data`. Factory state and prepared changes are stored in
+`/data/factory.sqlite3`; all workers must share this database and its lock directory
+on the same host. See the architecture guide before using multiple hosts.
 
 Developer CLI processes run as the unprivileged `agent` user with a reduced
 environment and receive the configured provider API key directly. They can run
@@ -75,8 +90,8 @@ resources and the mounted shared directories. Treat repositories and their
 model-generated changes as untrusted, and do not place sensitive data in the
 mounted directories.
 
-When `DEVELOPER_AGENT=codex`, Compose checks the developer worker by making a
-small Codex completion request using the configured `CODEX_MODEL` and provider
+When `workers.developer.developer_agent: codex`, Compose checks the developer worker by making a
+small Codex completion request using the configured `defaults.codex_model` and provider
 key every 10 minutes. The same model is used for Codex code-generation tasks. This
 verifies that Codex can reach and use the configured OpenAI endpoint, not just
 that DNS or TCP connectivity works. The request can incur a small provider
@@ -88,10 +103,10 @@ docker inspect --format '{{range .State.Health.Log}}{{println .End .ExitCode .Ou
   "$(docker-compose ps -q developer-worker)"
 ```
 
-Codex stdout and stderr are logged after the CLI exits, capped at 8,000
-characters per stream, with prompts and recognizable credentials redacted. The
-completion response is not logged. Use `docker-compose logs developer-worker`
-to inspect Codex output and workflow failures.
+CLI process completion logs contain the agent name and exit code. Raw JSON
+streams, prompts, completions, and tool output are not exported as normal progress
+logs. Structured usage is recorded by the optional OpenTelemetry observer.
+Use `docker-compose logs developer-worker` for workflow and process metadata.
 
 To check Hatchet connectivity, authenticated GitHub repository access, and
 OpenAI model access from an ephemeral container without starting the worker:
@@ -102,9 +117,9 @@ OpenAI model access from an ephemeral container without starting the worker:
 
 The check uses the configured Hatchet profile endpoint and reports DNS
 resolution, TCP connection, and gRPC channel readiness. It also makes an
-authenticated read request for `GITHUB_REPOSITORY` using `GITHUB_TOKEN`. The
+authenticated read request for `defaults.repository` using `GITHUB_TOKEN`. The
 token is never printed. Finally, it sends a small, standalone JSON-mode
-completion request to the configured `OPENAI_MODEL` using `OPENAI_API_KEY`;
+completion request to the configured `defaults.openai_model` using `OPENAI_API_KEY`;
 this request is billable. API failures report status/type/code, not the key.
 For example, `model_not_found` means the configured model is unavailable to
 the API project or the project is not authorized to use it.
@@ -137,7 +152,7 @@ as creating issues, branches, or pull requests.
    If no existing file is relevant, it may still propose a new file. The total
    model request, including its reserved response budget, is limited to 32,000
    tokens, with up to 16,000 tokens reserved for the response. Patch generation
-   can use up to `MAX_PATCH_ITERATIONS` incremental model rounds (default 10,
+   can use up to `defaults.max_patch_iterations` incremental model rounds (default 10,
    configurable from 1 to 20), each changing at most five files. Earlier
    changes and progress carry forward; the worker publishes only after the
    model reports the requirements complete. Set the variable in `.env` to
@@ -164,7 +179,7 @@ as creating issues, branches, or pull requests.
    protection in GitHub; the worker does not run project-controlled tests in
    its credential-bearing container. A team member marks the draft ready for
    review, approves it, and merges it.
-9. Durable Hatchet tasks wait for approval and merge events, verify the merged
+9. Durable Hatchet tasks poll current PR state through review and merge, verify the merged
    commit and checks, comment on the issue, and close it. Cron processing then
    advances to the next pending issue.
 10. A separate five-minute scan and GitHub comment/review webhooks inspect open
@@ -209,8 +224,8 @@ poll GitHub, so a missed label webhook does not leave them waiting indefinitely.
 
 ### Cron schedule and manual event
 
-The scan schedule is declared in `worker/worker.py` as `*/5 * * * *` (UTC).
-Change `SCAN_CRON` and restart/redeploy workers to change it. List registered
+The scan schedule defaults to `*/5 * * * *` (UTC) in factory settings.
+Set `defaults.scan_cron` in `config/workflow.yaml` and restart/redeploy workers to change it. List registered
 cron jobs for the named profile with:
 
 ```sh

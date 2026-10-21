@@ -1,0 +1,7 @@
+# Worker profile; shared settings are inherited automatically.
+workers:
+  developer:
+    worker_type: developer
+    worker_name: software-factory-developer-worker
+    developer_agent: codex
+    path_policy: repository

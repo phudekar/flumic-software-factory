@@ -1,3 +1,7 @@
 hatchet-sdk
 openai
 tiktoken
+pydantic>=2.6,<3
+opentelemetry-sdk>=1.39,<2
+opentelemetry-exporter-otlp-proto-http>=1.39,<2
+PyYAML>=6,<7

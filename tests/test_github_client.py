@@ -248,5 +248,115 @@ class GitHubClientTests(unittest.TestCase):
         )
 
 
+class RevisionPublicationTests(unittest.TestCase):
+    def setUp(self):
+        self.client = GitHubClient.__new__(GitHubClient)
+        self.client.repository = "owner/repo"
+        self.client._request = Mock()
+
+    def test_immutable_tree_lookup_does_not_use_a_branch_endpoint(self):
+        revision = "a" * 40
+        self.client._request.return_value = {
+            "tree": [{"path": "src/app.py", "type": "blob", "size": 10}]
+        }
+        self.assertEqual(self.client.list_repository_paths(revision), {"src/app.py"})
+        self.client._request.assert_called_once_with(
+            "GET", f"/git/trees/{revision}", query={"recursive": "1"}
+        )
+
+    def test_stale_feedback_branch_is_rejected_before_writes(self):
+        from factory.domain.models import StaleRevisionError
+
+        self.client._get_branch_sha = Mock(return_value="b" * 40)
+        with self.assertRaises(StaleRevisionError):
+            self.client.update_pull_request_branch(
+                branch="branch",
+                issue_number=2,
+                feedback_cursor={},
+                changes=[],
+                expected_base_sha="a" * 40,
+            )
+        self.client._request.assert_not_called()
+
+    def test_changed_default_branch_is_rejected_before_publication(self):
+        from factory.domain.models import StaleRevisionError
+
+        self.client._get_branch_sha = Mock(return_value=None)
+        self.client._request.side_effect = [
+            {"default_branch": "main"},
+            {"commit": {"sha": "b" * 40}},
+        ]
+        with self.assertRaises(StaleRevisionError):
+            self.client.create_draft_pull_request(
+                issue_number=2,
+                title="Change",
+                body="Implement.",
+                branch="branch",
+                changes=[],
+                expected_base_sha="a" * 40,
+            )
+        self.assertTrue(
+            all(call.args[0] == "GET" for call in self.client._request.call_args_list)
+        )
+
+    def test_branch_commit_is_recovered_when_pr_creation_failed(self):
+        revision, published = "a" * 40, "b" * 40
+        changes = [SimpleNamespace(path="src/app.py", content="value = 1\n")]
+        self.client._get_branch_sha = Mock(return_value=None)
+        self.client._commit_branch_changes = Mock(return_value=published)
+        self.client._request.side_effect = [
+            {"default_branch": "main"},
+            {"commit": {"sha": revision}},
+            RuntimeError("PR request failed"),
+        ]
+        with self.assertRaises(RuntimeError):
+            self.client.create_draft_pull_request(
+                issue_number=2,
+                title="Change",
+                body="Implement.",
+                branch="branch",
+                changes=changes,
+                expected_base_sha=revision,
+            )
+        message = self.client._commit_branch_changes.call_args.kwargs["message"]
+        self.client._get_branch_sha.return_value = published
+        self.client._request.side_effect = [
+            {"default_branch": "main"},
+            {"message": message},
+            {"number": 4},
+        ]
+        result = self.client.create_draft_pull_request(
+            issue_number=2,
+            title="Change",
+            body="Implement.",
+            branch="branch",
+            changes=changes,
+            expected_base_sha=revision,
+        )
+        self.assertEqual(result, {"number": 4})
+        self.client._commit_branch_changes.assert_called_once()
+
+    def test_branch_race_before_ref_update_does_not_overwrite(self):
+        from factory.domain.models import StaleRevisionError
+
+        self.client._get_branch_sha = Mock(return_value="new-sha")
+        self.client._request.side_effect = [
+            {"tree": {"sha": "tree"}},
+            {"sha": "blob"},
+            {"sha": "tree"},
+            {"sha": "commit"},
+        ]
+        with self.assertRaises(StaleRevisionError):
+            self.client._commit_branch_changes(
+                branch="branch",
+                base_sha="old-sha",
+                issue_number=2,
+                changes=[SimpleNamespace(path="src/app.py", content="value = 1\n")],
+            )
+        self.assertFalse(
+            any(call.args[0] == "PATCH" for call in self.client._request.call_args_list)
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

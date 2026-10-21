@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import logging
 import os
@@ -10,7 +11,9 @@ import urllib.parse
 import urllib.request
 from typing import Any
 
-from guardrails import (
+from factory.domain.models import RepositoryError, StaleRevisionError
+
+from factory.domain.safety import (
     MAX_SOURCE_FILE_BYTES,
     assert_safe_text,
     is_allowed_source_path,
@@ -20,8 +23,8 @@ from guardrails import (
 _API_ROOT = "https://api.github.com"
 MAX_REPOSITORY_ARCHIVE_BYTES = 128 * 1024 * 1024
 logger = logging.getLogger("issue-worker.github")
-class GitHubError(RuntimeError):
-    pass
+
+GitHubError = RepositoryError
 
 
 class GitHubClient:
@@ -73,9 +76,7 @@ class GitHubClient:
                 break
         return result
 
-    def find_issues_by_markers(
-        self, markers: set[str]
-    ) -> dict[str, dict[str, int]]:
+    def find_issues_by_markers(self, markers: set[str]) -> dict[str, dict[str, int]]:
         found: dict[str, dict[str, int]] = {}
         for page in range(1, 11):
             items = self._request(
@@ -146,7 +147,9 @@ class GitHubClient:
         )
 
     def list_source_paths(self, branch: str | None = None) -> list[str]:
-        entries = self._get_branch_tree(branch) if branch else self._get_default_branch_tree()
+        entries = (
+            self._get_branch_tree(branch) if branch else self._get_default_branch_tree()
+        )
         paths = [
             entry["path"]
             for entry in entries[:20_000]
@@ -202,20 +205,31 @@ class GitHubClient:
             raise GitHubError("GitHub returned an empty repository archive")
         return raw
 
+    def resolve_revision(self, ref: str | None = None) -> str:
+        if ref is None:
+            repository = self._request("GET", "")
+            ref = repository.get("default_branch")
+            if not isinstance(ref, str) or not ref:
+                raise GitHubError("Repository has no configured default branch")
+        if re.fullmatch(r"[0-9a-f]{40}", ref):
+            return ref
+        commit = self._request("GET", f"/commits/{urllib.parse.quote(ref, safe='')}")
+        sha = commit.get("sha")
+        if not isinstance(sha, str) or not re.fullmatch(r"[0-9a-f]{40}", sha):
+            raise GitHubError("Could not resolve repository revision")
+        return sha
+
     def _get_branch_tree(self, branch: str) -> list[dict[str, Any]]:
-        branch_data = self._request(
-            "GET", f"/branches/{urllib.parse.quote(branch, safe='')}"
-        )
-        sha = branch_data.get("commit", {}).get("sha")
-        if not isinstance(sha, str):
-            raise GitHubError("Could not determine pull-request branch commit")
+        sha = self.resolve_revision(branch)
         tree = self._request(
             "GET",
             f"/git/trees/{sha}",
             query={"recursive": "1"},
         )
         if tree.get("truncated"):
-            raise GitHubError("Repository tree is too large to validate safe file paths")
+            raise GitHubError(
+                "Repository tree is too large to validate safe file paths"
+            )
         entries = tree.get("tree")
         if not isinstance(entries, list):
             raise GitHubError("GitHub returned an invalid repository tree")
@@ -237,7 +251,9 @@ class GitHubClient:
             query={"recursive": "1"},
         )
         if tree.get("truncated"):
-            raise GitHubError("Repository tree is too large to validate safe file paths")
+            raise GitHubError(
+                "Repository tree is too large to validate safe file paths"
+            )
         entries = tree.get("tree")
         if not isinstance(entries, list):
             raise GitHubError("GitHub returned an invalid repository tree")
@@ -301,14 +317,18 @@ class GitHubClient:
                     query={"per_page": "100", "page": str(page)},
                 )
                 if not isinstance(response, list):
-                    raise GitHubError("GitHub returned an invalid pull-request feedback list")
+                    raise GitHubError(
+                        "GitHub returned an invalid pull-request feedback list"
+                    )
                 for item in response:
                     body = item.get("body")
                     comment_id = item.get("id")
                     if not isinstance(body, str) or not body.strip():
                         continue
                     if not isinstance(comment_id, int):
-                        raise GitHubError("GitHub returned feedback without a numeric ID")
+                        raise GitHubError(
+                            "GitHub returned feedback without a numeric ID"
+                        )
                     items.append(
                         {
                             "id": comment_id,
@@ -324,9 +344,7 @@ class GitHubClient:
                     break
         return sorted(items, key=lambda item: item["id"])
 
-    def pull_feedback_cursor(
-        self, pull_number: int, branch: str
-    ) -> dict[str, int]:
+    def pull_feedback_cursor(self, pull_number: int, branch: str) -> dict[str, int]:
         marker = re.compile(r"<!-- hatchet-pr-feedback-cursor:([^ >]+) -->")
         cursor = {"conversation": 0, "inline review": 0, "review": 0}
         comments = self._list_issue_comments(pull_number)
@@ -347,7 +365,9 @@ class GitHubClient:
         self, pull_number: int, cursor: dict[str, int], summary: str
     ) -> None:
         assert_safe_text(summary)
-        marker = f"<!-- hatchet-pr-feedback-cursor:{_format_feedback_cursor(cursor)} -->"
+        marker = (
+            f"<!-- hatchet-pr-feedback-cursor:{_format_feedback_cursor(cursor)} -->"
+        )
         comments = self._list_issue_comments(pull_number)
         for comment in comments:
             body = str(comment.get("body") or "")
@@ -442,7 +462,9 @@ class GitHubClient:
         )
 
     def find_issue_pull_request(self, issue_number: int) -> dict[str, Any] | None:
-        pulls = self._request("GET", "/pulls", query={"state": "open", "per_page": "100"})
+        pulls = self._request(
+            "GET", "/pulls", query={"state": "open", "per_page": "100"}
+        )
         if not isinstance(pulls, list):
             raise GitHubError("GitHub returned an invalid pull-request list")
         marker = f"Closes #{issue_number}"
@@ -460,23 +482,52 @@ class GitHubClient:
         body: str,
         branch: str,
         changes: list[Any],
+        expected_base_sha: str | None = None,
     ) -> dict[str, Any]:
         assert_safe_text(title, body, *(change.content for change in changes))
         repository = self._request("GET", "")
         default_branch = str(repository["default_branch"])
-        base_sha = self._get_branch_sha(branch, allow_missing=True)
+        branch_sha = self._get_branch_sha(branch, allow_missing=True)
+        base_sha = branch_sha
         if base_sha is None:
             default_data = self._request(
                 "GET",
                 f"/branches/{urllib.parse.quote(default_branch, safe='')}",
             )
             base_sha = str(default_data["commit"]["sha"])
-        self._commit_branch_changes(
-            branch=branch,
-            base_sha=base_sha,
-            issue_number=issue_number,
-            changes=changes,
-        )
+        marker = None
+        recovered = False
+        if expected_base_sha is not None:
+            fingerprint = hashlib.sha256(
+                json.dumps(
+                    {
+                        "base": expected_base_sha,
+                        "changes": [
+                            {"path": c.path, "content": c.content} for c in changes
+                        ],
+                    },
+                    sort_keys=True,
+                ).encode()
+            ).hexdigest()
+            marker = f"<!-- factory-patch:{fingerprint} -->"
+            if branch_sha and branch_sha != expected_base_sha:
+                commit = self._request("GET", f"/git/commits/{branch_sha}")
+                # Recover a branch commit that succeeded before PR creation failed.
+                recovered = marker in str(commit.get("message") or "")
+            if not recovered and base_sha != expected_base_sha:
+                raise StaleRevisionError(
+                    "Repository revision changed during generation"
+                )
+        if not recovered:
+            self._commit_branch_changes(
+                branch=branch,
+                base_sha=base_sha,
+                issue_number=issue_number,
+                changes=changes,
+                message=f"Propose changes for issue #{issue_number}\n\n{marker}"
+                if marker
+                else None,
+            )
         pr_body = f"{body.rstrip()}\n\nCloses #{issue_number}"
         return self._request(
             "POST",
@@ -497,10 +548,13 @@ class GitHubClient:
         issue_number: int,
         feedback_cursor: dict[str, int],
         changes: list[Any],
+        expected_base_sha: str | None = None,
     ) -> str:
         base_sha = self._get_branch_sha(branch, allow_missing=False)
         if base_sha is None:
             raise GitHubError("Pull-request branch no longer exists")
+        if expected_base_sha is not None and base_sha != expected_base_sha:
+            raise StaleRevisionError("Pull-request branch changed during generation")
         return self._commit_branch_changes(
             branch=branch,
             base_sha=base_sha,
@@ -545,7 +599,9 @@ class GitHubClient:
                 "POST",
                 "/git/blobs",
                 body={
-                    "content": base64.b64encode(change.content.encode("utf-8")).decode("ascii"),
+                    "content": base64.b64encode(change.content.encode("utf-8")).decode(
+                        "ascii"
+                    ),
                     "encoding": "base64",
                 },
             )
@@ -579,6 +635,8 @@ class GitHubClient:
                 body={"ref": f"refs/heads/{branch}", "sha": commit["sha"]},
             )
         else:
+            if branch_sha != base_sha:
+                raise StaleRevisionError("Branch changed before publication")
             self._request(
                 "PATCH",
                 f"/git/refs/heads/{encoded_branch}",
@@ -625,7 +683,10 @@ class GitHubClient:
             query={"per_page": "100"},
         )
         runs = checks.get("check_runs", [])
-        if any(run.get("status") != "completed" or run.get("conclusion") != "success" for run in runs):
+        if any(
+            run.get("status") != "completed" or run.get("conclusion") != "success"
+            for run in runs
+        ):
             raise GitHubError("One or more merge-commit checks have not succeeded")
         status = self._request("GET", f"/commits/{sha}/status")
         if status.get("state") not in {"success", "pending"}:
@@ -664,9 +725,13 @@ class GitHubClient:
             with urllib.request.urlopen(request, timeout=30) as response:
                 raw = response.read()
         except urllib.error.HTTPError as error:
-            raise GitHubError(f"GitHub API request failed with HTTP {error.code}") from None
+            raise GitHubError(
+                f"GitHub API request failed with HTTP {error.code}"
+            ) from None
         except urllib.error.URLError:
-            raise GitHubError("GitHub API request failed due to a network error") from None
+            raise GitHubError(
+                "GitHub API request failed due to a network error"
+            ) from None
         if not raw:
             return {}
         try:

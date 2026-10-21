@@ -1,6 +1,6 @@
 FROM node:24-bookworm-slim
 
-ARG DEVELOPER_AGENT=codex
+ARG DEVELOPER_AGENT=all
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates git python3 python3-venv util-linux \
@@ -12,6 +12,7 @@ RUN apt-get update \
     && chown -R agent:agent /home/agent
 
 RUN case "$DEVELOPER_AGENT" in \
+      all) npm install --global @openai/codex @anthropic-ai/claude-code ;; \
       codex) npm install --global @openai/codex ;; \
       claude) npm install --global @anthropic-ai/claude-code ;; \
       api) ;; \
@@ -25,6 +26,9 @@ COPY worker/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY worker/bootstrap.sh worker/worker.py worker/guardrails.py worker/model_client.py worker/github_client.py worker/cli_agent.py worker/codex_healthcheck.py ./
+COPY worker/factory ./factory
+COPY worker-config.yaml /worker/worker-config.yaml
+COPY config /worker/config
 COPY worker/check_hatchet_connectivity.py scripts/push_sample_event.py ./
 RUN chmod +x /worker/bootstrap.sh
 

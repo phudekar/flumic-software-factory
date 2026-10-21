@@ -12,13 +12,15 @@ from urllib.parse import urlsplit
 
 import grpc
 from openai import APIError, OpenAI
-from hatchet_sdk import Hatchet
 from hatchet_sdk.connection import new_conn
 
 
 def check_hatchet(timeout: float) -> bool:
     try:
-        client = Hatchet()
+        from factory.settings import Settings
+        from factory.adapters.orchestration.hatchet import create_client
+
+        client = create_client(Settings.load())
     except (ValueError, OSError) as error:
         print(
             f"Hatchet client configuration failed ({type(error).__name__}). "
@@ -74,15 +76,16 @@ def check_hatchet(timeout: float) -> bool:
         channel.close()
 
     print(
-        "gRPC channel is ready. "
-        "This check does not validate Hatchet API permissions."
+        "gRPC channel is ready. This check does not validate Hatchet API permissions."
     )
     return True
 
 
 def check_github(timeout: float) -> bool:
     token = os.environ.get("GITHUB_TOKEN")
-    repository = os.environ.get("GITHUB_REPOSITORY", "phudekar/software-factory")
+    from factory.settings import Settings
+
+    repository = Settings.load().repository
     if not token:
         print("GITHUB_TOKEN is not set in the container.", file=sys.stderr)
         return False
@@ -122,7 +125,10 @@ def check_github(timeout: float) -> bool:
         json.JSONDecodeError,
         UnicodeDecodeError,
     ):
-        print("GitHub API request failed due to a network or response error.", file=sys.stderr)
+        print(
+            "GitHub API request failed due to a network or response error.",
+            file=sys.stderr,
+        )
         return False
 
     full_name = repository_data.get("full_name")
@@ -136,7 +142,9 @@ def check_github(timeout: float) -> bool:
 
 def check_openai_model(timeout: float) -> bool:
     api_key = os.environ.get("OPENAI_API_KEY")
-    model = os.environ.get("OPENAI_MODEL", "gpt-4.1-mini")
+    from factory.settings import Settings
+
+    model = Settings.load().openai_model
     if not api_key:
         print("OPENAI_API_KEY is not set in the container.", file=sys.stderr)
         return False

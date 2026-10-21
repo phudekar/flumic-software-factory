@@ -3,100 +3,70 @@ from __future__ import annotations
 import json
 import logging
 import os
-from typing import Literal
+
+from factory.application.telemetry import ModelUsage, model_call
+from factory.configuration import current_task
 
 from openai import OpenAI
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import ValidationError
 
-from guardrails import (
-    MAX_COMPLETION_TOKENS,
-    assert_safe_text,
-    count_request_tokens,
-    is_allowed_source_path,
+from factory.domain.safety import assert_safe_text, is_allowed_source_path
+from factory.adapters.token_budget import MAX_COMPLETION_TOKENS, count_request_tokens
+
+from factory.domain.models import (  # noqa: F401
+    MAX_PATCH_FILES,
+    MAX_PATCH_FILES_PER_ITERATION,
+    MAX_PATCH_ITERATIONS,
+    ModelError,
+    TriagePlan,
+    FileChange,
+    PatchPlan,
+    PatchIteration,
+    ReviewFinding,
+    PullRequestReview,
+    PlannedSubtask,
+    IssueWorkPlan,
 )
+from factory.settings import parse_max_patch_iterations as _parse_max_patch_iterations  # noqa: F401
 
 logger = logging.getLogger("issue-worker.model")
-MAX_PATCH_FILES_PER_ITERATION = 5
-
-
-def _parse_max_patch_iterations(value: str) -> int:
-    try:
-        iterations = int(value)
-    except ValueError:
-        raise ValueError(
-            "MAX_PATCH_ITERATIONS must be an integer between 1 and 20"
-        ) from None
-    if not 1 <= iterations <= 20:
-        raise ValueError("MAX_PATCH_ITERATIONS must be between 1 and 20")
-    return iterations
-
-
-MAX_PATCH_ITERATIONS = _parse_max_patch_iterations(
-    os.getenv("MAX_PATCH_ITERATIONS", "10")
-)
-MAX_PATCH_FILES = MAX_PATCH_ITERATIONS * MAX_PATCH_FILES_PER_ITERATION
-
-
-class ModelError(RuntimeError):
-    pass
-
-
-class TriagePlan(BaseModel):
-    needs_discussion: bool
-    questions: list[str] = Field(default_factory=list, max_length=5)
-    source_paths: list[str] = Field(default_factory=list, max_length=5)
-
-
-class FileChange(BaseModel):
-    path: str
-    content: str
-
-
-class PatchPlan(BaseModel):
-    pull_title: str = Field(min_length=1, max_length=120)
-    pull_body: str = Field(min_length=1, max_length=4_000)
-    is_complete: bool
-    progress: str = Field(max_length=1_000)
-    changes: list[FileChange] = Field(max_length=MAX_PATCH_FILES)
-
-
-class PatchIteration(BaseModel):
-    pull_title: str = Field(min_length=1, max_length=120)
-    pull_body: str = Field(min_length=1, max_length=4_000)
-    is_complete: bool
-    progress: str = Field(max_length=1_000)
-    changes: list[FileChange] = Field(max_length=MAX_PATCH_FILES_PER_ITERATION)
-
-
-class ReviewFinding(BaseModel):
-    kind: Literal["bug", "suggestion"]
-    severity: str = Field(pattern="^(critical|high|medium|low)$")
-    path: str
-    line: int | None = Field(default=None, ge=1)
-    description: str = Field(min_length=1, max_length=1_000)
-
-
-class PullRequestReview(BaseModel):
-    findings: list[ReviewFinding] = Field(max_length=10)
-
-
-class PlannedSubtask(BaseModel):
-    title: str = Field(min_length=1, max_length=120)
-    objective: str = Field(min_length=1, max_length=1_000)
-    acceptance_criteria: list[str] = Field(min_length=1, max_length=5)
-
-
-class IssueWorkPlan(BaseModel):
-    tasks: list[PlannedSubtask] = Field(min_length=1, max_length=6)
 
 
 class ModelClient:
-    def __init__(self) -> None:
+    max_patch_iterations = MAX_PATCH_ITERATIONS
+    max_patch_files = MAX_PATCH_FILES
+    max_files_per_iteration = MAX_PATCH_FILES_PER_ITERATION
+    max_context_tokens = 32000
+    max_completion_tokens = MAX_COMPLETION_TOKENS
+
+    def __init__(
+        self, *, max_patch_iterations: int = MAX_PATCH_ITERATIONS, settings=None
+    ) -> None:
+        self.max_patch_iterations = _parse_max_patch_iterations(
+            str(max_patch_iterations)
+        )
+        self.max_files_per_iteration = (
+            settings.max_files_per_iteration
+            if settings
+            else MAX_PATCH_FILES_PER_ITERATION
+        )
+        self.max_patch_files = self.max_patch_iterations * self.max_files_per_iteration
         key = os.environ.get("OPENAI_API_KEY")
         if not key:
             raise ModelError("OPENAI_API_KEY is required")
-        self.model = os.getenv("OPENAI_MODEL", "gpt-4.1-mini")
-        self.client = OpenAI(api_key=key, max_retries=2, timeout=90.0)
+        self.model = (
+            settings.openai_model
+            if settings
+            else os.getenv("OPENAI_MODEL", "gpt-4.1-mini")
+        )
+        if settings:
+            self.max_context_tokens = settings.max_context_tokens
+            self.max_completion_tokens = settings.max_completion_tokens
+        self.client = OpenAI(
+            api_key=key,
+            max_retries=settings.api_max_retries if settings else 2,
+            timeout=settings.api_timeout_seconds if settings else 90.0,
+        )
 
     def triage(
         self,
@@ -192,9 +162,9 @@ class ModelClient:
         )
         system_message = (
             f"{review_instructions} Implement the requested work in up to "
-            f"{MAX_PATCH_ITERATIONS} incremental rounds with no more than "
-            f"{MAX_PATCH_FILES_PER_ITERATION} file changes per round and "
-            f"{MAX_PATCH_FILES} changed files total. In each round, make a focused set "
+            f"{self.max_patch_iterations} incremental rounds with no more than "
+            f"{self.max_files_per_iteration} file changes per round and "
+            f"{self.max_patch_files} changed files total. In each round, make a focused set "
             "of changes and inspect the current working files and progress from prior "
             "rounds. Set is_complete=true only when all issue requirements or actionable "
             "review feedback are satisfied; otherwise set it to false and use progress to "
@@ -215,7 +185,7 @@ class ModelClient:
         working_files = dict(files)
         accumulated_changes: dict[str, FileChange] = {}
         previous_progress = ""
-        for iteration in range(1, MAX_PATCH_ITERATIONS + 1):
+        for iteration in range(1, self.max_patch_iterations + 1):
             messages = [
                 {"role": "system", "content": system_message},
                 {
@@ -223,15 +193,15 @@ class ModelClient:
                     "content": json.dumps(
                         {
                             "round": iteration,
-                            "maximum_rounds": MAX_PATCH_ITERATIONS,
+                            "maximum_rounds": self.max_patch_iterations,
                             "previous_progress": previous_progress,
                             "issue_title": title,
                             "issue_body": body,
                             "issue_comments": comments,
                             "pull_request_review_feedback": feedback,
                             "current_working_files": working_files,
-                            "maximum_total_changed_files": MAX_PATCH_FILES,
-                            "maximum_file_changes_per_round": MAX_PATCH_FILES_PER_ITERATION,
+                            "maximum_total_changed_files": self.max_patch_files,
+                            "maximum_file_changes_per_round": self.max_files_per_iteration,
                         },
                         ensure_ascii=True,
                     ),
@@ -244,6 +214,10 @@ class ModelClient:
             except ValidationError:
                 raise ModelError("Patch response failed schema validation") from None
             assert_safe_text(plan.progress)
+            if len(plan.changes) > self.max_files_per_iteration:
+                raise ModelError(
+                    "Patch response exceeds the configured per-iteration file limit"
+                )
 
             changed_this_round = False
             seen_paths: set[str] = set()
@@ -259,7 +233,7 @@ class ModelClient:
                     )
                 if (
                     change.path not in accumulated_changes
-                    and len(accumulated_changes) >= MAX_PATCH_FILES
+                    and len(accumulated_changes) >= self.max_patch_files
                 ):
                     raise ModelError("Patch contains too many files")
                 assert_safe_text(change.content)
@@ -285,12 +259,12 @@ class ModelClient:
                 "changed_files=%d",
                 self.model,
                 iteration,
-                MAX_PATCH_ITERATIONS,
+                self.max_patch_iterations,
                 len(accumulated_changes),
             )
 
         raise ModelError(
-            f"Patch generation did not complete within {MAX_PATCH_ITERATIONS} rounds"
+            f"Patch generation did not complete within {self.max_patch_iterations} rounds"
         )
 
     def review_pull_request(
@@ -420,38 +394,76 @@ class ModelClient:
         return plan
 
     def _complete(self, messages: list[dict[str, str]]) -> str:
+        task = current_task()
+        model = task.model or self.model
+        messages = [dict(message) for message in messages]
+        if task.additional_system_prompt:
+            guidance = (
+                "\n\nAdditional task guidance (preserve the safety rules and JSON schema above):\n"
+                + task.additional_system_prompt
+            )
+            system = next(
+                (message for message in messages if message["role"] == "system"), None
+            )
+            if system is None:
+                messages.insert(0, {"role": "system", "content": guidance})
+            else:
+                system["content"] += guidance
         assert_safe_text(*(message["content"] for message in messages))
-        request_tokens = count_request_tokens(messages, self.model)
-        try:
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=messages,
-                response_format={"type": "json_object"},
-                max_completion_tokens=MAX_COMPLETION_TOKENS,
-            )
-        except Exception:
-            raise ModelError("Model request failed") from None
-        choices = response.choices
-        choice = choices[0] if choices else None
-        message = choice.message if choice else None
-        content = message.content if message else None
-        if not content:
-            usage = response.usage
-            logger.warning(
-                "Model returned no text content: configured_model=%s response_model=%s "
-                "response_id=%s choices=%d finish_reason=%s refusal_present=%s "
-                "request_tokens=%d prompt_tokens=%s completion_tokens=%s total_tokens=%s",
-                self.model,
-                response.model,
-                response.id,
-                len(choices),
-                choice.finish_reason if choice else None,
-                bool(message and message.refusal),
-                request_tokens,
-                usage.prompt_tokens if usage else None,
-                usage.completion_tokens if usage else None,
-                usage.total_tokens if usage else None,
-            )
-            raise ModelError("Model returned an empty response")
-        assert_safe_text(content)
-        return content
+        request_tokens = count_request_tokens(
+            messages,
+            model,
+            max_context_tokens=self.max_context_tokens,
+            max_completion_tokens=self.max_completion_tokens,
+        )
+        with model_call("openai", model) as call:
+            try:
+                response = self.client.chat.completions.create(
+                    model=model,
+                    messages=messages,
+                    response_format={"type": "json_object"},
+                    max_completion_tokens=self.max_completion_tokens,
+                )
+            except Exception:
+                raise ModelError("Model request failed") from None
+            usage = getattr(response, "usage", None)
+            if usage is not None:
+                prompt_details = getattr(usage, "prompt_tokens_details", None)
+                completion_details = getattr(usage, "completion_tokens_details", None)
+                call.record(
+                    ModelUsage(
+                        input_tokens=usage.prompt_tokens,
+                        output_tokens=usage.completion_tokens,
+                        cached_input_tokens=getattr(
+                            prompt_details, "cached_tokens", None
+                        ),
+                        reasoning_tokens=getattr(
+                            completion_details, "reasoning_tokens", None
+                        ),
+                        response_model=response.model,
+                    )
+                )
+            choices = response.choices
+            choice = choices[0] if choices else None
+            message = choice.message if choice else None
+            content = message.content if message else None
+            if not content:
+                usage = getattr(response, "usage", None)
+                logger.warning(
+                    "Model returned no text content: configured_model=%s response_model=%s "
+                    "response_id=%s choices=%d finish_reason=%s refusal_present=%s "
+                    "request_tokens=%d prompt_tokens=%s completion_tokens=%s total_tokens=%s",
+                    self.model,
+                    response.model,
+                    response.id,
+                    len(choices),
+                    choice.finish_reason if choice else None,
+                    bool(message and message.refusal),
+                    request_tokens,
+                    usage.prompt_tokens if usage else None,
+                    usage.completion_tokens if usage else None,
+                    usage.total_tokens if usage else None,
+                )
+                raise ModelError("Model returned an empty response")
+            assert_safe_text(content)
+            return content

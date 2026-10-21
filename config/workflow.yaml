@@ -1,0 +1,130 @@
+# Task prompts supplement built-in safety instructions and response schemas.
+# Non-model tasks expose the same field, but do not send a prompt to a provider.
+defaults:
+  scan_cron: '*/5 * * * *'
+  workflow_concurrency: 3
+  discussion_poll_seconds: 30
+  max_patch_iterations: 10
+  max_files_per_iteration: 5
+  max_file_bytes: 32768
+  worker_label_key: worker_type
+  labels:
+    needs_discussion: needs-discussion
+    ready_for_agent: ready-for-agent
+    pr_open: agent-pr-open
+    pr_reviewed: agent-pr-reviewed
+    plan_created: agent-plan-created
+    plan_subtask: agent-subtask
+task_defaults:
+  worker_type: simple
+  retries: 2
+  backoff_factor: 2.0
+  backoff_max_seconds: 30
+task_templates:
+  coding:
+    worker_type: developer
+    timeout_seconds: 3600
+  wait:
+    timeout_seconds: 2592000
+    retries: 0
+tasks:
+  load_issue:
+    additional_system_prompt: ""  # Deterministic task; no model call.
+    timeout_seconds: 120
+  plan_issue:
+    additional_system_prompt: |
+      Clarify the requested outcome using the issue and resolved discussion.
+      Ask questions only when missing information would materially change the
+      implementation; do not reopen questions the team has already resolved.
+      When selecting context, choose only relevant paths from the supplied inventory.
+      When decomposing work, produce small, ordered subtasks with concrete objectives
+      and verifiable acceptance criteria. Keep dependencies explicit in the task
+      text and avoid overlapping scope or speculative features.
+      Preserve the required response schema; do not add prose outside the JSON.
+    timeout_seconds: 480
+    concurrency: 1
+  triage_issue:
+    additional_system_prompt: |
+      Determine whether the issue has enough information for safe implementation.
+      Use resolved discussion as the source of clarification. Prefer the smallest
+      relevant set of supplied paths, including tests when they cover the change.
+      Ask concise, specific questions only for decisions that block implementation.
+      Do not invent repository paths, requirements, or acceptance criteria.
+      Preserve the required response schema; do not add prose outside the JSON.
+    timeout_seconds: 180
+  generate_and_open_draft_pr:
+    additional_system_prompt: |
+      Implement the issue's acceptance criteria with focused, maintainable changes.
+      Follow the existing architecture, naming conventions, and dependency choices.
+      Avoid unrelated refactors, speculative abstractions, and unnecessary packages.
+      Handle relevant error cases and update tests or documentation when behavior
+      changes. When execution tools are available, run the relevant checks and fix
+      failures caused by your changes. Otherwise, clearly state that checks were
+      not run; never invent test results or claim completion without evidence.
+      Respect the configured file and iteration limits. Use progress to describe
+      remaining work when incomplete. Preserve the required JSON response schema.
+    template: coding
+    retries: 1
+  review_opened_pull_request:
+    additional_system_prompt: |
+      Use the issue and acceptance criteria to understand the intended behavior.
+      When selecting review context, choose only relevant supplied paths.
+      When reviewing the diff, prioritize actionable correctness bugs, regressions,
+      security issues, and missing validation. Explain the concrete trigger and
+      impact of each finding, grounded in the supplied code. Use valid file paths
+      and line numbers when available. Separate bugs from optional suggestions.
+      Avoid speculative findings, stylistic churn, and claims about checks you did
+      not run. Return no findings when the evidence does not support a problem.
+      Preserve the required response schema; do not add prose outside the JSON.
+    timeout_seconds: 300
+  record_workflow_result:
+    additional_system_prompt: ""  # Deterministic task; no model call.
+    timeout_seconds: 30
+    retries: 0
+  verify_merged_pr:
+    additional_system_prompt: ""  # Deterministic task; no model call.
+    timeout_seconds: 120
+    retries: 3
+    backoff_max_seconds: 60
+  process_pull_request_feedback:
+    additional_system_prompt: |
+      Evaluate the supplied review feedback against the issue and current code.
+      When selecting context, choose relevant paths from the supplied inventory.
+      Address concrete, actionable change requests with the smallest coherent fix.
+      Treat approval, questions, and unrelated suggestions as context rather than
+      new implementation requirements. Preserve behavior already implemented and
+      add regression coverage for corrected bugs when practical.
+      Run relevant checks when execution tools are available; otherwise state that
+      checks were not run. Never invent results or mark unresolved work complete.
+      Describe addressed requests and remaining blockers in the permitted progress
+      or summary fields. Respect the configured limits and JSON response schema.
+    template: coding
+    concurrency: 1
+  scan_pending_issues:
+    additional_system_prompt: ""  # Deterministic task; no model call.
+    timeout_seconds: 240
+    concurrency: 1
+  scan_open_pr_feedback:
+    additional_system_prompt: ""  # Deterministic task; no model call.
+    timeout_seconds: 60
+    concurrency: 1
+  handle_github_issue_event:
+    additional_system_prompt: ""  # Deterministic task; no model call.
+    timeout_seconds: 60
+  handle_pull_request_feedback_event:
+    additional_system_prompt: ""  # Deterministic task; no model call.
+    timeout_seconds: 60
+    concurrency: 1
+  inspect_pull_request_event:
+    additional_system_prompt: ""  # Deterministic task; no model call.
+    timeout_seconds: 30
+    retries: 0
+  trigger_issue_from_sample_event:
+    additional_system_prompt: ""  # Deterministic task; no model call.
+    timeout_seconds: 60
+  wait_for_ready_for_agent:
+    additional_system_prompt: ""  # Deterministic task; no model call.
+    template: wait
+  wait_for_pull_review:
+    additional_system_prompt: ""  # Deterministic task; no model call.
+    template: wait

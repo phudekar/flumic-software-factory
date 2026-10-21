@@ -1,0 +1,7 @@
+# Worker profile; shared settings are inherited automatically.
+workers:
+  simple:
+    worker_type: simple
+    worker_name: software-factory-simple-worker
+    developer_agent: api
+    path_policy: source

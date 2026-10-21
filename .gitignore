@@ -2,3 +2,7 @@
 __pycache__/
 *.py[cod]
 .venv/
+# Local factory state and prepared changes
+data/
+
+.env.observability

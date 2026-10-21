@@ -392,7 +392,7 @@ class ModelClientTests(unittest.TestCase):
 
         self.client._complete = incomplete_round
 
-        with patch("model_client.MAX_PATCH_ITERATIONS", 2):
+        with patch.object(self.client, "max_patch_iterations", 2):
             with self.assertRaisesRegex(ModelError, "did not complete within 2 rounds"):
                 self.client.generate_patch(
                     title="Build a feature",

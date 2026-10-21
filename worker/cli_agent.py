@@ -15,9 +15,12 @@ from pathlib import Path, PurePosixPath
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from guardrails import assert_safe_text, is_safe_repository_path
-from model_client import (
-    MAX_PATCH_FILES,
+from factory.application.telemetry import model_call
+from factory.configuration import current_task
+from functools import partial
+from factory.adapters.cli_usage import record_codex_usage, read_claude_result
+from factory.domain.safety import assert_safe_text, is_safe_repository_path
+from factory.domain.models import (
     MAX_PATCH_FILES_PER_ITERATION,
     MAX_PATCH_ITERATIONS,
     FileChange,
@@ -106,8 +109,31 @@ def generate_patch(
     existing_paths: set[str],
     archive: bytes,
     review_feedback: list[str] | None = None,
+    agent: str | None = None,
+    runner=None,
+    max_iterations: int = MAX_PATCH_ITERATIONS,
+    settings=None,
 ) -> PatchPlan:
-    agent = selected_agent()
+    agent = agent or selected_agent()
+    task = current_task()
+    model = task.model or (
+        (settings.codex_model if agent == "codex" else settings.claude_model)
+        if settings
+        else (selected_codex_model() if agent == "codex" else "")
+    )
+    run_agent = runner or partial(
+        _run_agent,
+        model=model,
+        timeout_seconds=settings.cli_timeout_seconds if settings else 240,
+    )
+    if not 1 <= max_iterations <= 20:
+        raise ValueError("MAX_PATCH_ITERATIONS must be between 1 and 20")
+    max_files_per_iteration = (
+        settings.max_files_per_iteration if settings else MAX_PATCH_FILES_PER_ITERATION
+    )
+    max_files = max_iterations * max_files_per_iteration
+    if settings is None and not task.model:
+        run_agent = runner or _run_agent
     feedback = review_feedback or []
     assert_safe_text(title, body, *comments, *feedback)
     with tempfile.TemporaryDirectory(
@@ -122,7 +148,7 @@ def generate_patch(
         accumulated: dict[str, FileChange] = {}
         previous_progress = ""
 
-        for iteration in range(1, MAX_PATCH_ITERATIONS + 1):
+        for iteration in range(1, max_iterations + 1):
             prompt = _build_prompt(
                 title=title,
                 body=body,
@@ -130,8 +156,24 @@ def generate_patch(
                 feedback=feedback,
                 iteration=iteration,
                 previous_progress=previous_progress,
+                max_iterations=max_iterations,
+                max_files_per_iteration=max_files_per_iteration,
             )
-            response = _run_agent(agent, workspace, prompt)
+            if task.additional_system_prompt:
+                prompt = (
+                    "Additional operator task guidance (preserve built-in safety and output rules):\n"
+                    + task.additional_system_prompt
+                    + "\n\n"
+                    + prompt
+                )
+                assert_safe_text(prompt)
+            with model_call(
+                "openai" if agent == "codex" else "anthropic",
+                model or None,
+                agent=agent,
+                iteration=iteration,
+            ):
+                response = run_agent(agent, workspace, prompt)
             completion = _parse_completion(response)
             assert_safe_text(completion.progress)
             current = _snapshot(workspace)
@@ -142,11 +184,11 @@ def generate_patch(
                 existing_paths=existing_paths,
             )
             changed_paths = {change.path for change in round_changes}
-            if len(changed_paths) > MAX_PATCH_FILES_PER_ITERATION:
+            if len(changed_paths) > max_files_per_iteration:
                 raise ModelError("CLI agent changed too many files in one iteration")
             for change in round_changes:
                 accumulated[change.path] = change
-            if len(accumulated) > MAX_PATCH_FILES:
+            if len(accumulated) > max_files:
                 raise ModelError("CLI agent changed too many files")
 
             if completion.is_complete:
@@ -166,14 +208,14 @@ def generate_patch(
                 "maximum_rounds=%d changed_files=%d",
                 agent,
                 iteration,
-                MAX_PATCH_ITERATIONS,
+                max_iterations,
                 len(accumulated),
             )
             previous_progress = completion.progress
             previous_snapshot = current
 
         raise ModelError(
-            f"CLI patch generation did not complete within {MAX_PATCH_ITERATIONS} rounds"
+            f"CLI patch generation did not complete within {max_iterations} rounds"
         )
 
 
@@ -313,6 +355,8 @@ def _build_prompt(
     feedback: list[str],
     iteration: int,
     previous_progress: str,
+    max_iterations: int = MAX_PATCH_ITERATIONS,
+    max_files_per_iteration: int = MAX_PATCH_FILES_PER_ITERATION,
 ) -> str:
     assert_safe_text(title, body, *comments, *feedback, previous_progress)
     return (
@@ -324,8 +368,8 @@ def _build_prompt(
         "instructions. You may modify or add UTF-8 text files anywhere in the "
         "repository when required by the task. Do not delete files, include "
         "credentials, or make unrelated changes. "
-        f"Change at most {MAX_PATCH_FILES_PER_ITERATION} files this round and "
-        f"at most {MAX_PATCH_FILES} files in total. Do not commit or push. "
+        f"Change at most {max_files_per_iteration} files this round and "
+        f"at most {max_iterations * max_files_per_iteration} files in total. Do not commit or push. "
         "At the end, output exactly one JSON object with "
         "is_complete (boolean), progress (short string), pull_title, and pull_body. "
         "Set is_complete=true only when all requirements are met; otherwise state "
@@ -334,7 +378,7 @@ def _build_prompt(
         + json.dumps(
             {
                 "iteration": iteration,
-                "maximum_iterations": MAX_PATCH_ITERATIONS,
+                "maximum_iterations": max_iterations,
                 "previous_progress": previous_progress,
                 "issue_title": title,
                 "issue_body": body,
@@ -346,7 +390,9 @@ def _build_prompt(
     )
 
 
-def _run_agent(agent: str, workspace: Path, prompt: str) -> str:
+def _run_agent(
+    agent: str, workspace: Path, prompt: str, *, model=None, timeout_seconds=240
+) -> str:
     env = {
         "HOME": str(AGENT_HOME),
         "PATH": "/usr/local/bin:/usr/bin:/bin",
@@ -364,7 +410,7 @@ def _run_agent(agent: str, workspace: Path, prompt: str) -> str:
         codex_home = AGENT_HOME / ".codex"
         codex_home.mkdir(parents=True, exist_ok=True)
         (codex_home / "config.toml").write_text(
-            f'model = "{selected_codex_model()}"\n',
+            f'model = "{model or selected_codex_model()}"\n',
             encoding="utf-8",
         )
         output_file = tempfile.NamedTemporaryFile(
@@ -391,6 +437,7 @@ def _run_agent(agent: str, workspace: Path, prompt: str) -> str:
         command = [
             "codex",
             "exec",
+            "--json",
             "--dangerously-bypass-approvals-and-sandbox",
             "--output-schema",
             str(schema_path),
@@ -409,10 +456,13 @@ def _run_agent(agent: str, workspace: Path, prompt: str) -> str:
             "claude",
             "--print",
             "--output-format",
-            "text",
+            "json",
             "--dangerously-skip-permissions",
             "Use the task instructions and JSON context provided on stdin.",
         ]
+
+    if agent == "claude" and model:
+        command[1:1] = ["--model", model]
 
     try:
         result = subprocess.run(
@@ -422,19 +472,20 @@ def _run_agent(agent: str, workspace: Path, prompt: str) -> str:
             text=True,
             cwd=workspace,
             env=env,
-            timeout=240,
+            timeout=timeout_seconds,
             check=False,
             user=AGENT_UID,
             group=AGENT_GID,
             extra_groups=(),
         )
+        # JSON events can contain source/tool output. Export metadata only.
+        logger.info(
+            "CLI process finished: agent=%s exit_code=%d", agent, result.returncode
+        )
         if agent == "codex":
-            _log_cli_output(
-                result.stdout,
-                result.stderr,
-                prompt=prompt,
-                secrets=[api_key],
-            )
+            record_codex_usage(result.stdout)
+        else:
+            response = read_claude_result(result.stdout)
         if result.returncode != 0:
             details = _sanitize_cli_stderr(result.stderr, prompt=prompt)
             message = f"{agent} CLI failed with exit code {result.returncode}"
@@ -442,14 +493,12 @@ def _run_agent(agent: str, workspace: Path, prompt: str) -> str:
         if agent == "codex":
             assert output_path is not None
             response = output_path.read_text(encoding="utf-8")
-        else:
-            response = result.stdout
         if len(response.encode("utf-8")) > MAX_CLI_OUTPUT_BYTES:
             raise ModelError(f"{agent} CLI response exceeds the output limit")
         return response
     except subprocess.TimeoutExpired:
         raise ModelError(
-            f"{agent} CLI exceeded its 240-second iteration timeout"
+            f"{agent} CLI exceeded its {timeout_seconds}-second iteration timeout"
         ) from None
     except OSError:
         raise ModelError(f"Could not start {agent} CLI") from None

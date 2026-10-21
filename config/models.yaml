@@ -1,0 +1,10 @@
+# Model selection, request budgets, and provider/CLI limits.
+defaults:
+  openai_model: gpt-5-nano
+  codex_model: gpt-6-luna
+  claude_model: ''
+  max_context_tokens: 32000
+  max_completion_tokens: 16000
+  api_max_retries: 2
+  api_timeout_seconds: 90
+  cli_timeout_seconds: 240

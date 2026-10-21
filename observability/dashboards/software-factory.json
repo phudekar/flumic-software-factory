@@ -1,0 +1,595 @@
+{
+  "schemaVersion": "v6",
+  "name": "software-factory-workers-and-ai-usage",
+  "tags": [
+    {
+      "key": "application",
+      "value": "software-factory"
+    }
+  ],
+  "spec": {
+    "display": {
+      "name": "Software Factory \u2014 Workers and AI Usage",
+      "description": "Worker activity, stage outcomes, model tokens, and estimated spend. Development data only. Missing usage/pricing is unknown; inspect traces for per-issue details. Synthetic smoke data uses a separate environment."
+    },
+    "duration": "1h",
+    "refreshInterval": "30s",
+    "variables": [],
+    "panels": {
+      "active": {
+        "kind": "Panel",
+        "spec": {
+          "display": {
+            "name": "Active tasks"
+          },
+          "plugin": {
+            "kind": "signoz/TimeSeriesPanel",
+            "spec": {
+              "visualization": {
+                "timePreference": "global_time"
+              },
+              "legend": {
+                "position": "bottom"
+              }
+            }
+          },
+          "queries": [
+            {
+              "kind": "time_series",
+              "spec": {
+                "plugin": {
+                  "kind": "signoz/BuilderQuery",
+                  "spec": {
+                    "name": "A",
+                    "signal": "metrics",
+                    "aggregations": [
+                      {
+                        "metricName": "factory.worker.active_tasks",
+                        "timeAggregation": "max",
+                        "spaceAggregation": "sum",
+                        "reduceTo": "last"
+                      }
+                    ],
+                    "filter": {
+                      "expression": "service.name = 'software-factory' AND deployment.environment = 'development' AND stage = 'all'"
+                    },
+                    "groupBy": [
+                      {
+                        "name": "worker.name",
+                        "fieldDataType": "string",
+                        "fieldContext": "tag"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "heartbeat": {
+        "kind": "Panel",
+        "spec": {
+          "display": {
+            "name": "Worker last heartbeat (Unix seconds)"
+          },
+          "plugin": {
+            "kind": "signoz/TimeSeriesPanel",
+            "spec": {
+              "visualization": {
+                "timePreference": "global_time"
+              },
+              "legend": {
+                "position": "bottom"
+              }
+            }
+          },
+          "queries": [
+            {
+              "kind": "time_series",
+              "spec": {
+                "plugin": {
+                  "kind": "signoz/BuilderQuery",
+                  "spec": {
+                    "name": "A",
+                    "signal": "metrics",
+                    "aggregations": [
+                      {
+                        "metricName": "factory.worker.heartbeat",
+                        "timeAggregation": "max",
+                        "spaceAggregation": "max",
+                        "reduceTo": "last"
+                      }
+                    ],
+                    "filter": {
+                      "expression": "service.name = 'software-factory' AND deployment.environment = 'development'"
+                    },
+                    "groupBy": [
+                      {
+                        "name": "worker.name",
+                        "fieldDataType": "string",
+                        "fieldContext": "tag"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "attempts": {
+        "kind": "Panel",
+        "spec": {
+          "display": {
+            "name": "Stage attempts per second"
+          },
+          "plugin": {
+            "kind": "signoz/TimeSeriesPanel",
+            "spec": {
+              "visualization": {
+                "timePreference": "global_time"
+              },
+              "legend": {
+                "position": "bottom"
+              }
+            }
+          },
+          "queries": [
+            {
+              "kind": "time_series",
+              "spec": {
+                "plugin": {
+                  "kind": "signoz/BuilderQuery",
+                  "spec": {
+                    "name": "A",
+                    "signal": "metrics",
+                    "aggregations": [
+                      {
+                        "metricName": "factory.operation.count",
+                        "timeAggregation": "rate",
+                        "spaceAggregation": "sum",
+                        "reduceTo": "last"
+                      }
+                    ],
+                    "filter": {
+                      "expression": "service.name = 'software-factory' AND deployment.environment = 'development'"
+                    },
+                    "groupBy": [
+                      {
+                        "name": "stage",
+                        "fieldDataType": "string",
+                        "fieldContext": "tag"
+                      },
+                      {
+                        "name": "outcome",
+                        "fieldDataType": "string",
+                        "fieldContext": "tag"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "failures": {
+        "kind": "Panel",
+        "spec": {
+          "display": {
+            "name": "Failed attempts per second"
+          },
+          "plugin": {
+            "kind": "signoz/TimeSeriesPanel",
+            "spec": {
+              "visualization": {
+                "timePreference": "global_time"
+              },
+              "legend": {
+                "position": "bottom"
+              }
+            }
+          },
+          "queries": [
+            {
+              "kind": "time_series",
+              "spec": {
+                "plugin": {
+                  "kind": "signoz/BuilderQuery",
+                  "spec": {
+                    "name": "A",
+                    "signal": "metrics",
+                    "aggregations": [
+                      {
+                        "metricName": "factory.operation.count",
+                        "timeAggregation": "rate",
+                        "spaceAggregation": "sum",
+                        "reduceTo": "last"
+                      }
+                    ],
+                    "filter": {
+                      "expression": "service.name = 'software-factory' AND deployment.environment = 'development' AND outcome = 'failed'"
+                    },
+                    "groupBy": [
+                      {
+                        "name": "stage",
+                        "fieldDataType": "string",
+                        "fieldContext": "tag"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "tokens": {
+        "kind": "Panel",
+        "spec": {
+          "display": {
+            "name": "Tokens per second by model and category"
+          },
+          "plugin": {
+            "kind": "signoz/TimeSeriesPanel",
+            "spec": {
+              "visualization": {
+                "timePreference": "global_time"
+              },
+              "legend": {
+                "position": "bottom"
+              }
+            }
+          },
+          "queries": [
+            {
+              "kind": "time_series",
+              "spec": {
+                "plugin": {
+                  "kind": "signoz/BuilderQuery",
+                  "spec": {
+                    "name": "A",
+                    "signal": "metrics",
+                    "aggregations": [
+                      {
+                        "metricName": "factory.model.tokens",
+                        "timeAggregation": "rate",
+                        "spaceAggregation": "sum",
+                        "reduceTo": "last"
+                      }
+                    ],
+                    "filter": {
+                      "expression": "service.name = 'software-factory' AND deployment.environment = 'development'"
+                    },
+                    "groupBy": [
+                      {
+                        "name": "model",
+                        "fieldDataType": "string",
+                        "fieldContext": "tag"
+                      },
+                      {
+                        "name": "token.type",
+                        "fieldDataType": "string",
+                        "fieldContext": "tag"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "calls": {
+        "kind": "Panel",
+        "spec": {
+          "display": {
+            "name": "API calls / CLI accounting events per second"
+          },
+          "plugin": {
+            "kind": "signoz/TimeSeriesPanel",
+            "spec": {
+              "visualization": {
+                "timePreference": "global_time"
+              },
+              "legend": {
+                "position": "bottom"
+              }
+            }
+          },
+          "queries": [
+            {
+              "kind": "time_series",
+              "spec": {
+                "plugin": {
+                  "kind": "signoz/BuilderQuery",
+                  "spec": {
+                    "name": "A",
+                    "signal": "metrics",
+                    "aggregations": [
+                      {
+                        "metricName": "factory.model.call.count",
+                        "timeAggregation": "rate",
+                        "spaceAggregation": "sum",
+                        "reduceTo": "last"
+                      }
+                    ],
+                    "filter": {
+                      "expression": "service.name = 'software-factory' AND deployment.environment = 'development'"
+                    },
+                    "groupBy": [
+                      {
+                        "name": "model",
+                        "fieldDataType": "string",
+                        "fieldContext": "tag"
+                      },
+                      {
+                        "name": "stage",
+                        "fieldDataType": "string",
+                        "fieldContext": "tag"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "estimated": {
+        "kind": "Panel",
+        "spec": {
+          "display": {
+            "name": "Estimated USD per interval (priced usage only)"
+          },
+          "plugin": {
+            "kind": "signoz/TimeSeriesPanel",
+            "spec": {
+              "visualization": {
+                "timePreference": "global_time"
+              },
+              "legend": {
+                "position": "bottom"
+              }
+            }
+          },
+          "queries": [
+            {
+              "kind": "time_series",
+              "spec": {
+                "plugin": {
+                  "kind": "signoz/BuilderQuery",
+                  "spec": {
+                    "name": "A",
+                    "signal": "metrics",
+                    "aggregations": [
+                      {
+                        "metricName": "factory.model.estimated_cost",
+                        "timeAggregation": "increase",
+                        "spaceAggregation": "sum",
+                        "reduceTo": "last"
+                      }
+                    ],
+                    "filter": {
+                      "expression": "service.name = 'software-factory' AND deployment.environment = 'development'"
+                    },
+                    "groupBy": [
+                      {
+                        "name": "model",
+                        "fieldDataType": "string",
+                        "fieldContext": "tag"
+                      },
+                      {
+                        "name": "stage",
+                        "fieldDataType": "string",
+                        "fieldContext": "tag"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "reported": {
+        "kind": "Panel",
+        "spec": {
+          "display": {
+            "name": "CLI-reported USD per interval (client estimates)"
+          },
+          "plugin": {
+            "kind": "signoz/TimeSeriesPanel",
+            "spec": {
+              "visualization": {
+                "timePreference": "global_time"
+              },
+              "legend": {
+                "position": "bottom"
+              }
+            }
+          },
+          "queries": [
+            {
+              "kind": "time_series",
+              "spec": {
+                "plugin": {
+                  "kind": "signoz/BuilderQuery",
+                  "spec": {
+                    "name": "A",
+                    "signal": "metrics",
+                    "aggregations": [
+                      {
+                        "metricName": "factory.model.reported_cost",
+                        "timeAggregation": "increase",
+                        "spaceAggregation": "sum",
+                        "reduceTo": "last"
+                      }
+                    ],
+                    "filter": {
+                      "expression": "service.name = 'software-factory' AND deployment.environment = 'development'"
+                    },
+                    "groupBy": [
+                      {
+                        "name": "model",
+                        "fieldDataType": "string",
+                        "fieldContext": "tag"
+                      },
+                      {
+                        "name": "stage",
+                        "fieldDataType": "string",
+                        "fieldContext": "tag"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "duration": {
+        "kind": "Panel",
+        "spec": {
+          "display": {
+            "name": "Stage duration \u2014 max seconds per interval"
+          },
+          "plugin": {
+            "kind": "signoz/TimeSeriesPanel",
+            "spec": {
+              "visualization": {
+                "timePreference": "global_time"
+              },
+              "legend": {
+                "position": "bottom"
+              }
+            }
+          },
+          "queries": [
+            {
+              "kind": "time_series",
+              "spec": {
+                "plugin": {
+                  "kind": "signoz/BuilderQuery",
+                  "spec": {
+                    "name": "A",
+                    "signal": "metrics",
+                    "aggregations": [
+                      {
+                        "metricName": "factory.operation.duration.max",
+                        "timeAggregation": "max",
+                        "spaceAggregation": "max",
+                        "reduceTo": "last"
+                      }
+                    ],
+                    "filter": {
+                      "expression": "service.name = 'software-factory' AND deployment.environment = 'development'"
+                    },
+                    "groupBy": [
+                      {
+                        "name": "stage",
+                        "fieldDataType": "string",
+                        "fieldContext": "tag"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "layouts": [
+      {
+        "kind": "Grid",
+        "spec": {
+          "items": [
+            {
+              "x": 0,
+              "y": 0,
+              "width": 6,
+              "height": 6,
+              "content": {
+                "$ref": "#/spec/panels/active"
+              }
+            },
+            {
+              "x": 6,
+              "y": 0,
+              "width": 6,
+              "height": 6,
+              "content": {
+                "$ref": "#/spec/panels/heartbeat"
+              }
+            },
+            {
+              "x": 0,
+              "y": 6,
+              "width": 6,
+              "height": 6,
+              "content": {
+                "$ref": "#/spec/panels/attempts"
+              }
+            },
+            {
+              "x": 6,
+              "y": 6,
+              "width": 6,
+              "height": 6,
+              "content": {
+                "$ref": "#/spec/panels/failures"
+              }
+            },
+            {
+              "x": 0,
+              "y": 12,
+              "width": 6,
+              "height": 6,
+              "content": {
+                "$ref": "#/spec/panels/tokens"
+              }
+            },
+            {
+              "x": 6,
+              "y": 12,
+              "width": 6,
+              "height": 6,
+              "content": {
+                "$ref": "#/spec/panels/calls"
+              }
+            },
+            {
+              "x": 0,
+              "y": 18,
+              "width": 6,
+              "height": 6,
+              "content": {
+                "$ref": "#/spec/panels/estimated"
+              }
+            },
+            {
+              "x": 6,
+              "y": 18,
+              "width": 6,
+              "height": 6,
+              "content": {
+                "$ref": "#/spec/panels/reported"
+              }
+            },
+            {
+              "x": 0,
+              "y": 24,
+              "width": 12,
+              "height": 6,
+              "content": {
+                "$ref": "#/spec/panels/duration"
+              }
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

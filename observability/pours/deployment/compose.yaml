@@ -1,0 +1,197 @@
+name: factory-signoz
+networks:
+  factory-signoz-network:
+    name: factory-signoz-network
+services:
+  factory-signoz-metastore-postgres-0:
+    container_name: factory-signoz-metastore-postgres-0
+    environment:
+    - POSTGRES_DB=signoz
+    - POSTGRES_PASSWORD=signoz
+    - POSTGRES_USER=signoz
+    healthcheck:
+      interval: 30s
+      retries: 3
+      start_period: 30s
+      test:
+      - CMD-SHELL
+      - pg_isready -U signoz -d signoz
+      timeout: 10s
+    image: postgres:16
+    networks:
+    - factory-signoz-network
+    restart: unless-stopped
+    volumes:
+    - factory-signoz-metastore-postgres-0-data:/var/lib/postgresql/data
+  factory-signoz-signoz-0:
+    container_name: factory-signoz-signoz-0
+    environment:
+    - SIGNOZ_SQLSTORE_POSTGRES_DSN=postgres://signoz:signoz@factory-signoz-metastore-postgres-0:5432/signoz?sslmode=disable
+    - SIGNOZ_SQLSTORE_PROVIDER=postgres
+    - SIGNOZ_TELEMETRYSTORE_CLICKHOUSE_DSN=tcp://factory-signoz-telemetrystore-clickhouse-0-0:9000
+    - SIGNOZ_TELEMETRYSTORE_PROVIDER=clickhouse
+    healthcheck:
+      interval: 30s
+      retries: 3
+      start_period: 60s
+      test:
+      - CMD
+      - wget
+      - --spider
+      - -q
+      - http://localhost:8080/api/v1/health
+      timeout: 10s
+    image: signoz/signoz:v0.146.0
+    networks:
+    - factory-signoz-network
+    ports:
+    - 127.0.0.1:3301:8080
+    restart: unless-stopped
+  factory-signoz-telemetrykeeper-clickhousekeeper-0:
+    container_name: factory-signoz-telemetrykeeper-clickhousekeeper-0
+    entrypoint:
+    - /usr/bin/clickhouse-keeper
+    - --config-file=/etc/clickhouse-keeper/keeper.yaml
+    healthcheck:
+      interval: 30s
+      retries: 3
+      start_period: 40s
+      test:
+      - CMD
+      - clickhouse-keeper-client
+      - -h
+      - localhost
+      - -p
+      - "9181"
+      - -q
+      - ls
+      timeout: 10s
+    image: clickhouse/clickhouse-keeper:25.12.5
+    networks:
+    - factory-signoz-network
+    restart: unless-stopped
+    volumes:
+    - factory-signoz-telemetrykeeper-0-data:/var/lib/clickhouse-keeper
+    - ./telemetrykeeper/clickhousekeeper/keeper-0.yaml:/etc/clickhouse-keeper/keeper.yaml:ro
+  factory-signoz-telemetrystore-clickhouse-0-0:
+    container_name: factory-signoz-telemetrystore-clickhouse-0-0
+    depends_on:
+      factory-signoz-telemetrykeeper-clickhousekeeper-0:
+        condition: service_healthy
+      factory-signoz-telemetrystore-clickhouse-user-scripts:
+        condition: service_completed_successfully
+    environment:
+    - CLICKHOUSE_SKIP_USER_SETUP=1
+    - CLICKHOUSE_CONFIG=/etc/clickhouse-server/config-0-0.yaml
+    healthcheck:
+      interval: 30s
+      retries: 3
+      start_period: 40s
+      test:
+      - CMD
+      - wget
+      - --spider
+      - -q
+      - http://localhost:8123/ping
+      timeout: 10s
+    image: clickhouse/clickhouse-server:25.12.5
+    networks:
+    - factory-signoz-network
+    restart: unless-stopped
+    volumes:
+    - factory-signoz-telemetrystore-0-0-data:/var/lib/clickhouse
+    - factory-signoz-telemetrystore-user-scripts:/var/lib/clickhouse/user_scripts:ro
+    - ./telemetrystore/clickhouse/config-0-0.yaml:/etc/clickhouse-server/config-0-0.yaml:ro
+    - ./telemetrystore/clickhouse/functions.yaml:/etc/clickhouse-server/functions.yaml:ro
+  factory-signoz-telemetrystore-clickhouse-user-scripts:
+    command:
+    - bash
+    - -c
+    - |-
+      version="v0.0.1"
+      node_os=$$(uname -s | tr '[:upper:]' '[:lower:]')
+      node_arch=$$(uname -m | sed s/aarch64/arm64/ | sed s/x86_64/amd64/)
+      echo "Fetching histogram-binary for $${node_os}/$${node_arch}"
+      cd /tmp
+      wget -O histogram-quantile.tar.gz "https://github.com/SigNoz/signoz/releases/download/histogram-quantile%2F$${version}/histogram-quantile_$${node_os}_$${node_arch}.tar.gz"
+      tar -xvzf histogram-quantile.tar.gz
+      mv histogram-quantile /var/lib/clickhouse/user_scripts/histogramQuantile
+    container_name: factory-signoz-telemetrystore-clickhouse-user-scripts
+    image: clickhouse/clickhouse-server:25.12.5
+    networks:
+    - factory-signoz-network
+    restart: on-failure
+    volumes:
+    - factory-signoz-telemetrystore-user-scripts:/var/lib/clickhouse/user_scripts
+  factory-signoz-telemetrystore-migrator:
+    command:
+    - -c
+    - |
+      /signoz-otel-collector migrate ready &&
+      /signoz-otel-collector migrate bootstrap &&
+      /signoz-otel-collector migrate sync up &&
+      /signoz-otel-collector migrate async up
+    container_name: factory-signoz-telemetrystore-migrator
+    entrypoint:
+    - /bin/sh
+    environment:
+    - SIGNOZ_OTEL_COLLECTOR_CLICKHOUSE_DSN=tcp://factory-signoz-telemetrystore-clickhouse-0-0:9000
+    - SIGNOZ_OTEL_COLLECTOR_TIMEOUT=10m
+    image: signoz/signoz-otel-collector:v0.144.14
+    networks:
+    - factory-signoz-network
+    restart: on-failure
+  dashboard-bootstrap:
+    image: python:3.12-alpine
+    entrypoint: ["python", "/bootstrap/bootstrap-dashboard.py"]
+    depends_on:
+      factory-signoz-signoz-0:
+        condition: service_healthy
+    environment:
+      SIGNOZ_URL: http://factory-signoz-signoz-0:8080
+      SIGNOZ_API_KEY: ${SIGNOZ_API_KEY:-}
+      SIGNOZ_ADMIN_EMAIL: ${SIGNOZ_ADMIN_EMAIL:-}
+      SIGNOZ_ADMIN_PASSWORD: ${SIGNOZ_ADMIN_PASSWORD:-}
+      SIGNOZ_ORG_ID: ${SIGNOZ_ORG_ID:-}
+    volumes:
+      - ../../bootstrap-dashboard.py:/bootstrap/bootstrap-dashboard.py:ro
+      - ../../dashboards/software-factory.json:/dashboards/software-factory.json:ro
+      - ../../../data/observability-bootstrap:/state
+    networks:
+      - factory-signoz-network
+    read_only: true
+    restart: "no"
+  ingester:
+    command:
+    - -c
+    - |
+      /signoz-otel-collector migrate sync check &&
+      /signoz-otel-collector --config=/etc/otel-collector-config.yaml --manager-config=/etc/opamp-config.yaml --copy-path=/var/tmp/collector-config.yaml
+    deploy:
+      replicas: 1
+    entrypoint:
+    - /bin/sh
+    environment:
+    - SIGNOZ_OTEL_COLLECTOR_CLICKHOUSE_DSN=tcp://factory-signoz-telemetrystore-clickhouse-0-0:9000
+    - SIGNOZ_OTEL_COLLECTOR_TIMEOUT=10m
+    image: signoz/signoz-otel-collector:v0.144.14
+    networks:
+      factory-signoz-network:
+        aliases:
+        - factory-signoz-ingester
+    ports:
+    - 127.0.0.1:4317:4317
+    - 127.0.0.1:4318:4318
+    restart: unless-stopped
+    volumes:
+    - ./ingester/ingester.yaml:/etc/otel-collector-config.yaml:ro
+    - ./ingester/opamp.yaml:/etc/opamp-config.yaml:ro
+volumes:
+  factory-signoz-metastore-postgres-0-data:
+    name: factory-signoz-metastore-postgres-0-data
+  factory-signoz-telemetrykeeper-0-data:
+    name: factory-signoz-telemetrykeeper-0-data
+  factory-signoz-telemetrystore-0-0-data:
+    name: factory-signoz-telemetrystore-0-0-data
+  factory-signoz-telemetrystore-user-scripts:
+    name: factory-signoz-telemetrystore-user-scripts

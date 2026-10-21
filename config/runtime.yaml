@@ -1,0 +1,16 @@
+# Shared runtime, logging, persistence, integrations, and telemetry.
+defaults:
+  repository: phudekar/software-factory
+  orchestrator: hatchet
+  hatchet_tls_strategy: tls
+  state_path: /data/factory.sqlite3
+  log_level: INFO
+  log_format: json
+  planner_factory: factory.adapters.agents:openai_model
+  reviewer_factory: factory.adapters.agents:openai_model
+  coding_factory: ''
+  observer_factory: factory.adapters.telemetry:logging_observer
+  state_factory: factory.adapters.state:sqlite_state
+  telemetry_endpoint: http://factory-signoz-ingester:4318
+  deployment_environment: development
+  pricing_file: /observability/model-pricing.json

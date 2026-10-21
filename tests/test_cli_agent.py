@@ -274,8 +274,8 @@ class CLIAgentTests(unittest.TestCase):
                 cli_agent._run_agent("codex", workspace, prompt)
 
         output = "\n".join(logs.output)
-        self.assertIn("Codex started:", output)
-        self.assertIn("[PROMPT REDACTED]", output)
+        self.assertIn("CLI process finished", output)
+        self.assertNotIn("Codex started:", output)
         self.assertNotIn(prompt, output)
         self.assertNotIn("provider-secret-token", output)
 

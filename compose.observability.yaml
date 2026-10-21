@@ -1,0 +1,20 @@
+# Select the observed worker profiles defined in worker-config.yaml.
+services:
+  worker:
+    environment:
+      WORKER_PROFILE: simple-observed
+    volumes:
+    - ./observability/model-pricing.json:/observability/model-pricing.json:ro
+    networks:
+    - observability
+  developer-worker:
+    environment:
+      WORKER_PROFILE: developer-observed
+    volumes:
+    - ./observability/model-pricing.json:/observability/model-pricing.json:ro
+    networks:
+    - observability
+networks:
+  observability:
+    external: true
+    name: factory-signoz-network
