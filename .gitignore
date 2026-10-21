@@ -6,3 +6,8 @@ __pycache__/
 data/
 
 .env.observability
+
+.env.control-plane
+control-plane/frontend/node_modules/
+control-plane/frontend/dist/
+control-plane/frontend/*.tsbuildinfo

@@ -15,7 +15,7 @@ from pathlib import Path, PurePosixPath
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from factory.application.telemetry import model_call
+from factory.application.telemetry import model_call, record_conversation
 from factory.configuration import current_task
 from functools import partial
 from factory.adapters.cli_usage import record_codex_usage, read_claude_result
@@ -173,7 +173,9 @@ def generate_patch(
                 agent=agent,
                 iteration=iteration,
             ):
+                record_conversation(request=prompt, coverage="cli_prompt_and_result")
                 response = run_agent(agent, workspace, prompt)
+                record_conversation(response=response, coverage="cli_prompt_and_result")
             completion = _parse_completion(response)
             assert_safe_text(completion.progress)
             current = _snapshot(workspace)

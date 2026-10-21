@@ -20,6 +20,7 @@ from factory.domain.models import (
 from factory.adapters.github_events import GitHubWebhook, normalize_webhook
 from factory.adapters.telemetry import correlation
 from factory.application.telemetry import capture_trace, incoming_trace
+from factory.adapters.control import engine_context
 
 ISSUE_EVENT = "issue-agent:issue"
 PR_REVIEW_EVENT = "github:pull_request_review:submitted"
@@ -116,6 +117,7 @@ def build_worker(hatchet, service, settings, dispatch):
         **task_options("load_issue"),
         name="load-issue",
     )
+    @engine_context
     def load_issue(input: IssueInput, ctx: Context) -> IssueState:
         with correlation(input.factory_run_id):
             return service.load_issue(input)
@@ -125,6 +127,7 @@ def build_worker(hatchet, service, settings, dispatch):
         name="plan-issue-and-create-sub-issues",
         parents=[load_issue],
     )
+    @engine_context
     def plan_issue(input: IssueInput, ctx: Context) -> IssuePlanState:
         with correlation(input.factory_run_id):
             return service.plan_issue(input, ctx.task_output(load_issue))
@@ -134,6 +137,7 @@ def build_worker(hatchet, service, settings, dispatch):
         name="triage-issue",
         parents=[load_issue, plan_issue],
     )
+    @engine_context
     def triage_issue(input: IssueInput, ctx: Context) -> TriageState:
         with correlation(input.factory_run_id):
             return service.triage_issue(
@@ -145,6 +149,7 @@ def build_worker(hatchet, service, settings, dispatch):
         name="generate-and-open-draft-pr",
         parents=[triage_issue],
     )
+    @engine_context
     def generate_and_open_draft_pr(input: IssueInput, ctx: Context) -> PublishState:
         with correlation(input.factory_run_id):
             return service.generate_and_open_draft_pr(
@@ -156,6 +161,7 @@ def build_worker(hatchet, service, settings, dispatch):
         name="review-opened-pull-request",
         parents=[generate_and_open_draft_pr],
     )
+    @engine_context
     def review_opened_pull_request(input: IssueInput, ctx: Context) -> EventResult:
         with correlation(input.factory_run_id):
             return service.review_opened_pull_request(
@@ -167,6 +173,7 @@ def build_worker(hatchet, service, settings, dispatch):
         name="record-workflow-result",
         parents=[review_opened_pull_request],
     )
+    @engine_context
     def record_workflow_result(input: IssueInput, ctx: Context) -> EventResult:
         with correlation(input.factory_run_id):
             return service.record_workflow_result(
@@ -178,6 +185,7 @@ def build_worker(hatchet, service, settings, dispatch):
         name="verify-merged-pr-and-close-issue",
         input_validator=PullInput,
     )
+    @engine_context
     def verify_merged_pr(input: PullInput, ctx: Context) -> EventResult:
         with correlation(input.factory_run_id):
             return service.verify_merged_pr(input)
@@ -187,6 +195,7 @@ def build_worker(hatchet, service, settings, dispatch):
         name="process-open-pull-request-feedback",
         input_validator=PullInput,
     )
+    @engine_context
     def process_pull_request_feedback(input: PullInput, ctx: Context) -> EventResult:
         with correlation(input.factory_run_id):
             return service.process_pull_request_feedback(input)
@@ -197,8 +206,10 @@ def build_worker(hatchet, service, settings, dispatch):
         input_validator=EmptyModel,
         on_crons=[SCAN_CRON],
     )
+    @engine_context
     def scan_pending_issues(input: EmptyModel, ctx: Context) -> ScanResult:
-        return service.scan_pending_issues()
+        with service.observer.observe("scan_pending_issues", {}):
+            return service.scan_pending_issues()
 
     @hatchet.task(
         **task_options("scan_open_pr_feedback"),
@@ -206,8 +217,10 @@ def build_worker(hatchet, service, settings, dispatch):
         input_validator=EmptyModel,
         on_crons=[SCAN_CRON],
     )
+    @engine_context
     def scan_open_pr_feedback(input: EmptyModel, ctx: Context) -> FeedbackScanResult:
-        return service.scan_open_pr_feedback()
+        with service.observer.observe("scan_open_pr_feedback", {}):
+            return service.scan_open_pr_feedback()
 
     @hatchet.task(
         **task_options("handle_github_issue_event"),
@@ -219,12 +232,14 @@ def build_worker(hatchet, service, settings, dispatch):
             "github:issues:labeled",
         ],
     )
+    @engine_context
     def handle_github_issue_event(input: GitHubWebhook, ctx: Context) -> EventResult:
-        return service.handle_event(
-            normalize_webhook(
-                input, "issues", ready_label=settings.labels.ready_for_agent
+        with service.observer.observe("handle_github_issue_event", {}):
+            return service.handle_event(
+                normalize_webhook(
+                    input, "issues", ready_label=settings.labels.ready_for_agent
+                )
             )
-        )
 
     @hatchet.task(
         **task_options("handle_pull_request_feedback_event"),
@@ -232,10 +247,12 @@ def build_worker(hatchet, service, settings, dispatch):
         input_validator=GitHubWebhook,
         on_events=PR_FEEDBACK_EVENTS,
     )
+    @engine_context
     def handle_pull_request_feedback_event(
         input: GitHubWebhook, ctx: Context
     ) -> EventResult:
-        return service.handle_event(normalize_webhook(input, "feedback"))
+        with service.observer.observe("handle_pull_request_feedback_event", {}):
+            return service.handle_event(normalize_webhook(input, "feedback"))
 
     @hatchet.task(
         **task_options("inspect_pull_request_event"),
@@ -243,8 +260,10 @@ def build_worker(hatchet, service, settings, dispatch):
         input_validator=GitHubWebhook,
         on_events=[PR_REVIEW_EVENT, PR_CLOSED_EVENT],
     )
+    @engine_context
     def inspect_pull_request_event(input: GitHubWebhook, ctx: Context) -> EventResult:
-        return service.handle_event(normalize_webhook(input, "pull_request"))
+        with service.observer.observe("inspect_pull_request_event", {}):
+            return service.handle_event(normalize_webhook(input, "pull_request"))
 
     @hatchet.task(
         **task_options("trigger_issue_from_sample_event"),
@@ -252,17 +271,22 @@ def build_worker(hatchet, service, settings, dispatch):
         input_validator=IssueInput,
         on_events=[ISSUE_EVENT],
     )
+    @engine_context
     def trigger_issue_from_sample_event(input: IssueInput, ctx: Context) -> EventResult:
-        with correlation(input.factory_run_id):
-            service.validate_repository(input.repository)
-            dispatch.enqueue_issue(input)
-            return EventResult(status="queued", issue_number=input.issue_number)
+        with service.observer.observe(
+            "trigger_issue_from_sample_event", {"factory_run_id": input.factory_run_id}
+        ):
+            with correlation(input.factory_run_id):
+                service.validate_repository(input.repository)
+                dispatch.enqueue_issue(input)
+                return EventResult(status="queued", issue_number=input.issue_number)
 
     @hatchet.durable_task(
         **task_options("wait_for_ready_for_agent"),
         name="wait-for-ready-for-agent",
         input_validator=IssueInput,
     )
+    @engine_context
     async def wait_for_ready_for_agent(
         input: IssueInput, ctx: DurableContext
     ) -> dict[str, str]:
@@ -284,6 +308,7 @@ def build_worker(hatchet, service, settings, dispatch):
         name="wait-for-pr-review-and-merge",
         input_validator=PullInput,
     )
+    @engine_context
     async def wait_for_pull_review(
         input: PullInput, ctx: DurableContext
     ) -> dict[str, str]:

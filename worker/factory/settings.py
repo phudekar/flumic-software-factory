@@ -60,6 +60,8 @@ class Settings:
     telemetry_endpoint: str = "http://factory-signoz-ingester:4318"
     deployment_environment: str = "development"
     pricing_file: str = ""
+    control_revision: str = ""
+    conversation_capture: str = "redacted"
 
     def task(self, name):
         from factory.task_defaults import TASK_DEFAULTS
@@ -98,6 +100,8 @@ class Settings:
         if self.log_format not in {"json", "text"}:
             raise ValueError("LOG_FORMAT must be 'json' or 'text'")
 
+        if self.conversation_capture not in {"redacted", "metadata_only", "disabled"}:
+            raise ValueError("Invalid conversation_capture")
         if self.log_level.upper() not in {
             "DEBUG",
             "INFO",

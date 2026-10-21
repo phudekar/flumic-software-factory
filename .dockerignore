@@ -6,3 +6,7 @@ __pycache__/
 *.py[cod]
 data/
 shared/
+
+control-plane/frontend/node_modules/
+control-plane/frontend/dist/
+control-plane/frontend/*.tsbuildinfo

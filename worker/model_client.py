@@ -4,7 +4,7 @@ import json
 import logging
 import os
 
-from factory.application.telemetry import ModelUsage, model_call
+from factory.application.telemetry import ModelUsage, model_call, record_conversation
 from factory.configuration import current_task
 
 from openai import OpenAI
@@ -417,6 +417,7 @@ class ModelClient:
             max_completion_tokens=self.max_completion_tokens,
         )
         with model_call("openai", model) as call:
+            record_conversation(request=messages)
             try:
                 response = self.client.chat.completions.create(
                     model=model,
@@ -447,6 +448,7 @@ class ModelClient:
             choice = choices[0] if choices else None
             message = choice.message if choice else None
             content = message.content if message else None
+            record_conversation(response=content)
             if not content:
                 usage = getattr(response, "usage", None)
                 logger.warning(

@@ -1,0 +1,12 @@
+fastapi>=0.115,<1
+uvicorn>=0.34,<1
+SQLAlchemy>=2.0,<3
+alembic>=1.15,<2
+psycopg[binary]>=3.2,<4
+docker>=7.1,<8
+httpx>=0.28,<1
+cryptography>=44,<47
+argon2-cffi>=23,<26
+PyYAML>=6,<7
+pydantic>=2.6,<3
+hatchet-sdk

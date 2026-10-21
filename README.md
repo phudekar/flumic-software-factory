@@ -22,6 +22,17 @@ Start it with `./scripts/start-observability.sh`, open `http://localhost:3301`,
 and the factory dashboard is provisioned automatically. Start factory
 workers with telemetry using `./scripts/start-observed-workers.sh -d`.
 
+## Control-plane application
+
+A separate React/TypeScript webapp provides worker management, Hatchet run/stage
+views, logs, redacted model history, usage, and versioned config/prompt editing.
+Start it with `./scripts/start-control-plane.sh` and open `http://localhost:3400`.
+The private `.env.control-plane` file contains the generated administrator password.
+Existing workers are discovered read-only and are not restarted by this command.
+See the [operator guide](docs/control-plane.md) for capabilities and current
+limits, and the [architecture plan](docs/control-plane-architecture.md) for the
+full design and remaining milestones.
+
 ## Prerequisites
 
 - Docker Engine and the standalone `docker-compose` command

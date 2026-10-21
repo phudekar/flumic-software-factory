@@ -2,9 +2,44 @@
   "currency": "USD",
   "unit": "per_million_tokens",
   "verified_at": "2026-10-20",
-  "source": "https://developers.openai.com/api/docs/models/gpt-5-nano",
+  "source": "https://developers.openai.com/api/docs/pricing",
   "models": {
-    "openai/gpt-5-nano": {"input": 0.05, "cached_input": 0.005, "output": 0.40},
-    "openai/gpt-5-nano-2025-08-07": {"input": 0.05, "cached_input": 0.005, "output": 0.40}
-  }
+    "openai/gpt-5-nano": {
+      "input": 0.05,
+      "cached_input": 0.005,
+      "output": 0.4
+    },
+    "openai/gpt-5-nano-2025-08-07": {
+      "input": 0.05,
+      "cached_input": 0.005,
+      "output": 0.4
+    },
+    "openai/gpt-6-luna": {
+      "input": 0.1,
+      "cached_input": 0.01,
+      "cache_creation": 0.125,
+      "output": 0.5
+    },
+    "openai/gpt-4.1-mini": {
+      "input": 0.4,
+      "cached_input": 0.1,
+      "output": 1.6
+    },
+    "openai/gpt-4.1-mini-2025-04-14": {
+      "input": 0.4,
+      "cached_input": 0.1,
+      "output": 1.6
+    }
+  },
+  "sources": {
+    "gpt-5-nano": "https://developers.openai.com/api/docs/models/gpt-5-nano",
+    "gpt-6-luna": "https://developers.openai.com/api/docs/models/gpt-6-luna",
+    "gpt-4.1-mini": "https://developers.openai.com/api/docs/models/gpt-4.1-mini"
+  },
+  "pricing_scope": "Standard API text-token list prices; no Batch/Flex discounts, Fast mode, regional premiums, tool fees, or subscription allowances.",
+  "notes": [
+    "GPT-6 Luna rates below apply to prompts up to 272,000 input tokens. Longer prompts cost 2x input/cache rates and 1.5x output rates for the full request; the current flat-rate estimator does not apply these multipliers.",
+    "Cache-write cost is included only when cache-creation usage is reported. Codex turn summaries currently provide input, cached-input and output counts, so unreported cache writes are excluded from estimates.",
+    "Claude has no explicit configured model; no default model or Anthropic rate is assumed. CLI-reported USD remains available separately."
+  ]
 }

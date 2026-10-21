@@ -116,3 +116,14 @@ def model_call(
                 yield call
             finally:
                 _current_call.reset(token)
+
+
+def current_recorder():
+    return _recorder.get()
+
+
+def record_conversation(*, request=None, response=None, coverage="api_exchange"):
+    call = _current_call.get()
+    capture = getattr(call, "conversation", None)
+    if capture is not None:
+        capture(request=request, response=response, coverage=coverage)

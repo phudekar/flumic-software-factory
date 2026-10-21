@@ -1,0 +1,40 @@
+from dataclasses import dataclass
+from pathlib import Path
+import os
+
+
+@dataclass(frozen=True)
+class AppSettings:
+    database_url: str
+    admin_password: str
+    encryption_key: str
+    root: Path
+    snapshot_root: Path
+    host_root: Path
+    frontend: Path
+    public_origin: str = "http://localhost:3400"
+    worker_endpoint: str = "http://factory-control-api:8000"
+    project: str = "hatchet-test"
+    cookie_secure: bool = False
+
+    @classmethod
+    def load(cls):
+        root = Path(os.environ.get("FACTORY_ROOT", ".")).resolve()
+        return cls(
+            database_url=os.environ["CONTROL_DATABASE_URL"],
+            admin_password=os.environ["CONTROL_ADMIN_PASSWORD"],
+            encryption_key=os.environ["CONTROL_ENCRYPTION_KEY"],
+            root=root,
+            host_root=Path(os.environ.get("FACTORY_HOST_ROOT", str(root))),
+            snapshot_root=root / "data/control-plane/snapshots",
+            frontend=Path(
+                os.environ.get("CONTROL_FRONTEND", "control-plane/frontend/dist")
+            ),
+            public_origin=os.environ.get(
+                "CONTROL_PUBLIC_ORIGIN", "http://localhost:3400"
+            ),
+            worker_endpoint=os.environ.get(
+                "CONTROL_WORKER_ENDPOINT", "http://factory-control-api:8000"
+            ),
+            cookie_secure=os.environ.get("CONTROL_COOKIE_SECURE", "false") == "true",
+        )

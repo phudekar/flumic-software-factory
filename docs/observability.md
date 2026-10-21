@@ -124,10 +124,18 @@ input and cache-read categories as though they were independent totals.
 ## Cost estimates
 
 `observability/model-pricing.json` contains USD-per-million-token rates and a
-verification date/source. It initially includes the locally configured
-`gpt-5-nano` and its documented snapshot. Add rates for the actual Codex/Claude
-models you select; no rates are invented for unknown model names. Restart worker
-processes after changing the file.
+verification date and official source links. It includes configured `gpt-5-nano`
+and `gpt-6-luna`, plus the `gpt-4.1-mini` compatibility fallback and documented
+snapshot aliases. Claude has no explicit configured model, so its rate is not
+assumed. Restart worker processes after changing the file.
+
+Rates are Standard API text-token list prices. GPT-6 Luna's stored rates apply
+through 272,000 prompt tokens; longer prompts cost twice the input/cache rates
+and 1.5 times the output rate for the whole request. The current flat-rate
+estimator does not apply these multipliers, Fast/Batch/Flex pricing, or regional
+premiums. Codex turn summaries may aggregate several provider calls and do not
+currently expose cache-write counts; unreported cache writes are excluded.
+These estimates therefore may understate large-context or cache-write charges.
 
 The estimate is:
 

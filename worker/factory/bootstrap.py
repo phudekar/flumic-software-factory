@@ -28,6 +28,13 @@ def build_service(settings, dispatch):
             "claude": "factory.adapters.agents:claude_coding",
         }[settings.developer_agent]
     )
+    observer = load_factory(settings.observer_factory)(settings)
+    import os
+
+    if os.environ.get("FACTORY_CONTROL_ENDPOINT"):
+        from factory.adapters.control import ControlObserver
+
+        observer = ControlObserver(observer, settings)
     # The conditional is at composition only; use cases know capabilities, not names.
     return FactoryService(
         repository=settings.repository,
@@ -42,7 +49,7 @@ def build_service(settings, dispatch):
             max_file_bytes=settings.max_file_bytes,
         ),
         state=load_factory(settings.state_factory)(settings),
-        observer=load_factory(settings.observer_factory)(settings),
+        observer=observer,
         labels=settings.labels,
         task_settings=settings.task,
     )

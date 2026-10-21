@@ -1,0 +1,665 @@
+"""Same-origin operator API. Vendor credentials never enter browser responses."""
+
+from contextlib import asynccontextmanager
+from collections import defaultdict
+import json
+import secrets
+import time
+import uuid
+import yaml
+from argon2 import PasswordHasher
+from argon2.exceptions import VerificationError
+from cryptography.fernet import Fernet
+from fastapi import FastAPI, Request, Response, HTTPException, Query
+from fastapi.responses import FileResponse, PlainTextResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.exceptions import RequestValidationError
+from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy import select, desc, or_, text
+from app.database import (
+    database,
+    Revision,
+    Worker,
+    Operation,
+    Event,
+    Conversation,
+    Session,
+    Audit,
+)
+from app.services import Configurations
+from app.security import digest, redact
+from app.reconciler import worker_token
+
+
+class Login(BaseModel):
+    password: str = Field(max_length=1024)
+
+
+class ConfigEdit(BaseModel):
+    document: dict
+    parent_id: str | None = None
+    summary: str = Field(default="Configuration update", min_length=1, max_length=240)
+
+
+class CreateWorker(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: str = Field(pattern=r"^[a-z][a-z0-9-]{2,59}$")
+    profile: str = Field(max_length=100)
+    revision_id: str
+    target_id: str = "local-docker"
+
+
+class Action(BaseModel):
+    action: str = Field(pattern=r"^(start|stop|remove|configure)$")
+    revision_id: str | None = None
+
+
+class Incoming(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    id: str = Field(pattern=r"^[a-f0-9-]{36}$")
+    kind: str = Field(
+        pattern=r"^(heartbeat|attempt.started|attempt.completed|model.completed|log)$"
+    )
+    occurred_at: float = Field(ge=0, allow_inf_nan=False)
+    run_id: str | None = Field(default=None, max_length=120)
+    attempt_id: str | None = Field(default=None, max_length=120)
+    stage: str | None = Field(default=None, max_length=100)
+    payload: dict = Field(default_factory=dict)
+
+
+def row(value):
+    return {
+        column.name: getattr(value, column.name) for column in value.__table__.columns
+    }
+
+
+def create_app(settings=None, sessions=None, runtime=None, workflow=None):
+    from app.settings import AppSettings
+
+    settings = settings or AppSettings.load()
+    if sessions is None:
+        _, sessions = database(settings.database_url)
+    config = Configurations(settings.root)
+    cipher = Fernet(settings.encryption_key.encode())
+    hasher = PasswordHasher()
+    password_hash = hasher.hash(settings.admin_password)
+    failures = defaultdict(list)
+
+    @asynccontextmanager
+    async def lifespan(app):
+        with sessions.begin() as db:
+            if db.scalar(select(Revision.id).limit(1)) is None:
+                config.validate(config.approved)
+                db.add(
+                    Revision(
+                        summary="Imported repository configuration",
+                        document=config.approved,
+                        digest=config.hash(config.approved),
+                    )
+                )
+        yield
+
+    app = FastAPI(
+        title="Software Factory Control Plane",
+        lifespan=lifespan,
+        docs_url=None,
+        redoc_url=None,
+    )
+    app.state.sessions = sessions
+    app.state.settings = settings
+
+    def runtime_adapter():
+        nonlocal runtime
+        if runtime is None:
+            from app.adapters.docker import DockerRuntime
+
+            runtime = DockerRuntime(settings, config)
+        return runtime
+
+    def workflow_adapter():
+        nonlocal workflow
+        if workflow is None:
+            from app.adapters.hatchet import HatchetEngine
+
+            workflow = HatchetEngine(settings.root)
+        return workflow
+
+    @app.middleware("http")
+    async def security(request, call_next):
+        if request.url.path.startswith("/api/") and request.url.path not in {
+            "/api/v1/auth/login",
+            "/api/v1/health",
+            "/api/v1/ingest",
+        }:
+            with sessions() as db:
+                session = db.get(
+                    Session, digest(request.cookies.get("factory_session", ""))
+                )
+                if session is None or session.expires_at < time.time():
+                    return Response(status_code=401)
+                if request.method not in {"GET", "HEAD", "OPTIONS"}:
+                    if not secrets.compare_digest(
+                        request.headers.get("x-csrf-token", ""), session.csrf
+                    ):
+                        return Response(status_code=403)
+        if (
+            request.method not in {"GET", "HEAD", "OPTIONS"}
+            and request.url.path != "/api/v1/ingest"
+        ):
+            origin = request.headers.get("origin")
+            if origin and origin != settings.public_origin:
+                return Response(status_code=403)
+        response = await call_next(request)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["Referrer-Policy"] = "same-origin"
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'"
+        )
+        if request.url.path.startswith("/api/"):
+            response.headers["Cache-Control"] = "no-store"
+        return response
+
+    @app.exception_handler(RequestValidationError)
+    async def validation_error(request, exc):
+        from fastapi.responses import JSONResponse
+
+        return JSONResponse(
+            status_code=422,
+            content={
+                "detail": "Invalid request fields; check the form values and limits."
+            },
+        )
+
+    @app.exception_handler(ValueError)
+    async def value_error(request, exc):
+        from fastapi.responses import JSONResponse
+
+        return JSONResponse(status_code=422, content={"detail": redact(str(exc))})
+
+    @app.exception_handler(Exception)
+    async def integration_error(request, exc):
+        from fastapi.responses import JSONResponse
+
+        return JSONResponse(
+            status_code=503,
+            content={
+                "detail": "Integration unavailable. Check target connectivity and server configuration."
+            },
+        )
+
+    @app.get("/api/v1/health")
+    def health():
+        with sessions() as db:
+            db.scalar(select(Revision.id).limit(1))
+        return {"status": "ready"}
+
+    @app.post("/api/v1/auth/login")
+    def login(body: Login, request: Request, response: Response):
+        host = request.client.host if request.client else "unknown"
+        failures[host] = [when for when in failures[host] if when > time.time() - 60]
+        if len(failures[host]) >= 8:
+            raise HTTPException(429, "Too many login attempts; wait one minute")
+        try:
+            hasher.verify(password_hash, body.password)
+        except VerificationError:
+            failures[host].append(time.time())
+            raise HTTPException(401, "Invalid credentials") from None
+        token, csrf = secrets.token_urlsafe(40), secrets.token_urlsafe(32)
+        with sessions.begin() as db:
+            db.add(Session(id=digest(token), csrf=csrf, expires_at=time.time() + 28800))
+            db.add(Audit(action="login", resource="operator"))
+        response.set_cookie(
+            "factory_session",
+            token,
+            httponly=True,
+            secure=settings.cookie_secure,
+            samesite="strict",
+            max_age=28800,
+        )
+        return {"csrf": csrf, "role": "administrator"}
+
+    @app.get("/api/v1/auth/session")
+    def session_info(request: Request):
+        with sessions() as db:
+            session = db.get(Session, digest(request.cookies["factory_session"]))
+            return {"csrf": session.csrf, "role": "administrator"}
+
+    @app.post("/api/v1/auth/logout")
+    def logout(request: Request, response: Response):
+        with sessions.begin() as db:
+            session = db.get(
+                Session, digest(request.cookies.get("factory_session", ""))
+            )
+            if session:
+                db.delete(session)
+        response.delete_cookie("factory_session")
+        return {"ok": True}
+
+    @app.get("/api/v1/targets")
+    def targets():
+        return [
+            {
+                "id": "local-docker",
+                "name": "Local Docker",
+                "runtime": "docker",
+                "capabilities": {
+                    "create": True,
+                    "start": True,
+                    "stop": True,
+                    "drain": False,
+                    "kubernetes": False,
+                },
+                "drain_reason": "Drain requires assignment and pause-race verification against this Hatchet server.",
+            }
+        ]
+
+    @app.get("/api/v1/workers")
+    def workers():
+        warnings = []
+        try:
+            actual = runtime_adapter().list()
+        except Exception:
+            actual = []
+            warnings.append("Docker unavailable; observed runtime state is unknown.")
+        try:
+            engine_workers = workflow_adapter().workers()
+        except Exception:
+            engine_workers = []
+            warnings.append("Hatchet unavailable; engine registration is unknown.")
+        with sessions() as db:
+            specs = db.scalars(select(Worker).order_by(desc(Worker.created_at))).all()
+            result = []
+            for worker in specs:
+                item = {
+                    key: value
+                    for key, value in row(worker).items()
+                    if key != "credential_hash"
+                }
+                item["runtime"] = next(
+                    (entry for entry in actual if entry["instance_id"] == worker.id),
+                    None,
+                )
+                item["engine"] = next(
+                    (entry for entry in engine_workers if entry["name"] == worker.name),
+                    None,
+                )
+                item["operations"] = [
+                    row(op)
+                    for op in db.scalars(
+                        select(Operation)
+                        .where(Operation.worker_id == worker.id)
+                        .order_by(desc(Operation.created_at))
+                        .limit(5)
+                    )
+                ]
+                result.append(item)
+        return {
+            "managed": result,
+            "discovered": [entry for entry in actual if not entry["managed"]],
+            "warnings": warnings,
+            "observed_at": time.time(),
+        }
+
+    @app.post("/api/v1/workers", status_code=202)
+    def create_worker(body: CreateWorker, request: Request):
+        if body.target_id != "local-docker":
+            raise HTTPException(422, "Unsupported deployment target")
+        with sessions.begin() as db:
+            revision = db.get(Revision, body.revision_id)
+            if revision is None:
+                raise HTTPException(404, "Revision not found")
+            profiles = config.validate(revision.document)
+            if body.profile not in profiles:
+                raise HTTPException(422, "Unknown worker profile")
+            worker = Worker(
+                id=str(uuid.uuid4()),
+                name=body.name,
+                profile=body.profile,
+                revision_id=body.revision_id,
+                credential_hash="",
+            )
+            worker.credential_hash = digest(worker_token(settings, worker.id))
+            key = request.headers.get("idempotency-key")
+            if not key or len(key) > 100:
+                raise HTTPException(422, "Idempotency-Key is required")
+            existing = db.scalar(
+                select(Operation).where(Operation.key == "create:" + key)
+            )
+            if existing:
+                return row(existing)
+            if db.scalar(select(Worker.id).where(Worker.name == body.name)):
+                raise HTTPException(409, "Worker name already exists")
+            db.add(worker)
+            operation = Operation(
+                id=str(uuid.uuid4()),
+                worker_id=worker.id,
+                action="create",
+                key="create:" + key,
+            )
+            db.add(operation)
+            db.add(Audit(action="worker.create", resource=worker.id))
+            db.flush()
+            return row(operation)
+
+    @app.post("/api/v1/workers/{identifier}/actions", status_code=202)
+    def worker_action(identifier: str, body: Action, request: Request):
+        key = request.headers.get("idempotency-key")
+        if not key or len(key) > 100:
+            raise HTTPException(422, "Idempotency-Key is required")
+        with sessions.begin() as db:
+            worker = db.scalar(
+                select(Worker).where(Worker.id == identifier).with_for_update()
+            )
+            if worker is None:
+                raise HTTPException(404, "Managed worker not found")
+            existing = db.scalar(
+                select(Operation).where(Operation.key == f"{identifier}:{key}")
+            )
+            if existing:
+                return row(existing)
+            if db.scalar(
+                select(Operation.id).where(
+                    Operation.worker_id == identifier,
+                    Operation.status.in_(["pending", "running"]),
+                )
+            ):
+                raise HTTPException(409, "Worker has an operation in progress")
+            if body.action == "configure":
+                revision = db.get(Revision, body.revision_id or "")
+                if revision is None:
+                    raise HTTPException(404, "Configuration revision not found")
+                profiles = config.validate(revision.document)
+                if worker.profile not in profiles:
+                    raise HTTPException(
+                        422, "Worker profile is absent from this revision"
+                    )
+                actual = next(
+                    (
+                        item
+                        for item in runtime_adapter().list()
+                        if item.get("instance_id") == identifier
+                    ),
+                    None,
+                )
+                if actual and actual["status"] == "running":
+                    raise HTTPException(
+                        409, "Stop the worker before applying a configuration revision"
+                    )
+                worker.revision_id = revision.id
+            operation = Operation(
+                id=str(uuid.uuid4()),
+                worker_id=identifier,
+                action=body.action,
+                key=f"{identifier}:{key}",
+            )
+            db.add(operation)
+            db.add(Audit(action="worker." + body.action, resource=identifier))
+            db.flush()
+            return row(operation)
+
+    @app.get("/api/v1/runtime/{identifier}/logs")
+    def runtime_logs(identifier: str):
+        return {
+            "source": "runtime stdout",
+            "content": redact(runtime_adapter().logs(identifier, 200)),
+        }
+
+    @app.get("/api/v1/runs")
+    def runs(offset: int = Query(0, ge=0), limit: int = Query(50, ge=1, le=100)):
+        try:
+            return {
+                "items": workflow_adapter().runs(offset, limit),
+                "source": "hatchet",
+                "warnings": [],
+            }
+        except Exception:
+            return {
+                "items": [],
+                "source": "hatchet",
+                "warnings": [
+                    "Hatchet unavailable. No execution state can be inferred."
+                ],
+            }
+
+    @app.get("/api/v1/runs/{identifier}")
+    def run_detail(identifier: uuid.UUID):
+        return redact(workflow_adapter().run(str(identifier)))
+
+    @app.get("/api/v1/engine/tasks/{identifier}/logs")
+    def engine_logs(identifier: uuid.UUID):
+        return {
+            "items": redact(workflow_adapter().logs(str(identifier), 200)),
+            "source": "hatchet",
+            "note": "Only logs explicitly sent to Hatchet appear here.",
+        }
+
+    @app.get("/api/v1/config/revisions")
+    def revisions():
+        with sessions() as db:
+            return [
+                {key: value for key, value in row(rev).items() if key != "document"}
+                for rev in db.scalars(
+                    select(Revision).order_by(desc(Revision.created_at)).limit(100)
+                )
+            ]
+
+    @app.get("/api/v1/config/revisions/{identifier}")
+    def revision(identifier: str):
+        with sessions() as db:
+            rev = db.get(Revision, identifier)
+            if rev is None:
+                raise HTTPException(404, "Revision not found")
+            return {**row(rev), "profiles": config.validate(rev.document)}
+
+    @app.post("/api/v1/config/validate")
+    def validate(body: ConfigEdit):
+        return {
+            "profiles": config.validate(body.document),
+            "digest": config.hash(body.document),
+        }
+
+    @app.post("/api/v1/config/revisions", status_code=201)
+    def save_config(body: ConfigEdit):
+        config.validate(body.document)
+        with sessions.begin() as db:
+            if db.bind.dialect.name == "postgresql":
+                db.execute(text("SELECT pg_advisory_xact_lock(6423400)"))
+            latest = db.scalar(
+                select(Revision)
+                .order_by(desc(Revision.created_at))
+                .with_for_update()
+                .limit(1)
+            )
+            if latest and body.parent_id != latest.id:
+                raise HTTPException(409, "Configuration changed; reload before saving")
+            revision = Revision(
+                id=str(uuid.uuid4()),
+                parent_id=body.parent_id,
+                summary=body.summary,
+                document=body.document,
+                digest=config.hash(body.document),
+            )
+            db.add(revision)
+            db.add(Audit(action="config.publish", resource=revision.id))
+            db.flush()
+            return row(revision)
+
+    @app.get("/api/v1/config/revisions/{identifier}/export")
+    def export(identifier: str):
+        with sessions() as db:
+            revision = db.get(Revision, identifier)
+            if revision is None:
+                raise HTTPException(404, "Revision not found")
+            return PlainTextResponse(
+                yaml.safe_dump(revision.document, sort_keys=False),
+                headers={
+                    "Content-Disposition": "attachment; filename=worker-config.yaml"
+                },
+            )
+
+    @app.post("/api/v1/ingest", status_code=202)
+    def ingest(body: list[Incoming], request: Request):
+        if (
+            len(body) > 50
+            or len(json.dumps([item.model_dump() for item in body]).encode()) > 524288
+        ):
+            raise HTTPException(413, "Event batch too large")
+        identifier = request.headers.get("x-worker-id", "")
+        with sessions.begin() as db:
+            worker = db.get(Worker, identifier)
+            authorization = request.headers.get("authorization", "")
+            if (
+                worker is None
+                or not authorization.startswith("Bearer ")
+                or not secrets.compare_digest(
+                    worker.credential_hash, digest(authorization[7:])
+                )
+            ):
+                raise HTTPException(401, "Invalid worker credentials")
+            if db.bind.dialect.name == "postgresql":
+                db.execute(
+                    text("SELECT pg_advisory_xact_lock(:key)"),
+                    {"key": int(digest(identifier)[:15], 16)},
+                )
+            for item in body:
+                if db.get(Event, item.id):
+                    continue
+                if item.kind == "model.completed":
+                    from factory.application.telemetry import ModelUsage
+
+                    usage_fields = {
+                        key: item.payload[key]
+                        for key in ModelUsage.__dataclass_fields__
+                        if key in item.payload
+                    }
+                    ModelUsage(**usage_fields)
+                    import math
+
+                    for key in ("estimated_usd", "reported_cost_usd"):
+                        amount = item.payload.get(key)
+                        if amount is not None and (
+                            isinstance(amount, bool)
+                            or not isinstance(amount, (int, float))
+                            or not math.isfinite(amount)
+                            or amount < 0
+                        ):
+                            raise ValueError("Invalid monetary usage")
+                payload = redact(item.payload)
+                conversation = payload.pop("conversation", None)
+                if conversation:
+                    db.add(
+                        Conversation(
+                            id=item.id,
+                            ciphertext=cipher.encrypt(
+                                json.dumps(conversation).encode()
+                            ).decode(),
+                            expires_at=time.time() + 604800,
+                        )
+                    )
+                    payload["conversation_available"] = True
+                db.add(
+                    Event(
+                        id=item.id,
+                        kind=item.kind,
+                        worker_id=identifier,
+                        run_id=item.run_id,
+                        attempt_id=item.attempt_id,
+                        stage=item.stage,
+                        occurred_at=item.occurred_at,
+                        payload=payload,
+                    )
+                )
+        return {"accepted": len(body)}
+
+    @app.get("/api/v1/events")
+    def events(
+        run_id: str | None = None,
+        attempt_id: str | None = None,
+        kind: str | None = None,
+        offset: int = Query(0, ge=0),
+        limit: int = Query(100, ge=1, le=500),
+    ):
+        query = select(Event)
+        if run_id:
+            query = query.where(
+                or_(
+                    Event.run_id == run_id,
+                    Event.payload["engine_workflow_run_id"].as_string() == run_id,
+                )
+            )
+        if attempt_id:
+            query = query.where(Event.attempt_id == attempt_id)
+        if kind:
+            query = query.where(Event.kind == kind)
+        with sessions() as db:
+            return [
+                row(item)
+                for item in db.scalars(
+                    query.order_by(desc(Event.occurred_at)).offset(offset).limit(limit)
+                )
+            ]
+
+    @app.get("/api/v1/model-calls/{identifier}/conversation")
+    def conversation(identifier: str):
+        with sessions.begin() as db:
+            content = db.get(Conversation, identifier)
+            if content is None or content.expires_at < time.time():
+                raise HTTPException(
+                    404, "Conversation not captured or retention expired"
+                )
+            db.add(Audit(action="conversation.read", resource=identifier))
+            return json.loads(cipher.decrypt(content.ciphertext.encode()))
+
+    @app.get("/api/v1/usage")
+    def usage(since: float = Query(default=0, ge=0)):
+        with sessions() as db:
+            calls = db.scalars(
+                select(Event)
+                .where(Event.kind == "model.completed", Event.occurred_at >= since)
+                .order_by(desc(Event.occurred_at))
+                .limit(10000)
+            ).all()
+            leaves = [
+                call for call in calls if call.payload.get("accounting_leaf", True)
+            ]
+
+            def total(key):
+                values = [call.payload.get(key) for call in leaves]
+                known = [
+                    value
+                    for value in values
+                    if isinstance(value, (float, int)) and not isinstance(value, bool)
+                ]
+                return sum(known) if known else None
+
+            return {
+                "calls": len(leaves),
+                "input_tokens": total("input_tokens"),
+                "output_tokens": total("output_tokens"),
+                "estimated_usd": total("estimated_usd"),
+                "reported_usd": total("reported_cost_usd"),
+                "unpriced_calls": sum(
+                    call.payload.get("estimated_usd") is None for call in leaves
+                ),
+                "missing_usage_calls": sum(
+                    call.payload.get("input_tokens") is None
+                    or call.payload.get("output_tokens") is None
+                    for call in leaves
+                ),
+                "limit": 10000,
+                "truncated": len(calls) == 10000,
+                "note": "Known subtotal. Estimated and reported USD are separate; provider invoices may differ.",
+            }
+
+    if settings.frontend.exists():
+        assets = settings.frontend / "assets"
+        if assets.exists():
+            app.mount("/assets", StaticFiles(directory=assets), name="assets")
+
+        @app.get("/{path:path}")
+        def spa(path: str):
+            if path.startswith("api/"):
+                raise HTTPException(404)
+            return FileResponse(settings.frontend / "index.html")
+
+    return app
