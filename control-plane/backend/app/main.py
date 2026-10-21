@@ -429,6 +429,10 @@ def create_app(settings=None, sessions=None, runtime=None, workflow=None):
                 )
             ):
                 raise HTTPException(409, "Worker has an operation in progress")
+            if worker.desired_state == "removed" and body.action != "remove":
+                raise HTTPException(
+                    409, "Worker was removed; create a new worker to run it again"
+                )
             if body.action == "configure":
                 cfg = db.get(WorkerConfiguration, body.config_id or "")
                 if body.config_id and cfg is None:

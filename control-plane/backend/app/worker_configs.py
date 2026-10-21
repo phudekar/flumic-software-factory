@@ -59,7 +59,11 @@ def bootstrap(db, config):
                     document=config.split(resolved, parsed.profile)[1],
                 )
             )
-    for worker in db.scalars(select(Worker).where(Worker.config_id.is_(None))):
+    for worker in db.scalars(
+        select(Worker).where(
+            Worker.config_id.is_(None), Worker.desired_state != "removed"
+        )
+    ):
         attach_imported_profile(db, config, worker)
         # Deliberately retain worker.revision_id and runtime; metadata migration only.
 
@@ -150,6 +154,17 @@ def install(app, sessions, config, row):
                 "factory_revision_id": factory.id,
                 "document": config.split(factory.document, profile)[1],
             }
+
+    @app.post("/api/v1/worker-profiles/validate")
+    def validate_profile(body: WorkerConfigEdit):
+        with sessions() as db:
+            factory = db.get(Revision, body.factory_revision_id)
+            if factory is None or factory.scope != "factory":
+                raise HTTPException(404, "Factory configuration not found")
+            if body.profile not in factory.document["workers"]:
+                raise HTTPException(422, "Unknown factory worker profile")
+            config.compose(factory.document, body.profile, body.document)
+        return {"valid": True}
 
     @app.post("/api/v1/worker-profiles", status_code=201)
     @app.post("/api/v1/worker-configs", status_code=201)

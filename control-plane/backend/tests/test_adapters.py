@@ -139,3 +139,10 @@ class AdapterTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "build failed"):
             runtime.configure(Mock(), {}, "unused")
         current.remove.assert_not_called()
+
+    def test_remove_is_idempotent_when_runtime_is_already_absent(self):
+        client = Mock()
+        client.containers.list.return_value = []
+        runtime = DockerRuntime(Mock(), Mock(), client=client)
+        runtime.action("worker-removed", "remove")
+        client.containers.get.assert_not_called()

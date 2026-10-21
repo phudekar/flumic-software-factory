@@ -5,30 +5,20 @@ import type { WorkerConfig, WorkerDocument } from "../api";
 import { api } from "../api";
 import { date, Failure, PageTitle, Section } from "../components/ui";
 import { useData } from "../hooks";
+import { MarkdownPromptEditor } from "../components/markdown-prompt-editor";
+import { YamlEditor } from "../components/yaml-editor";
+import { ImageBuildEditor } from "../components/image-build-editor";
 
 export function WorkerDocumentEditor({
   source,
   onChange,
-  prompts = false,
   readOnly = false,
 }: {
   source: string;
   onChange: (value: string) => void;
-  prompts?: boolean;
   readOnly?: boolean;
 }) {
   const [task, setTask] = useState("plan_issue");
-  if (!prompts)
-    return (
-      <textarea
-        className="config-editor"
-        aria-label="Worker configuration document"
-        spellCheck={false}
-        readOnly={readOnly}
-        value={source}
-        onChange={(e) => onChange(e.target.value)}
-      />
-    );
   let document: WorkerDocument;
   try {
     document = JSON.parse(source);
@@ -70,18 +60,11 @@ export function WorkerDocumentEditor({
               onChange={(e) => update("model", e.target.value)}
             />
           </label>
-          <label>
-            Additional system prompt
-            <textarea
-              className="prompt-editor"
-              readOnly={readOnly}
-              maxLength={16000}
-              value={document.tasks[selected].additional_system_prompt ?? ""}
-              onChange={(e) =>
-                update("additional_system_prompt", e.target.value)
-              }
-            />
-          </label>
+          <MarkdownPromptEditor
+            readOnly={readOnly}
+            value={document.tasks[selected].additional_system_prompt ?? ""}
+            onChange={(value) => update("additional_system_prompt", value)}
+          />
           <small>
             Applies to this worker configuration only. Built-in instructions and
             output schemas remain. Steps without a model call ignore this
@@ -139,6 +122,8 @@ export function Configuration({ prompts = false }: { prompts?: boolean }) {
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [pending, setPending] = useState(false);
+  const [imageError, setImageError] = useState<string | null>(null);
+  const [behaviorError, setBehaviorError] = useState<string | null>(null);
   const client = useQueryClient();
   useEffect(() => {
     setSource(
@@ -166,11 +151,22 @@ export function Configuration({ prompts = false }: { prompts?: boolean }) {
       setError("Fix configuration JSON first.");
     }
   }
+  async function validateProfile(document: Record<string, unknown>) {
+    if (!current) throw new Error("Select a worker profile first.");
+    await api("/worker-profiles/validate", {
+      name: name || current.name,
+      profile: current.profile,
+      factory_revision_id: factoryId,
+      document,
+    });
+  }
   async function save(clone = false) {
     setPending(true);
     setError("");
     setMessage("");
     try {
+      if (imageError || behaviorError)
+        throw new Error("Fix the YAML configuration before saving.");
       const document = JSON.parse(source);
       if (factoryMode) {
         await api("/factory-config", {
@@ -406,11 +402,21 @@ export function Configuration({ prompts = false }: { prompts?: boolean }) {
             value={source}
             onChange={(e) => setSource(e.target.value)}
           />
+        ) : !prompts ? (
+          <YamlEditor
+            key={current?.id ?? "new"}
+            value={source ? JSON.parse(source) : { settings: {}, tasks: {} }}
+            label="Worker behavior YAML"
+            readOnly={historical}
+            onChange={(value) => setSource(JSON.stringify(value, null, 2))}
+            onError={setBehaviorError}
+            normalize={normalizeWorkerDocument}
+            onValidate={validateProfile}
+          />
         ) : (
           <WorkerDocumentEditor
             source={source}
             onChange={setSource}
-            prompts={prompts}
             readOnly={historical}
           />
         )}
@@ -448,59 +454,28 @@ export function Configuration({ prompts = false }: { prompts?: boolean }) {
               worker image. Build changes apply when creating or restarting a
               worker.
             </p>
-            <label>
-              Base OS image
-              <input
-                readOnly={historical}
-                value={String(settings.base_image ?? "")}
-                placeholder="python:3.12-slim or node:24-bookworm-slim"
-                onChange={(e) => updateSetting("base_image", e.target.value)}
-              />
-            </label>
-            <label>
-              System packages
-              <PackageInput
-                readOnly={historical}
-                value={
-                  Array.isArray(settings.system_packages)
-                    ? (settings.system_packages as string[])
-                    : []
+            <ImageBuildEditor
+              key={current?.id ?? "new"}
+              settings={settings}
+              readOnly={historical}
+              onError={setImageError}
+              onValidate={(build) => {
+                const document = JSON.parse(source) as WorkerDocument;
+                return validateProfile({
+                  ...document,
+                  settings: { ...document.settings, ...build },
+                });
+              }}
+              onChange={(build) => {
+                try {
+                  const document = JSON.parse(source) as WorkerDocument;
+                  document.settings = { ...document.settings, ...build };
+                  setSource(JSON.stringify(document, null, 2));
+                } catch {
+                  setError("Fix configuration JSON first.");
                 }
-                onChange={(packages) =>
-                  updateSetting("system_packages", packages)
-                }
-              />
-            </label>
-            <label>
-              Codex CLI version
-              <input
-                readOnly={historical}
-                value={String(settings.codex_version ?? "0.163.0")}
-                onChange={(e) => updateSetting("codex_version", e.target.value)}
-              />
-            </label>
-            <label>
-              Claude CLI version
-              <input
-                readOnly={historical}
-                value={String(settings.claude_version ?? "2.1.306")}
-                onChange={(e) =>
-                  updateSetting("claude_version", e.target.value)
-                }
-              />
-            </label>
-            <label>
-              Image setup script
-              <textarea
-                className="prompt-editor"
-                readOnly={historical}
-                value={String(settings.image_setup_script ?? "")}
-                placeholder="python -m pip install extra-library"
-                onChange={(e) =>
-                  updateSetting("image_setup_script", e.target.value)
-                }
-              />
-            </label>
+              }}
+            />
             <small>
               Runs during the image build and is cached with the installed
               dependencies. Use the startup script below for commands that run
@@ -562,7 +537,9 @@ export function Configuration({ prompts = false }: { prompts?: boolean }) {
       <div className="actions">
         <button
           className="primary"
-          disabled={pending || !source || historical}
+          disabled={
+            pending || !source || historical || !!imageError || !!behaviorError
+          }
           onClick={() => save()}
         >
           {creating ? "Save worker profile" : "Save revision"}
@@ -570,7 +547,7 @@ export function Configuration({ prompts = false }: { prompts?: boolean }) {
         {!factoryMode && !creating && (
           <button
             className="secondary"
-            disabled={pending || !current}
+            disabled={pending || !current || !!imageError || !!behaviorError}
             onClick={() => save(true)}
           >
             Clone as new profile
@@ -581,33 +558,16 @@ export function Configuration({ prompts = false }: { prompts?: boolean }) {
   );
 }
 
-function PackageInput({
-  value,
-  readOnly,
-  onChange,
-}: {
-  value: string[];
-  readOnly: boolean;
-  onChange: (packages: string[]) => void;
-}) {
-  const [text, setText] = useState(value.join(" "));
-  const serialized = JSON.stringify(value);
-  useEffect(() => {
-    setText((current) =>
-      JSON.stringify(current.split(/\s+/).filter(Boolean)) === serialized
-        ? current
-        : (JSON.parse(serialized) as string[]).join(" "),
-    );
-  }, [serialized]);
-  return (
-    <input
-      readOnly={readOnly}
-      value={text}
-      placeholder="git curl build-essential"
-      onChange={(e) => {
-        setText(e.target.value);
-        onChange(e.target.value.split(/\s+/).filter(Boolean));
-      }}
-    />
-  );
+function normalizeWorkerDocument(value: Record<string, unknown>) {
+  if (Object.keys(value).some((key) => !["settings", "tasks"].includes(key)))
+    throw new Error("Worker behavior accepts only settings and tasks.");
+  for (const key of ["settings", "tasks"]) {
+    if (
+      !value[key] ||
+      typeof value[key] !== "object" ||
+      Array.isArray(value[key])
+    )
+      throw new Error(key + " must be a mapping.");
+  }
+  return value;
 }

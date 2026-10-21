@@ -35,6 +35,16 @@ export function WorkersPage() {
     ) ?? [];
   const [configId, setConfigId] = useState("");
   const [creating, setCreating] = useState(false);
+  const [showRemoved, setShowRemoved] = useState(false);
+  const [showExited, setShowExited] = useState(false);
+  const visibleDiscovered =
+    data.data?.discovered.filter(
+      (worker) => showExited || worker.status !== "exited",
+    ) ?? [];
+  const visibleWorkers =
+    data.data?.managed.filter(
+      (worker) => showRemoved || worker.desired_state !== "removed",
+    ) ?? [];
   const [name, setName] = useState("");
   const selectedConfig =
     profiles.find((c) => c.family_id === configId) ?? profiles[0];
@@ -103,6 +113,22 @@ export function WorkersPage() {
             onChange={(e) => setSearch(e.target.value)}
           />
         </label>
+        <label className="inline-label">
+          <input
+            type="checkbox"
+            checked={showRemoved}
+            onChange={(event) => setShowRemoved(event.target.checked)}
+          />
+          Show removed workers
+        </label>
+        <label className="inline-label">
+          <input
+            type="checkbox"
+            checked={showExited}
+            onChange={(event) => setShowExited(event.target.checked)}
+          />
+          Show exited discovered workers
+        </label>
         <span className="tag">
           <Box size={13} />
           Local Docker
@@ -111,11 +137,9 @@ export function WorkersPage() {
       </div>
       <Section
         title="Managed instances"
-        aside={
-          <span className="tag">{data.data?.managed.length ?? 0} workers</span>
-        }
+        aside={<span className="tag">{visibleWorkers.length} workers</span>}
       >
-        {!data.data?.managed.length ? (
+        {!visibleWorkers.length ? (
           <Empty
             title="Your fleet starts here"
             detail="Create a worker from a configuration revision. Workers are created stopped and join Hatchet only when you start them."
@@ -134,7 +158,7 @@ export function WorkersPage() {
                 </tr>
               </thead>
               <tbody>
-                {data.data.managed
+                {visibleWorkers
                   .filter((w) => (w.name + " " + w.profile).includes(search))
                   .map((w) => (
                     <tr key={w.id}>
@@ -152,10 +176,12 @@ export function WorkersPage() {
                       <td>
                         <Status
                           value={
-                            w.runtime?.status ??
-                            (w.desired_state === "created"
-                              ? "created"
-                              : "unknown")
+                            w.desired_state === "removed"
+                              ? "removed"
+                              : (w.runtime?.status ??
+                                (w.desired_state === "created"
+                                  ? "created"
+                                  : "unknown"))
                           }
                         />
                       </td>
@@ -191,6 +217,7 @@ export function WorkersPage() {
                           <button
                             disabled={
                               pending ||
+                              w.desired_state === "removed" ||
                               w.runtime?.status === "running" ||
                               w.operations.some((o) =>
                                 ["pending", "running"].includes(o.status),
@@ -225,7 +252,9 @@ export function WorkersPage() {
                           </button>
                           <button
                             disabled={
-                              pending || w.runtime?.status === "running"
+                              pending ||
+                              w.desired_state === "removed" ||
+                              w.runtime?.status === "running"
                             }
                             title="Change profile for stopped worker"
                             onClick={() => {
@@ -266,8 +295,11 @@ export function WorkersPage() {
                           <button
                             disabled={
                               pending ||
-                              !w.runtime ||
-                              w.runtime.status === "running"
+                              w.desired_state === "removed" ||
+                              w.runtime?.status === "running" ||
+                              w.operations.some((o) =>
+                                ["pending", "running"].includes(o.status),
+                              )
                             }
                             onClick={() => action(w.id, "remove")}
                             title="Remove stopped runtime"
@@ -287,10 +319,10 @@ export function WorkersPage() {
         title="Discovered Compose workers"
         aside={<span className="tag">Read only</span>}
       >
-        {!data.data?.discovered.length ? (
+        {!visibleDiscovered.length ? (
           <Empty
-            title="No Compose workers discovered"
-            detail="Only this factory's configured Compose services are included."
+            title="No visible Compose workers"
+            detail="Only this factory's configured Compose services are included. Enable Show exited discovered workers to include stopped containers."
           />
         ) : (
           <div className="table-scroll">
@@ -304,7 +336,7 @@ export function WorkersPage() {
                 </tr>
               </thead>
               <tbody>
-                {data.data.discovered.map((w) => (
+                {visibleDiscovered.map((w) => (
                   <tr key={w.id}>
                     <td>
                       <strong>{w.name}</strong>

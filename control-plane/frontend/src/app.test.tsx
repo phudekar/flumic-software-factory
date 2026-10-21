@@ -219,6 +219,77 @@ describe("worker profiles and scoped execution", () => {
       target_id: "local-docker",
     });
   });
+  it("hides exited discovered workers until requested", async () => {
+    fixtures();
+    const original = fetch;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string, options?: RequestInit) => {
+        if (input.endsWith("/workers") && options?.method !== "POST")
+          return json({
+            managed: [],
+            discovered: [
+              {
+                id: "running-container",
+                name: "running-compose-worker",
+                status: "running",
+                image: "worker:latest",
+              },
+              {
+                id: "exited-container",
+                name: "exited-compose-worker",
+                status: "exited",
+                image: "worker:latest",
+              },
+            ],
+            warnings: [],
+          });
+        return original(input, options);
+      }),
+    );
+    app("/workers");
+    expect(
+      await screen.findByText("running-compose-worker"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("exited-compose-worker")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText("Show exited discovered workers"));
+    expect(
+      await screen.findByText("exited-compose-worker"),
+    ).toBeInTheDocument();
+  });
+  it("hides removed workers by default and exposes their history on request", async () => {
+    fixtures();
+    const original = fetch;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string, options?: RequestInit) => {
+        if (input.endsWith("/workers") && options?.method !== "POST")
+          return json({
+            managed: [
+              {
+                id: "removed-worker",
+                name: "retired-worker",
+                profile: "simple",
+                revision_id: "revision-old",
+                desired_state: "removed",
+                runtime: null,
+                engine: null,
+                operations: [],
+              },
+            ],
+            discovered: [],
+            warnings: [],
+          });
+        return original(input, options);
+      }),
+    );
+    app("/workers");
+    await screen.findByRole("heading", { name: "Your fleet starts here" });
+    expect(screen.queryByText("retired-worker")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText("Show removed workers"));
+    expect(await screen.findByText("retired-worker")).toBeInTheDocument();
+    expect(screen.getByTitle("Start worker")).toBeDisabled();
+  });
   it("shows build logs before a worker container exists", async () => {
     fixtures();
     const original = fetch;
@@ -244,20 +315,25 @@ describe("worker profiles and scoped execution", () => {
   it("saves image build settings in a worker profile", async () => {
     fixtures();
     app("/config");
-    const base = await screen.findByLabelText("Base OS image");
+    await screen.findByLabelText("Image build YAML");
     await waitFor(() =>
       expect(screen.getByLabelText("Startup script")).toHaveValue("echo ready"),
     );
-    fireEvent.change(base, { target: { value: "python:3.12-slim" } });
-    fireEvent.change(screen.getByLabelText("System packages"), {
-      target: { value: "git " },
-    });
-    expect(screen.getByLabelText("System packages")).toHaveValue("git ");
-    fireEvent.change(screen.getByLabelText("System packages"), {
-      target: { value: "git curl" },
-    });
-    fireEvent.change(screen.getByLabelText("Image setup script"), {
-      target: { value: "echo build prerequisites" },
+    const build = screen.getByLabelText("Image build YAML");
+    fireEvent.change(build, {
+      target: {
+        value: `# Build dependencies
+base_image: python:3.12-slim
+system_packages:
+  - git
+  - curl
+codex_version: '0.163.0'
+claude_version: '2.1.306'
+image_setup_script: |-
+  echo build prerequisites
+  python -m pip --version
+`,
+      },
     });
     fireEvent.click(screen.getByRole("button", { name: "Save revision" }));
     await screen.findByText(/Linked workers pick up profile edits/);
@@ -271,8 +347,132 @@ describe("worker profiles and scoped execution", () => {
     const settings = JSON.parse(String(call![1]!.body)).document.settings;
     expect(settings.base_image).toBe("python:3.12-slim");
     expect(settings.system_packages).toEqual(["git", "curl"]);
-    expect(settings.image_setup_script).toBe("echo build prerequisites");
+    expect(settings.image_setup_script).toBe(
+      "echo build prerequisites\npython -m pip --version",
+    );
     expect(settings.startup_script).toBe("echo ready");
+  });
+  it("blocks saving invalid image YAML instead of saving stale build settings", async () => {
+    fixtures();
+    app("/config");
+    await screen.findByLabelText("Image build YAML");
+    await waitFor(() =>
+      expect(screen.getByLabelText("Startup script")).toHaveValue("echo ready"),
+    );
+    const build = screen.getByLabelText("Image build YAML");
+    for (const value of [
+      "base_image: [",
+      "unknown_option: true",
+      "system_packages: git",
+      "base_image: alpine\nbase_image: ubuntu",
+      "base_image: &base alpine\nimage_setup_script: *base",
+      "- base_image",
+    ]) {
+      fireEvent.change(build, { target: { value } });
+      expect(
+        screen.getByRole("button", { name: "Save revision" }),
+      ).toBeDisabled();
+      expect(
+        screen.getByRole("button", { name: "Clone as new profile" }),
+      ).toBeDisabled();
+    }
+    fireEvent.change(build, {
+      target: { value: "base_image: python:3.12-slim" },
+    });
+    expect(screen.getByRole("button", { name: "Save revision" })).toBeEnabled();
+  });
+  it("renders full-width syntax-highlighted YAML while retaining editable textareas", async () => {
+    fixtures();
+    app("/config");
+    await waitFor(() =>
+      expect(screen.getByLabelText("Startup script")).toHaveValue("echo ready"),
+    );
+    for (const label of ["Worker behavior YAML", "Image build YAML"]) {
+      const editor = screen.getByLabelText(label);
+      expect(editor.closest(".yaml-editor")).toHaveClass("yaml-editor");
+      expect(
+        editor.closest(".yaml-input")?.querySelector(".token.key"),
+      ).not.toBeNull();
+      expect(editor).toHaveAttribute("wrap", "off");
+      fireEvent.scroll(editor, { target: { scrollTop: 72, scrollLeft: 24 } });
+      expect(editor.closest(".yaml-input")?.querySelector("code")).toHaveStyle({
+        transform: "translate(-24px, -72px)",
+      });
+    }
+  });
+  it("edits worker behavior as YAML and validates and formats both editors", async () => {
+    fixtures();
+    const original = fetch;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string, options?: RequestInit) => {
+        if (input.endsWith("/worker-profiles/validate"))
+          return json({ valid: true });
+        return original(input, options);
+      }),
+    );
+    app("/config");
+    await waitFor(() =>
+      expect(screen.getByLabelText("Startup script")).toHaveValue("echo ready"),
+    );
+    const behavior = screen.getByLabelText("Worker behavior YAML");
+    fireEvent.change(behavior, {
+      target: {
+        value:
+          "# Keep this comment\nsettings: {openai_model: custom-model}\ntasks: {}\n",
+      },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Format worker behavior YAML" }),
+    );
+    expect((behavior as HTMLTextAreaElement).value).toContain(
+      "# Keep this comment",
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Validate worker behavior YAML" }),
+    );
+    expect(
+      await screen.findByText("Configuration is valid."),
+    ).toBeInTheDocument();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Format image build YAML" }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Validate image build YAML" }),
+    );
+    await waitFor(() =>
+      expect(screen.getAllByText("Configuration is valid.")).toHaveLength(2),
+    );
+    fireEvent.change(behavior, { target: { value: "settings: [" } });
+    expect(
+      screen.getByRole("button", { name: "Save revision" }),
+    ).toBeDisabled();
+  });
+  it("provides a full-width Markdown prompt editor with a safe preview", async () => {
+    fixtures();
+    app("/prompts");
+    const prompt = await screen.findByLabelText("Additional system prompt");
+    await waitFor(() => expect(prompt).toHaveValue("Plan carefully"));
+    expect(prompt.closest(".markdown-prompt")).not.toBeNull();
+    fireEvent.change(prompt, {
+      target: {
+        value:
+          "# Acceptance criteria\n\n- **Keep** the API stable.\n\n<script>alert('unsafe')</script>",
+      },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Preview Markdown" }));
+    expect(
+      await screen.findByRole("heading", { name: "Acceptance criteria" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("Keep", { selector: "strong" }),
+    ).toBeInTheDocument();
+    expect(document.querySelector(".markdown-preview script")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Write Markdown" }));
+    expect(
+      (screen.getByLabelText("Additional system prompt") as HTMLTextAreaElement)
+        .value,
+    ).toContain("# Acceptance criteria");
   });
   it("saves a startup script on the selected profile without a worker action", async () => {
     fixtures();

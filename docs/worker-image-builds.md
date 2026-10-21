@@ -39,6 +39,22 @@ flowchart LR
   Logs --> UI[Control pane]
 ```
 
+## Profile editor
+
+The control pane accepts these five build settings in a single YAML editor.
+Worker behavior also uses YAML. Both editors share syntax handling and offer
+explicit Validate and Format YAML actions. Validate uses a read-only server
+endpoint to check the full profile against its pinned factory revision; Format
+preserves comments and multiline values in the draft. Neither action saves a
+revision or changes workers.
+It reads existing profile values and merges parsed build settings into the same
+versioned profile document. Invalid syntax, duplicate or unknown keys, aliases,
+and incorrect value types block save/clone. Input is limited to 64 KiB; server
+validation remains authoritative for image references, package names, versions,
+scripts and credentials. Comments remain while editing but saved revisions
+persist parsed values rather than the original YAML text. Runtime settings and
+startup scripts have separate controls.
+
 ## Build pipeline
 
 1. Resolve the selected base image through Docker and obtain its content identity.

@@ -46,11 +46,13 @@ class DockerRuntime:
             )
         return result
 
-    def container(self, worker_id):
+    def container(self, worker_id, missing_ok=False):
         items = self.client.containers.list(
             all=True,
             filters={"label": [f"{LABEL}=factory", f"factory.instance={worker_id}"]},
         )
+        if not items and missing_ok:
+            return None
         if len(items) != 1:
             raise ValueError("Managed worker runtime was not found")
         return items[0]
@@ -195,7 +197,9 @@ class DockerRuntime:
         return self.create(worker, document, token, image=image)
 
     def action(self, worker_id, action):
-        container = self.container(worker_id)
+        container = self.container(worker_id, missing_ok=action == "remove")
+        if container is None:
+            return
         if action == "start":
             container.start()
         elif action == "stop":

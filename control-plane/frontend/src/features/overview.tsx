@@ -27,7 +27,14 @@ export function Overview() {
   const workers = useData<Workers>("workers", "/workers");
   const runs = useData<{ items: Run[]; warnings: string[] }>("runs", "/runs");
   const usage = useData<Usage>("usage", "/usage");
-  const w = workers.data;
+  const w = workers.data
+    ? {
+        ...workers.data,
+        managed: workers.data.managed.filter(
+          (worker) => worker.desired_state !== "removed",
+        ),
+      }
+    : undefined;
   const running =
     w?.managed.filter((x) => x.runtime?.status === "running").length ?? 0;
   return (

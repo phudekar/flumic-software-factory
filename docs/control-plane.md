@@ -293,7 +293,24 @@ See [the error-path audit](telemetry-error-audit.md) for covered boundaries.
 ## Worker images from a base OS
 
 Worker profiles can define `base_image`, `system_packages`, `image_setup_script`,
-`codex_version`, and `claude_version`. Use **Configuration → Worker image build**.
+`codex_version`, and `claude_version`. Use **Configuration → Worker image build** to paste or edit a single YAML mapping:
+
+```yaml
+base_image: python:3.12-slim
+system_packages:
+  - git
+  - curl
+codex_version: '0.163.0'
+claude_version: '2.1.306'
+image_setup_script: |
+  python -m pip install extra-library
+```
+
+The editor validates YAML structure, duplicate keys, supported fields and value
+types before saving or cloning. Omitted fields reset to the editor defaults.
+Existing settings are loaded into the editor; saves preserve all unrelated
+worker settings and prompts. Parsed values are versioned with the profile;
+comments and YAML formatting are not persisted after reload.
 Debian/Ubuntu and Alpine are supported; choose a base containing `/bin/sh` and a
 working package manager. For CLI workers, `node:24-bookworm-slim` supplies Node
 and npm; API workers can use `python:3.12-slim`.
@@ -315,3 +332,45 @@ Runtime integration credentials are injected only into the created container.
 Build logs are bounded/redacted. The first build can take several minutes and
 requires registry/package-network access. See [the architecture](worker-image-builds.md)
 for cache, context and lifecycle details.
+
+## YAML editors and validation
+
+**Worker behavior** is edited as YAML with `settings` and `tasks` mappings. The
+image build section uses its own YAML mapping for the five build fields. Both
+editors occupy the available panel width and highlight YAML syntax. They offer
+**Validate** and **Format YAML**. Validate checks YAML syntax and
+structure, then checks the complete profile against the pinned factory revision
+using the same server rules as saving. It does not publish a revision or change
+workers. Invalid input disables Save and Clone. Server validation errors appear
+beside the relevant editor; edit the YAML to correct them.
+
+Format YAML normalizes indentation while preserving comments and multiline
+values in the current draft. It does not save or change workers. Historical
+versions remain read-only, with formatting disabled. Saved profiles retain parsed
+values, so original YAML comments and formatting are not restored on reload.
+Shared factory configuration remains in its existing editor.
+
+## Removing workers
+
+Stop a running managed worker before choosing **Remove stopped runtime**.
+Removal preserves execution history but hides the removed instance from the
+active Workers list and overview count. Enable **Show removed workers** to inspect
+retained history. Removed instances cannot be restarted; create a new worker.
+Removal is safe to retry when the container is already absent. Failed instances
+that never created a container can also be removed once their operation finishes.
+Discovered Compose workers are read-only and must be removed through Compose;
+they are distinct from managed instances. An `exited` Compose container is stopped.
+
+Exited discovered Compose workers are hidden by default. Enable **Show exited
+discovered workers** to inspect their stopped containers and logs. Running
+discovered workers remain visible. This filter does not remove containers.
+
+## Markdown worker prompts
+
+The worker prompt input spans the panel width, uses a larger resizable monospace
+editor, and shows a character count against the 16,000-character limit. Use
+**Write** for Markdown source and **Preview** for headings, lists, emphasis and
+code blocks. Switching views preserves the prompt text. Preview does not execute
+HTML or load remote images. Saving preserves the original Markdown string;
+workers receive that text as additional system guidance on their next restart.
+Historical versions remain read-only.

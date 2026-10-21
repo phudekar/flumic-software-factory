@@ -154,6 +154,37 @@ class ControlPlaneTests(unittest.TestCase):
             403,
         )
 
+    def test_bootstrap_does_not_recreate_profiles_for_removed_workers(self):
+        from app.worker_configs import bootstrap
+
+        worker = self.create_worker()
+        with self.sessions.begin() as db:
+            removed = db.get(Worker, worker.id)
+            removed.desired_state, removed.config_id = "removed", None
+        before = self.client.get("/api/v1/worker-profiles").json()
+        with self.sessions.begin() as db:
+            bootstrap(db, Configurations(ROOT))
+        with self.sessions() as db:
+            self.assertIsNone(db.get(Worker, worker.id).config_id)
+        self.assertEqual(self.client.get("/api/v1/worker-profiles").json(), before)
+
+    def test_profile_validation_does_not_publish_and_rejects_invalid_settings(self):
+        profile = self.saved_profile()
+        body = {
+            key: profile[key]
+            for key in ("name", "profile", "factory_revision_id", "document")
+        }
+        before = self.client.get("/api/v1/worker-profiles").json()
+        result = self.client.post("/api/v1/worker-profiles/validate", json=body)
+        self.assertEqual(result.status_code, 200, result.text)
+        self.assertTrue(result.json()["valid"])
+        self.assertEqual(self.client.get("/api/v1/worker-profiles").json(), before)
+        body["document"]["settings"]["log_level"] = "INVALID"
+        self.assertEqual(
+            self.client.post("/api/v1/worker-profiles/validate", json=body).status_code,
+            422,
+        )
+
     def test_profile_build_settings_persist_and_compile(self):
         profile = self.client.get("/api/v1/worker-profiles").json()[0]
         document = profile["document"]
@@ -309,6 +340,23 @@ class ControlPlaneTests(unittest.TestCase):
             time.sleep(0.06)
         with self.sessions() as db:
             self.assertGreater(db.get(Operation, identifier).updated_at, 1)
+
+    def test_removed_worker_cannot_be_started_but_removal_can_be_retried(self):
+        worker = self.create_worker()
+        reconcile_once(self.sessions, self.runtime, self.settings)
+        with self.sessions.begin() as db:
+            db.get(Worker, worker.id).desired_state = "removed"
+        self.client.headers["Idempotency-Key"] = str(uuid.uuid4())
+        response = self.client.post(
+            f"/api/v1/workers/{worker.id}/actions", json={"action": "start"}
+        )
+        self.assertEqual(response.status_code, 409)
+        self.assertIn("removed", response.json()["detail"])
+        self.client.headers["Idempotency-Key"] = str(uuid.uuid4())
+        retry = self.client.post(
+            f"/api/v1/workers/{worker.id}/actions", json={"action": "remove"}
+        )
+        self.assertEqual(retry.status_code, 202)
 
     def test_create_is_stopped_and_idempotent(self):
         worker = self.create_worker()
