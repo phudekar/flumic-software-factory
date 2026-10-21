@@ -20,7 +20,7 @@ RUN case "$DEVELOPER_AGENT" in \
     esac
 
 ENV PATH="/opt/venv/bin:$PATH"
-LABEL software-factory.control-protocol="1"
+LABEL software-factory.control-protocol="2"
 WORKDIR /worker
 
 COPY worker/requirements.txt .

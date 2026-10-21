@@ -43,9 +43,10 @@ multi-user or Internet-facing service.
 - Discovery of this factory's current Compose workers as read-only resources.
   Unrelated Docker resources are excluded.
 - Creation of stopped worker instances from approved images and a chosen profile;
-  explicit start/stop/removal through durable, idempotent operations.
-- Configuration and prompt validation, immutable revisions, optimistic edit
-  conflicts, YAML export, and explicit application to stopped managed workers.
+  explicit start/restart/stop/removal through durable, idempotent operations.
+- Saved worker profiles with independent immutable revisions, cloning, prompts,
+  startup scripts, optimistic edit conflicts, and shared factory settings.
+  Linked workers resolve the latest profile on their next process start.
 - Hatchet run/task status through an adapter that excludes input/output payloads.
   Startup logs come from Docker; task logs explicitly sent to Hatchet can be read
   for a selected stage. Instrumented workers additionally send correlated logs.
@@ -68,27 +69,86 @@ may be retried by Hatchet. Graceful drain is disabled until pause/assignment-rac
 semantics are verified. Existing Compose workers cannot be stopped or adopted
 through this first release. Manage those through their original deployment.
 
-The app imports the current split YAML tree into an initial resolved revision.
-Configuration edits use a resolved JSON editor, with YAML export for Git review.
-The Prompts view edits task-specific `additional_system_prompt` values, showing
-the current effective value for a selected worker profile. Task overrides replace
-inherited template guidance. Built-in worker instructions are still supplied by
-the image and are not editable through this field.
+### Saved worker profiles
 
-Saving creates an immutable revision without changing repository files or
-running workers. In Workers, stop a managed instance, select its configuration
-action, and choose a revision. The reconciler replaces its stopped runtime with a
-new read-only snapshot and leaves it stopped. Selecting an older revision restores
-that configuration. Automatic rolling deployment/drain and coordinated workflow
-registration migration are not implemented. Changes to schedules, routing,
-retries, or workflow concurrency require care because workers register shared
-Hatchet definitions; use matching revisions across participating roles.
+Open **Configuration → Worker profiles**. Define a new profile from an approved
+worker type, or rename/edit a selected profile and **Clone as new profile**.
+A clone has its own identity and revision history. Create workers by selecting
+one of these saved profiles; multiple workers can share a profile.
 
-Each runtime carries factory ownership, instance, profile, and revision labels.
-Snapshot directories include both instance and revision IDs. The backend maps
-container paths to an explicit host-visible path; browser requests cannot choose
-arbitrary host mounts, images, commands, or credential variables. Worker images
-must have the control-protocol label, supplied by this migration's image build.
+A profile includes models, coding backend, model/patch limits, API retries,
+logging, capture policy, task model overrides, additional system prompts and a
+startup script. The **Worker prompts** view edits prompts for the selected
+profile. Built-in instructions and output schemas remain supplied by the image.
+Editing an existing profile appends a revision to the same profile identity.
+All linked workers pick it up on their next start/restart; running processes keep
+their loaded settings. Cloning affects only workers created or reassigned to the
+clone. Stale concurrent edits return a conflict instead of overwriting changes.
+
+The Workers view links names to stage-attempt history and worker-specific usage.
+The restart button stops and recreates the runtime with the latest linked
+profile, then starts it. It can interrupt active work. A stopped worker's profile
+action can assign a different saved profile of the same worker type. Starting a
+stopped worker automatically prepares the latest profile revision.
+
+New worker images also fetch the latest profile at **every process startup**,
+including direct Docker restarts, using their own scoped worker token. Managed
+startup fails if the control plane is unavailable rather than silently running
+an old profile. Standalone YAML workers do not use this integration. Existing
+containers built before this update need one control-plane restart/recreation to
+receive the new bootstrap code; this migration does not restart them automatically.
+
+### Factory settings and migration
+
+**Configuration → Factory settings** owns repository/policy, state, orchestration,
+labels, scan cron, task routing, engine timeouts/retries and concurrency. These
+register shared Hatchet definitions and are deliberately separate from local
+model/API retry behavior. Worker profiles pin a factory revision. To adopt shared
+changes, select the new factory revision in each participating profile and save;
+then restart its workers with matching shared definitions. Coordinated workflow
+registration migration and rolling deployment/drain are not implemented.
+
+The initial YAML configuration is imported into a factory revision. Existing
+managed workers are linked to imported profiles with matching settings, preserving
+their exact existing snapshot IDs and runtime state. Workers with identical source
+revision, worker type and settings share an imported profile. Compiled worker
+snapshots are excluded from factory revision history. Edits do not change files
+in Git. Legacy full-configuration revision/export API routes remain for
+compatibility; the UI uses the scoped factory/profile APIs.
+
+Each worker runtime mounts a read-only snapshot under an instance/revision path.
+Process startup resolves its current saved profile without modifying that mounted
+snapshot; telemetry records the actual loaded configuration revision. Container
+labels describe the creation snapshot and can differ after a direct Docker
+restart. Host mounts and images remain server-controlled. Approved images must
+carry control-protocol version 2 for profile refresh and startup scripts.
+
+### Startup scripts
+
+A trusted administrator can supply arbitrary POSIX shell commands in a profile:
+
+```yaml
+settings:
+  startup_script: |
+    python -m pip install --no-cache-dir -r /data/requirements.txt
+  startup_timeout_seconds: 600
+```
+
+The script runs via `/bin/sh -eu` before task registration on **every process
+start**. Keep it idempotent and pin dependency versions in the requirements file.
+It runs with the container user's permissions (root in the current images),
+network, environment and existing data mounts, so it can install prerequisites.
+It cannot add host mounts or select another image through the profile. Do not put
+access credentials in script text; use the already-injected environment. Shell
+exports apply to the script subprocess, not to the subsequent Python worker.
+
+The script is limited to 32 KiB and its timeout to 1–3600 seconds (default 600).
+A nonzero exit or timeout aborts worker startup; the container's restart policy
+may retry. Background script processes are terminated before the worker starts.
+Up to 64 KiB of redacted output and the result are available in runtime logs after
+completion. Startup hooks are administrator-supplied code; model-generated task
+content is never executed as a startup hook. For standalone YAML workers, place
+these fields in the profile's mapping rather than inside `settings`.
 
 ## Conversation capture and accounting
 
@@ -122,6 +182,22 @@ CLI-reported USD are shown separately. Prices used for recorded estimates are
 included in call metadata. Luna aggregates above 272K input tokens remain unpriced
 because the applicable per-request tier cannot be established. Smaller estimates
 may still omit unreported cache writes, tool fees, or pricing-mode differences.
+
+The run view has a stage filter and a **View logs** link on each stage card,
+activity entry and worker stage-attempt row. Links open the logs tab with the
+stage (and, where applicable, worker and retry) already selected. The tab and
+filters are encoded in the URL, so reloads and shared links retain the view.
+Changing or clearing the stage keeps the logs tab open.
+
+Stage selection scopes event history, model calls and cost using engine task
+IDs; an attempt selection further isolates a retry. Worker detail links preserve
+worker/task/attempt context. Log tables separate timestamp, severity, entry type,
+stage and worker. Model exchanges expand into distinct redacted input/output
+blocks on demand (with audited content reads). New captures include request and
+response timestamps; older captures show them as unavailable. Hatchet task logs
+are hidden when filtering to an attempt because their retry identity is not
+available. Worker attempt lists use the latest 500 matching attempt events;
+other event views use up to 500 matching events and indicate a full page.
 
 The Usage page reports a known subtotal for up to the latest 10,000 retained
 accounting events; it displays missing-usage and unpriced counts and marks a

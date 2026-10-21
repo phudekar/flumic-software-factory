@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { MessageSquareText, ShieldCheck, X } from "lucide-react";
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import type { FactoryEvent } from "../api";
 import { api } from "../api";
 import {
@@ -67,6 +68,7 @@ export function Calls({ events }: { events: FactoryEvent[] }) {
                   <th>Stage</th>
                   <th>Tokens in / out</th>
                   <th>Estimated cost</th>
+                  <th>Reported cost</th>
                   <th>Result</th>
                   <th />
                 </tr>
@@ -83,13 +85,47 @@ export function Calls({ events }: { events: FactoryEvent[] }) {
                         {date(e.occurred_at)}
                       </small>
                     </td>
-                    <td>{e.stage ?? "Unscoped"}</td>
+                    <td>
+                      {e.payload.engine_workflow_run_id ? (
+                        <Link
+                          className="text-link"
+                          to={
+                            "/runs/" +
+                            String(e.payload.engine_workflow_run_id) +
+                            "?" +
+                            new URLSearchParams({
+                              task: String(e.payload.engine_task_run_id ?? ""),
+                              attempt: e.attempt_id ?? "",
+                              worker: e.worker_id,
+                            })
+                          }
+                        >
+                          {e.stage ?? "Stage"}
+                        </Link>
+                      ) : (
+                        (e.stage ?? "Unscoped")
+                      )}
+                      <small>
+                        <Link
+                          className="text-link"
+                          to={"/workers/" + e.worker_id}
+                        >
+                          Worker {e.worker_id.slice(0, 8)}
+                        </Link>
+                      </small>
+                      {e.payload.accounting_leaf === false && (
+                        <small>Parent summary · excluded from totals</small>
+                      )}
+                    </td>
                     <td className="mono">
                       {count(e.payload.input_tokens as number)} /{" "}
                       {count(e.payload.output_tokens as number)}
                     </td>
                     <td className="mono">
                       {money(e.payload.estimated_usd as number)}
+                    </td>
+                    <td className="mono">
+                      {money(e.payload.reported_cost_usd as number)}
                     </td>
                     <td>
                       <Status value={String(e.payload.outcome ?? "unknown")} />

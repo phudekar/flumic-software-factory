@@ -5,10 +5,19 @@ from factory.settings import Settings
 
 def main():
     from factory.adapters.telemetry import configure_logging
-    from factory.bootstrap import build_service
 
-    settings = Settings.load()
+    import os
+    from factory.configuration import load_managed_settings
+
+    settings = (
+        load_managed_settings(os.environ)
+        if os.environ.get("FACTORY_CONTROL_ENDPOINT")
+        else Settings.load()
+    )
     configure_logging(settings)
+    from factory.startup import run_startup_script
+
+    run_startup_script(settings)
     if settings.orchestrator == "local":
         from factory.adapters.orchestration.local import main as local_main
 
@@ -19,6 +28,8 @@ def main():
         build_worker,
         create_client,
     )
+
+    from factory.bootstrap import build_service
 
     dispatch = HatchetDispatch()
     service = build_service(settings, dispatch)

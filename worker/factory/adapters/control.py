@@ -203,8 +203,10 @@ class CapturedCall:
         self.messages["coverage"] = coverage
         if request is not None:
             self.messages["request"] = redact(request)
+            self.messages["request_at"] = time.time()
         if response is not None:
             self.messages["response"] = redact(response)
+            self.messages["response_at"] = time.time()
 
 
 class Recorder:

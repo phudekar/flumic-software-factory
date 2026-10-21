@@ -47,7 +47,12 @@ def reconcile_once(sessions, runtime, settings):
         action = operation.action
         token = worker_token(settings, worker.id)
     try:
-        if action == "configure":
+        if action in {"restart", "configure_start"}:
+            if action == "restart":
+                runtime.action(worker.id, "stop")
+            runtime.configure(worker, revision.document, token)
+            runtime.action(worker.id, "start")
+        elif action == "configure":
             runtime.configure(worker, revision.document, token)
         elif action == "create":
             runtime.create(worker, revision.document, token)
@@ -74,6 +79,8 @@ def reconcile_once(sessions, runtime, settings):
                 "create": "created",
                 "configure": "created",
                 "start": "running",
+                "restart": "running",
+                "configure_start": "running",
                 "stop": "stopped",
                 "remove": "removed",
             }[action]

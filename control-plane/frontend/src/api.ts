@@ -30,6 +30,7 @@ export async function api<T>(path: string, body?: unknown): Promise<T> {
   return response.json();
 }
 export interface Runtime {
+  profile_refresh_supported?: boolean;
   id: string;
   instance_id: string | null;
   name: string;
@@ -46,6 +47,10 @@ export interface Operation {
   error: string | null;
 }
 export interface Worker {
+  config_id: string | null;
+  worker_profile_id: string | null;
+  worker_profile_name: string | null;
+  profile_update_pending: boolean;
   target_id: string;
   id: string;
   name: string;
@@ -126,4 +131,23 @@ export interface Config {
   tasks: Record<string, Record<string, unknown>>;
   task_defaults?: Record<string, unknown>;
   task_templates?: Record<string, Record<string, unknown>>;
+}
+
+export interface WorkerConfig {
+  id: string;
+  family_id: string;
+  parent_id: string | null;
+  cloned_from: string | null;
+  name: string;
+  profile: string;
+  factory_revision_id: string;
+  document: WorkerDocument;
+  created_at: number;
+}
+export interface WorkerDocument {
+  settings: Record<string, unknown>;
+  tasks: Record<
+    string,
+    { model?: string | null; additional_system_prompt?: string }
+  >;
 }

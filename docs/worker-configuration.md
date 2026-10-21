@@ -114,3 +114,31 @@ The checked-in telemetry settings use the internal collector endpoint. For a
 host process, change `telemetry_endpoint` to `http://localhost:4318`, and use host
 paths for `state_path` and `pricing_file`. Exporter authentication headers can
 still be supplied through standard OTLP credential environment variables.
+
+
+## Startup hooks and control-plane profiles
+
+Worker profiles can set `startup_script` (POSIX shell, at most 32 KiB) and
+`startup_timeout_seconds` (1–3600, default 600). The script runs before workflow
+registration on every process start; failure aborts startup. Standalone YAML
+example:
+
+```yaml
+workers:
+  developer:
+    startup_script: |
+      python -m pip install --no-cache-dir -r /data/requirements.txt
+    startup_timeout_seconds: 600
+```
+
+The script has the worker container's permissions, mounts, environment and network.
+Keep it idempotent and keep credentials in environment variables. Its shell
+exports do not persist into the Python worker process. See the
+[control-plane guide](control-plane.md#startup-scripts) for logging and failure
+behavior.
+
+The control plane separates shared factory revisions from saved worker profiles.
+A saved profile contains worker-local settings, per-task model/prompt overrides
+and startup hooks; workers created from it follow the latest profile revision on
+restart. Factory routing, engine retries/timeouts/concurrency, repository and
+state settings remain separate and pinned by factory revision.

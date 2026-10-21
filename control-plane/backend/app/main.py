@@ -25,6 +25,7 @@ from app.database import (
     Conversation,
     Session,
     Audit,
+    WorkerConfiguration,
 )
 from app.services import Configurations
 from app.security import digest, redact
@@ -44,13 +45,16 @@ class ConfigEdit(BaseModel):
 class CreateWorker(BaseModel):
     model_config = ConfigDict(extra="forbid")
     name: str = Field(pattern=r"^[a-z][a-z0-9-]{2,59}$")
-    profile: str = Field(max_length=100)
-    revision_id: str
+    profile: str = Field(default="simple", max_length=100)
+    revision_id: str | None = None
+    config_id: str | None = None
+    worker_profile_id: str | None = None
     target_id: str = "local-docker"
 
 
 class Action(BaseModel):
-    action: str = Field(pattern=r"^(start|stop|remove|configure)$")
+    config_id: str | None = None
+    action: str = Field(pattern=r"^(start|restart|stop|remove|configure)$")
     revision_id: str | None = None
 
 
@@ -97,6 +101,10 @@ def create_app(settings=None, sessions=None, runtime=None, workflow=None):
                         digest=config.hash(config.approved),
                     )
                 )
+            db.flush()
+            from app.worker_configs import bootstrap
+
+            bootstrap(db, config)
         yield
 
     app = FastAPI(
@@ -107,6 +115,9 @@ def create_app(settings=None, sessions=None, runtime=None, workflow=None):
     )
     app.state.sessions = sessions
     app.state.settings = settings
+    from app.worker_configs import install, compile_revision, attach_imported_profile
+
+    install(app, sessions, config, row)
 
     def runtime_adapter():
         nonlocal runtime
@@ -130,6 +141,7 @@ def create_app(settings=None, sessions=None, runtime=None, workflow=None):
             "/api/v1/auth/login",
             "/api/v1/health",
             "/api/v1/ingest",
+            "/api/v1/worker-bootstrap",
         }:
             with sessions() as db:
                 session = db.get(
@@ -275,6 +287,26 @@ def create_app(settings=None, sessions=None, runtime=None, workflow=None):
                     for key, value in row(worker).items()
                     if key != "credential_hash"
                 }
+                current = (
+                    db.get(WorkerConfiguration, worker.config_id)
+                    if worker.config_id
+                    else None
+                )
+                latest = (
+                    db.scalar(
+                        select(WorkerConfiguration)
+                        .where(WorkerConfiguration.family_id == current.family_id)
+                        .order_by(desc(WorkerConfiguration.created_at))
+                        .limit(1)
+                    )
+                    if current
+                    else None
+                )
+                item["worker_profile_id"] = current.family_id if current else None
+                item["worker_profile_name"] = latest.name if latest else None
+                item["profile_update_pending"] = bool(
+                    latest and latest.id != current.id
+                )
                 item["runtime"] = next(
                     (entry for entry in actual if entry["instance_id"] == worker.id),
                     None,
@@ -305,17 +337,33 @@ def create_app(settings=None, sessions=None, runtime=None, workflow=None):
         if body.target_id != "local-docker":
             raise HTTPException(422, "Unsupported deployment target")
         with sessions.begin() as db:
-            revision = db.get(Revision, body.revision_id)
+            cfg = db.get(WorkerConfiguration, body.config_id or "")
+            if body.worker_profile_id:
+                cfg = db.scalar(
+                    select(WorkerConfiguration)
+                    .where(WorkerConfiguration.family_id == body.worker_profile_id)
+                    .order_by(desc(WorkerConfiguration.created_at))
+                    .limit(1)
+                )
+                if cfg is None:
+                    raise HTTPException(404, "Worker profile not found")
+            if body.config_id and cfg is None:
+                raise HTTPException(404, "Worker configuration not found")
+            revision = db.get(
+                Revision, cfg.factory_revision_id if cfg else body.revision_id or ""
+            )
+            profile = cfg.profile if cfg else body.profile
             if revision is None:
                 raise HTTPException(404, "Revision not found")
             profiles = config.validate(revision.document)
-            if body.profile not in profiles:
+            if profile not in profiles:
                 raise HTTPException(422, "Unknown worker profile")
             worker = Worker(
                 id=str(uuid.uuid4()),
                 name=body.name,
-                profile=body.profile,
-                revision_id=body.revision_id,
+                profile=profile,
+                revision_id=revision.id,
+                config_id=cfg.id if cfg else None,
                 credential_hash="",
             )
             worker.credential_hash = digest(worker_token(settings, worker.id))
@@ -329,6 +377,10 @@ def create_app(settings=None, sessions=None, runtime=None, workflow=None):
                 return row(existing)
             if db.scalar(select(Worker.id).where(Worker.name == body.name)):
                 raise HTTPException(409, "Worker name already exists")
+            if cfg:
+                worker.revision_id = compile_revision(db, config, cfg).id
+            else:
+                attach_imported_profile(db, config, worker)
             db.add(worker)
             operation = Operation(
                 id=str(uuid.uuid4()),
@@ -365,7 +417,14 @@ def create_app(settings=None, sessions=None, runtime=None, workflow=None):
             ):
                 raise HTTPException(409, "Worker has an operation in progress")
             if body.action == "configure":
-                revision = db.get(Revision, body.revision_id or "")
+                cfg = db.get(WorkerConfiguration, body.config_id or "")
+                if body.config_id and cfg is None:
+                    raise HTTPException(404, "Worker configuration not found")
+                if cfg and cfg.profile != worker.profile:
+                    raise HTTPException(422, "Configuration profile must match worker")
+                revision = db.get(
+                    Revision, cfg.factory_revision_id if cfg else body.revision_id or ""
+                )
                 if revision is None:
                     raise HTTPException(404, "Configuration revision not found")
                 profiles = config.validate(revision.document)
@@ -385,11 +444,48 @@ def create_app(settings=None, sessions=None, runtime=None, workflow=None):
                     raise HTTPException(
                         409, "Stop the worker before applying a configuration revision"
                     )
-                worker.revision_id = revision.id
+                worker.revision_id = (
+                    compile_revision(db, config, cfg).id if cfg else revision.id
+                )
+                worker.config_id = cfg.id if cfg else None
+                if cfg is None:
+                    attach_imported_profile(db, config, worker)
+            action = body.action
+            if body.action in {"start", "restart"} and worker.config_id:
+                current = db.get(WorkerConfiguration, worker.config_id)
+                latest = db.scalar(
+                    select(WorkerConfiguration)
+                    .where(WorkerConfiguration.family_id == current.family_id)
+                    .order_by(desc(WorkerConfiguration.created_at))
+                    .limit(1)
+                )
+                if latest.id != current.id:
+                    actual = next(
+                        (
+                            item
+                            for item in runtime_adapter().list()
+                            if item.get("instance_id") == identifier
+                        ),
+                        None,
+                    )
+                    if (
+                        body.action == "start"
+                        and actual
+                        and actual["status"] == "running"
+                    ):
+                        raise HTTPException(
+                            409,
+                            "Worker is running; restart to apply the latest profile",
+                        )
+                    worker.config_id = latest.id
+                    worker.revision_id = compile_revision(db, config, latest).id
+                    action = (
+                        "restart" if body.action == "restart" else "configure_start"
+                    )
             operation = Operation(
                 id=str(uuid.uuid4()),
                 worker_id=identifier,
-                action=body.action,
+                action=action,
                 key=f"{identifier}:{key}",
             )
             db.add(operation)
@@ -439,7 +535,10 @@ def create_app(settings=None, sessions=None, runtime=None, workflow=None):
             return [
                 {key: value for key, value in row(rev).items() if key != "document"}
                 for rev in db.scalars(
-                    select(Revision).order_by(desc(Revision.created_at)).limit(100)
+                    select(Revision)
+                    .where(Revision.scope == "factory")
+                    .order_by(desc(Revision.created_at))
+                    .limit(100)
                 )
             ]
 
@@ -466,6 +565,7 @@ def create_app(settings=None, sessions=None, runtime=None, workflow=None):
                 db.execute(text("SELECT pg_advisory_xact_lock(6423400)"))
             latest = db.scalar(
                 select(Revision)
+                .where(Revision.scope == "factory")
                 .order_by(desc(Revision.created_at))
                 .with_for_update()
                 .limit(1)
@@ -495,6 +595,39 @@ def create_app(settings=None, sessions=None, runtime=None, workflow=None):
                 headers={
                     "Content-Disposition": "attachment; filename=worker-config.yaml"
                 },
+            )
+
+    @app.get("/api/v1/worker-bootstrap")
+    def worker_bootstrap(request: Request):
+        identifier = request.headers.get("x-worker-id", "")
+        authorization = request.headers.get("authorization", "")
+        with sessions.begin() as db:
+            worker = db.scalar(
+                select(Worker).where(Worker.id == identifier).with_for_update()
+            )
+            if (
+                worker is None
+                or not authorization.startswith("Bearer ")
+                or not secrets.compare_digest(
+                    worker.credential_hash, digest(authorization[7:])
+                )
+            ):
+                raise HTTPException(401, "Invalid worker credentials")
+            if worker.config_id:
+                current = db.get(WorkerConfiguration, worker.config_id)
+                latest = db.scalar(
+                    select(WorkerConfiguration)
+                    .where(WorkerConfiguration.family_id == current.family_id)
+                    .order_by(desc(WorkerConfiguration.created_at))
+                    .limit(1)
+                )
+                if latest.id != current.id:
+                    worker.config_id = latest.id
+                    worker.revision_id = compile_revision(db, config, latest).id
+                    db.add(Audit(action="worker.profile-bootstrap", resource=worker.id))
+            revision = db.get(Revision, worker.revision_id)
+            return config.snapshot(
+                revision.document, worker.profile, worker.name, revision.id
             )
 
     @app.post("/api/v1/ingest", status_code=202)
@@ -571,15 +704,14 @@ def create_app(settings=None, sessions=None, runtime=None, workflow=None):
                 )
         return {"accepted": len(body)}
 
-    @app.get("/api/v1/events")
-    def events(
-        run_id: str | None = None,
-        attempt_id: str | None = None,
-        kind: str | None = None,
-        offset: int = Query(0, ge=0),
-        limit: int = Query(100, ge=1, le=500),
+    def scoped_events(
+        query,
+        run_id=None,
+        attempt_id=None,
+        worker_id=None,
+        engine_task_id=None,
+        stage=None,
     ):
-        query = select(Event)
         if run_id:
             query = query.where(
                 or_(
@@ -589,7 +721,35 @@ def create_app(settings=None, sessions=None, runtime=None, workflow=None):
             )
         if attempt_id:
             query = query.where(Event.attempt_id == attempt_id)
-        if kind:
+        if worker_id:
+            query = query.where(Event.worker_id == worker_id)
+        if engine_task_id:
+            query = query.where(
+                Event.payload["engine_task_run_id"].as_string() == engine_task_id
+            )
+        if stage:
+            query = query.where(Event.stage == stage)
+        return query
+
+    @app.get("/api/v1/events")
+    def events(
+        run_id: str | None = None,
+        attempt_id: str | None = None,
+        kind: str | None = None,
+        worker_id: str | None = None,
+        engine_task_id: str | None = None,
+        stage: str | None = None,
+        offset: int = Query(0, ge=0),
+        limit: int = Query(100, ge=1, le=500),
+    ):
+        query = scoped_events(
+            select(Event), run_id, attempt_id, worker_id, engine_task_id, stage
+        )
+        if kind == "attempt":
+            query = query.where(
+                Event.kind.in_(["attempt.started", "attempt.completed"])
+            )
+        elif kind:
             query = query.where(Event.kind == kind)
         with sessions() as db:
             return [
@@ -611,10 +771,19 @@ def create_app(settings=None, sessions=None, runtime=None, workflow=None):
             return json.loads(cipher.decrypt(content.ciphertext.encode()))
 
     @app.get("/api/v1/usage")
-    def usage(since: float = Query(default=0, ge=0)):
+    def usage(
+        since: float = Query(default=0, ge=0),
+        run_id: str | None = None,
+        attempt_id: str | None = None,
+        worker_id: str | None = None,
+        engine_task_id: str | None = None,
+        stage: str | None = None,
+    ):
         with sessions() as db:
             calls = db.scalars(
-                select(Event)
+                scoped_events(
+                    select(Event), run_id, attempt_id, worker_id, engine_task_id, stage
+                )
                 .where(Event.kind == "model.completed", Event.occurred_at >= since)
                 .order_by(desc(Event.occurred_at))
                 .limit(10000)

@@ -180,3 +180,37 @@ def load_settings(path, profile):
         raise ValueError("Only worker profiles may extend another profile")
     values = {**defaults, **resolve(profile), "tasks": task_values}
     return TypeAdapter(Settings).validate_python(values)
+
+
+def load_managed_settings(env):
+    """Resolve a linked profile on process start, including Docker restarts.
+
+    A control-plane outage must not silently run an outdated profile. Managed
+    workers fail startup and the runtime retry policy can retry later.
+    Standalone workers never enter this optional integration path.
+    """
+    import json
+    import tempfile
+    import urllib.request
+
+    request = urllib.request.Request(
+        env["FACTORY_CONTROL_ENDPOINT"].rstrip("/") + "/api/v1/worker-bootstrap",
+        headers={
+            "X-Worker-Id": env.get("FACTORY_CONTROL_WORKER_ID", ""),
+            "Authorization": "Bearer " + env.get("FACTORY_CONTROL_TOKEN", ""),
+        },
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=10) as response:
+            raw = response.read(262145)
+        if len(raw) > 262144:
+            raise ValueError("Profile exceeds size limit")
+        document = json.loads(raw)
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "profile.yaml"
+            path.write_text(yaml.safe_dump(document))
+            return load_settings(path, env.get("WORKER_PROFILE", "simple"))
+    except Exception:
+        raise RuntimeError(
+            "Could not load the saved worker profile from the control plane; retry startup when it is available"
+        ) from None

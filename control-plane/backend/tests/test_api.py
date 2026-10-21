@@ -446,6 +446,194 @@ class ControlPlaneTests(unittest.TestCase):
         with self.sessions() as db:
             self.assertEqual(len(db.scalars(select(Event)).all()), 1)
 
+    def saved_profile(self):
+        return self.client.get("/api/v1/worker-profiles").json()[0]
+
+    def save_profile(self, profile, **changes):
+        body = {
+            key: profile[key]
+            for key in ("name", "profile", "factory_revision_id", "document")
+        }
+        body.update(parent_id=profile["id"], **changes)
+        return self.client.post("/api/v1/worker-profiles", json=body)
+
+    def profile_worker(self, profile, name):
+        self.client.headers["Idempotency-Key"] = str(uuid.uuid4())
+        response = self.client.post(
+            "/api/v1/workers",
+            json={"name": name, "worker_profile_id": profile["family_id"]},
+        )
+        self.assertEqual(response.status_code, 202, response.text)
+        with self.sessions() as db:
+            return db.get(Worker, response.json()["worker_id"])
+
+    def test_shared_profile_updates_all_linked_workers_on_start(self):
+        profile = self.saved_profile()
+        workers = [
+            self.profile_worker(profile, "linked-one"),
+            self.profile_worker(profile, "linked-two"),
+        ]
+        for _ in workers:
+            reconcile_once(self.sessions, self.runtime, self.settings)
+        document = copy.deepcopy(profile["document"])
+        document["settings"].update(
+            openai_model="test-model", startup_script="echo prerequisites"
+        )
+        document["tasks"]["plan_issue"]["additional_system_prompt"] = (
+            "Profile-local guidance"
+        )
+        saved = self.save_profile(profile, document=document)
+        self.assertEqual(saved.status_code, 201, saved.text)
+        with self.sessions() as db:
+            self.assertEqual(
+                db.get(Worker, workers[0].id).revision_id, workers[0].revision_id
+            )
+        for worker in workers:
+            self.client.headers["Idempotency-Key"] = str(uuid.uuid4())
+            response = self.client.post(
+                "/api/v1/workers/" + worker.id + "/actions", json={"action": "start"}
+            )
+            self.assertEqual(response.status_code, 202, response.text)
+            self.assertEqual(response.json()["action"], "configure_start")
+            reconcile_once(self.sessions, self.runtime, self.settings)
+            with self.sessions() as db:
+                current = db.get(Worker, worker.id)
+                self.assertEqual(current.config_id, saved.json()["id"])
+                from app.database import Revision
+
+                snapshot = db.get(Revision, current.revision_id)
+                self.assertEqual(
+                    snapshot.document["defaults"]["openai_model"], "test-model"
+                )
+                self.assertEqual(
+                    snapshot.document["defaults"]["startup_script"],
+                    "echo prerequisites",
+                )
+        self.assertEqual(self.runtime.configure.call_count, 2)
+        self.assertEqual(self.runtime.action.call_count, 2)
+        # Compiled worker snapshots never become factory revisions.
+        self.assertEqual(len(self.client.get("/api/v1/config/revisions").json()), 1)
+        self.assertEqual(self.save_profile(profile).status_code, 409)
+
+    def test_profile_clone_is_independent_and_scope_is_enforced(self):
+        profile = self.saved_profile()
+        body = {
+            key: profile[key]
+            for key in ("name", "profile", "factory_revision_id", "document")
+        }
+        body.update(name="Independent clone", cloned_from=profile["id"])
+        result = self.client.post("/api/v1/worker-profiles", json=body)
+        self.assertEqual(result.status_code, 201, result.text)
+        self.assertNotEqual(result.json()["family_id"], profile["family_id"])
+        self.assertEqual(result.json()["cloned_from"], profile["id"])
+        bad = copy.deepcopy(profile["document"])
+        bad["settings"]["scan_cron"] = "* * * * *"
+        self.assertEqual(self.save_profile(profile, document=bad).status_code, 422)
+        bad = copy.deepcopy(profile["document"])
+        bad["tasks"]["plan_issue"]["retries"] = 9
+        self.assertEqual(self.save_profile(profile, document=bad).status_code, 422)
+        factory = self.client.get("/api/v1/factory-config").json()
+        for value in factory["document"]["profiles"].values():
+            self.assertNotIn("openai_model", value["settings"])
+            self.assertNotIn("startup_script", value["settings"])
+            self.assertNotIn("additional_system_prompt", value["tasks"]["plan_issue"])
+        response = self.client.post(
+            "/api/v1/factory-config",
+            json={"document": factory["document"], "parent_id": factory["id"]},
+        )
+        self.assertEqual(response.status_code, 201, response.text)
+
+    def test_worker_authenticated_bootstrap_loads_latest_profile_on_process_restart(
+        self,
+    ):
+        profile = self.saved_profile()
+        worker = self.profile_worker(profile, "bootstrap-worker")
+        doc = copy.deepcopy(profile["document"])
+        doc["settings"]["log_level"] = "DEBUG"
+        saved = self.save_profile(profile, document=doc).json()
+        self.assertEqual(self.client.get("/api/v1/worker-bootstrap").status_code, 401)
+        self.client.cookies.clear()
+        response = self.client.get(
+            "/api/v1/worker-bootstrap",
+            headers={
+                "X-Worker-Id": worker.id,
+                "Authorization": "Bearer " + worker_token(self.settings, worker.id),
+            },
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["defaults"]["log_level"], "DEBUG")
+        self.assertEqual(response.json()["defaults"]["worker_name"], worker.name)
+        with self.sessions() as db:
+            self.assertEqual(db.get(Worker, worker.id).config_id, saved["id"])
+
+    def test_execution_filters_apply_before_usage_and_page_limits(self):
+        worker = self.create_worker()
+        events = [
+            {
+                "id": str(uuid.uuid4()),
+                "kind": "model.completed",
+                "occurred_at": time.time() + i,
+                "run_id": "logical-run",
+                "stage": "plan_issue",
+                "attempt_id": "attempt-" + str(i),
+                "payload": {
+                    "engine_workflow_run_id": "engine-run",
+                    "engine_task_run_id": "task-" + str(i),
+                    "input_tokens": 10 + i,
+                    "output_tokens": 1,
+                    "estimated_usd": 0.01,
+                },
+            }
+            for i in range(3)
+        ]
+        self.assertEqual(self.ingest(worker, events).status_code, 202)
+        query = (
+            "?run_id=engine-run&worker_id="
+            + worker.id
+            + "&engine_task_id=task-0&attempt_id=attempt-0"
+        )
+        data = self.client.get("/api/v1/events" + query + "&limit=1").json()
+        self.assertEqual(len(data), 1)
+        self.assertEqual(data[0]["attempt_id"], "attempt-0")
+        usage = self.client.get("/api/v1/usage" + query).json()
+        self.assertEqual(usage["calls"], 1)
+        self.assertEqual(usage["input_tokens"], 10)
+        self.assertEqual(
+            self.client.get("/api/v1/usage" + query + "&stage=wrong").json()["calls"], 0
+        )
+        self.assertEqual(self.client.get("/api/v1/events?worker_id=other").json(), [])
+
+    @unittest.skipUnless(
+        os.environ.get("CONTROL_TEST_DATABASE_URL"), "PostgreSQL integration only"
+    )
+    def test_postgres_concurrent_profile_updates_conflict(self):
+        from concurrent.futures import ThreadPoolExecutor
+
+        profile = self.saved_profile()
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            statuses = list(
+                pool.map(lambda _: self.save_profile(profile).status_code, range(2))
+            )
+        self.assertEqual(sorted(statuses), [201, 409])
+
+    def test_import_preserves_existing_worker_snapshot_and_links_shared_profile(self):
+        from app.worker_configs import bootstrap
+
+        first = self.create_worker("legacy-one")
+        self.client.headers["Idempotency-Key"] = str(uuid.uuid4())
+        second = self.create_worker("legacy-two")
+        with self.sessions.begin() as db:
+            for worker in (first, second):
+                db.get(Worker, worker.id).config_id = None
+        with self.sessions.begin() as db:
+            bootstrap(db, Configurations(ROOT))
+        with self.sessions() as db:
+            one, two = db.get(Worker, first.id), db.get(Worker, second.id)
+            self.assertEqual(one.config_id, two.config_id)
+            self.assertEqual(one.revision_id, first.revision_id)
+            self.assertEqual(two.revision_id, second.revision_id)
+        self.runtime.configure.assert_not_called()
+
     def test_redaction_and_utf8_bounds(self):
         self.assertNotIn(
             "abcdefghijklmnopqrstuvwxyz123456",

@@ -25,7 +25,9 @@ workers with telemetry using `./scripts/start-observed-workers.sh -d`.
 ## Control-plane application
 
 A separate React/TypeScript webapp provides worker management, Hatchet run/stage
-views, logs, redacted model history, usage, and versioned config/prompt editing.
+views, structured logs, redacted model history, stage-level usage, and saved
+worker profiles with prompts and startup scripts. Profile edits take effect for
+linked workers on their next restart; factory settings are managed separately.
 Start it with `./scripts/start-control-plane.sh` and open `http://localhost:3400`.
 The private `.env.control-plane` file contains the generated administrator password.
 Existing workers are discovered read-only and are not restarted by this command.

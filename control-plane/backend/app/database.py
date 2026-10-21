@@ -17,6 +17,7 @@ class Base(DeclarativeBase):
 class Revision(Base):
     __tablename__ = "config_revisions"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=identity)
+    scope: Mapped[str] = mapped_column(String(32), default="factory")
     parent_id: Mapped[str | None] = mapped_column(String(36))
     created_at: Mapped[float] = mapped_column(Float, default=time.time)
     summary: Mapped[str] = mapped_column(String(240))
@@ -30,6 +31,7 @@ class Worker(Base):
     name: Mapped[str] = mapped_column(String(100), unique=True)
     profile: Mapped[str] = mapped_column(String(100))
     revision_id: Mapped[str] = mapped_column(String(36))
+    config_id: Mapped[str | None] = mapped_column(String(36))
     target_id: Mapped[str] = mapped_column(String(80), default="local-docker")
     credential_hash: Mapped[str] = mapped_column(String(64))
     desired_state: Mapped[str] = mapped_column(String(32), default="created")
@@ -93,3 +95,16 @@ def database(url):
     )
     engine = create_engine(url, pool_pre_ping=True, **kwargs)
     return engine, sessionmaker(engine, expire_on_commit=False)
+
+
+class WorkerConfiguration(Base):
+    __tablename__ = "worker_configurations"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=identity)
+    family_id: Mapped[str] = mapped_column(String(36), index=True)
+    parent_id: Mapped[str | None] = mapped_column(String(36))
+    cloned_from: Mapped[str | None] = mapped_column(String(36))
+    name: Mapped[str] = mapped_column(String(100))
+    profile: Mapped[str] = mapped_column(String(100))
+    factory_revision_id: Mapped[str] = mapped_column(String(36))
+    document: Mapped[dict] = mapped_column(JSON)
+    created_at: Mapped[float] = mapped_column(Float, default=time.time)

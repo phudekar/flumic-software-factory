@@ -2,6 +2,15 @@
 
 Status: target architecture; an initial local implementation is available.
 Date: 2026-10-20.
+
+Implementation update: saved worker profiles now have a stable identity and
+immutable revisions independent of shared factory settings. Workers follow the
+latest revision on process start, including a trusted optional startup script.
+Running workers retain their current configuration. See the
+[operator guide](control-plane.md#saved-worker-profiles) for the implemented
+lifecycle, migration and bootstrap behavior; it supersedes the initial explicit
+per-worker configuration deployment flow described in this target plan.
+
 Scope: a separate React web application for the existing software factory.
 
 This document is a design and delivery plan. The [operator guide](control-plane.md)

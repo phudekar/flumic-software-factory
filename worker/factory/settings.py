@@ -60,6 +60,8 @@ class Settings:
     telemetry_endpoint: str = "http://factory-signoz-ingester:4318"
     deployment_environment: str = "development"
     pricing_file: str = ""
+    startup_script: str = ""
+    startup_timeout_seconds: int = 600
     control_revision: str = ""
     conversation_capture: str = "redacted"
 
@@ -100,6 +102,17 @@ class Settings:
         if self.log_format not in {"json", "text"}:
             raise ValueError("LOG_FORMAT must be 'json' or 'text'")
 
+        if (
+            not isinstance(self.startup_script, str)
+            or len(self.startup_script.encode()) > 32768
+        ):
+            raise ValueError("startup_script must be at most 32 KiB")
+        if (
+            isinstance(self.startup_timeout_seconds, bool)
+            or not isinstance(self.startup_timeout_seconds, int)
+            or not 1 <= self.startup_timeout_seconds <= 3600
+        ):
+            raise ValueError("startup_timeout_seconds must be between 1 and 3600")
         if self.conversation_capture not in {"redacted", "metadata_only", "disabled"}:
             raise ValueError("Invalid conversation_capture")
         if self.log_level.upper() not in {

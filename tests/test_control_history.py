@@ -127,3 +127,82 @@ class ControlHistoryTests(unittest.TestCase):
                 "-----BEGIN PRIVATE KEY-----\nsecret key material\n-----END PRIVATE KEY-----"
             ).replace("[REDACTED PRIVATE KEY]", ""),
         )
+
+
+class StartupTests(unittest.TestCase):
+    def test_script_runs_and_redacts_output(self):
+        import tempfile
+        from factory.startup import run_startup_script
+
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "installed"
+            with patch.dict(
+                os.environ, {"TEST_API_KEY": "syntheticcredential987654321"}
+            ):
+                with self.assertLogs("issue-worker.startup", level="INFO") as logs:
+                    run_startup_script(
+                        Settings(
+                            startup_script=f'touch "{target}"\nprintf "%s" "$TEST_API_KEY"'
+                        )
+                    )
+            self.assertTrue(target.exists())
+            self.assertNotIn("syntheticcredential987654321", "\n".join(logs.output))
+            self.assertIn("[REDACTED]", "\n".join(logs.output))
+
+    def test_failure_and_timeout_abort_startup(self):
+        from factory.startup import run_startup_script
+
+        with self.assertRaisesRegex(RuntimeError, "exit status 7"):
+            run_startup_script(Settings(startup_script="exit 7"))
+        with self.assertRaisesRegex(RuntimeError, "timed out"):
+            run_startup_script(
+                Settings(startup_script="sleep 20", startup_timeout_seconds=1)
+            )
+
+    def test_startup_limits(self):
+        for kwargs in [
+            {"startup_script": "x" * 32769},
+            {"startup_timeout_seconds": 0},
+            {"startup_timeout_seconds": True},
+        ]:
+            with self.assertRaises(ValueError):
+                Settings(**kwargs)
+
+
+class ManagedProfileLoadingTests(unittest.TestCase):
+    def test_load_latest_profile_and_fail_closed_on_outage(self):
+        import json
+        from factory.configuration import load_managed_settings
+
+        env = {
+            "FACTORY_CONTROL_ENDPOINT": "http://control.invalid",
+            "WORKER_PROFILE": "simple",
+            "FACTORY_CONTROL_WORKER_ID": "worker-id",
+            "FACTORY_CONTROL_TOKEN": "test-token",
+        }
+        response = Mock()
+        response.__enter__ = Mock(return_value=response)
+        response.__exit__ = Mock(return_value=False)
+        response.read.return_value = json.dumps(
+            {
+                "version": 1,
+                "defaults": {
+                    "openai_model": "profile-latest",
+                    "startup_script": "echo prerequisites",
+                },
+                "workers": {"simple": {}},
+            }
+        ).encode()
+        with patch("urllib.request.urlopen", return_value=response) as send:
+            settings = load_managed_settings(env)
+        self.assertEqual(settings.openai_model, "profile-latest")
+        self.assertEqual(settings.startup_script, "echo prerequisites")
+        self.assertEqual(send.call_args.args[0].get_header("X-worker-id"), "worker-id")
+        with patch(
+            "urllib.request.urlopen", side_effect=OSError("private connection details")
+        ):
+            with self.assertRaisesRegex(
+                RuntimeError, "Could not load the saved worker profile"
+            ) as error:
+                load_managed_settings(env)
+        self.assertNotIn("private connection details", str(error.exception))

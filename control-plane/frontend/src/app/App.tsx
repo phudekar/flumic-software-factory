@@ -25,7 +25,7 @@ import { History } from "../features/history";
 import { Overview } from "../features/overview";
 import { RunPage, RunsPage } from "../features/runs";
 import { UsagePage } from "../features/usage";
-import { WorkersPage } from "../features/workers";
+import { WorkerPage, WorkersPage } from "../features/workers";
 
 export function App() {
   const queryClient = useQueryClient();
@@ -85,7 +85,7 @@ export function App() {
             ["/history", "Model history", MessageSquareText],
             ["/usage", "Usage & cost", Layers3],
             ["/config", "Configuration", FileSliders],
-            ["/prompts", "Task prompts", Code2],
+            ["/prompts", "Worker prompts", Code2],
           ].map(([path, label, Icon]) => {
             const Glyph = Icon as typeof Activity;
             return (
@@ -148,6 +148,7 @@ export function App() {
           <Routes>
             <Route path="/" element={<Overview />} />
             <Route path="/workers" element={<WorkersPage />} />
+            <Route path="/workers/:id" element={<WorkerPage />} />
             <Route path="/runs" element={<RunsPage />} />
             <Route path="/runs/:id" element={<RunPage />} />
             <Route path="/history" element={<History />} />
