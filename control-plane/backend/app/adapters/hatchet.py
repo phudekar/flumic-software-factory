@@ -94,12 +94,17 @@ class HatchetEngine:
             "wait-for-pr-review-and-merge",
         }
 
+    def workflow_name(self, value):
+        name = value.get("workflowName")
+        if not name and value.get("workflowId"):
+            definition = plain(self.client.workflows.get(value["workflowId"]))
+            name = definition.get("name")
+        return name or ""
+
     def run(self, external_id):
         value = plain(self.client.runs.get(external_id))
         run = value.get("run", {})
-        if not run.get("workflowName"):
-            definition = plain(self.client.workflows.get(run["workflowId"]))
-            run["workflowName"] = definition.get("name", "")
+        run["workflowName"] = self.workflow_name(run)
         if not self.allowed(run.get("workflowName", "")):
             raise ValueError("Run is outside this factory")
         tasks = [plain(task) for task in value.get("tasks", [])]
@@ -121,7 +126,7 @@ class HatchetEngine:
 
     def logs(self, external_id, limit=200):
         task = plain(self.client.runs.get_task_run(external_id))
-        if not self.allowed(task.get("workflowName", "")):
+        if not self.allowed(self.workflow_name(task)):
             raise ValueError("Task is outside this factory")
         result = []
         for row in items(

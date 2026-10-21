@@ -52,6 +52,60 @@ class AdapterTests(unittest.TestCase):
             engine.run("run-1")["tasks"][0]["error_message"],
         )
 
+    def test_task_logs_resolve_missing_workflow_name_from_definition(self):
+        for task in (
+            {"workflowName": None, "workflowId": "factory-definition"},
+            {"workflowId": "factory-definition"},
+        ):
+            with self.subTest(task=task):
+                client = Mock()
+                client.runs.get_task_run.return_value = task
+                client.workflows.get.return_value = {
+                    "name": "software-factory-issue-agent"
+                }
+                client.logs.list.return_value = {
+                    "rows": [
+                        {
+                            "createdAt": "2026-10-21T00:00:00Z",
+                            "message": "Stage log",
+                            "level": "INFO",
+                            "input": "must not be returned",
+                        }
+                    ]
+                }
+                engine = HatchetEngine(Path("."), client)
+                logs = engine.logs("task-id")
+                self.assertEqual(logs[0]["message"], "Stage log")
+                self.assertNotIn("must not be returned", str(logs))
+                client.workflows.get.assert_called_once_with("factory-definition")
+                client.logs.list.assert_called_once_with(
+                    task_run_id="task-id", limit=200
+                )
+
+    def test_task_logs_do_not_bypass_factory_scope_when_name_is_missing(self):
+        for task, definition in [
+            (
+                {"workflowName": None, "workflowId": "other-definition"},
+                {"name": "another-application"},
+            ),
+            ({"workflowName": None}, {}),
+            (
+                {
+                    "workflowName": "another-application",
+                    "workflowId": "factory-definition",
+                },
+                {"name": "software-factory-issue-agent"},
+            ),
+        ]:
+            with self.subTest(task=task):
+                client = Mock()
+                client.runs.get_task_run.return_value = task
+                client.workflows.get.return_value = definition
+                engine = HatchetEngine(Path("."), client)
+                with self.assertRaisesRegex(ValueError, "outside this factory"):
+                    engine.logs("task-id")
+                client.logs.list.assert_not_called()
+
     def test_docker_scope_blocks_unrelated_containers(self):
         client = Mock()
         unrelated = Mock()
