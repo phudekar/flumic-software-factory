@@ -18,6 +18,20 @@ Screenshots show an existing local installation; profiles, counts, and run state
 will differ on a fresh setup. Cost figures are estimates, and missing prices are
 reported separately.
 
+## License
+
+Flumic AI is source-available under the [PolyForm Noncommercial License 1.0.0](LICENSE.md).
+You may use, modify, and distribute it for purposes permitted by that license,
+including personal study, experiments, and hobby projects without an anticipated
+commercial application. The license also expressly permits use by the
+noncommercial organizations it lists, regardless of funding.
+
+Commercial projects outside those permissions require separate permission from
+the relevant rights holders. This is not an OSI-approved open-source license.
+The [license text](LICENSE.md) governs; retain its terms or URL and the
+[required notice](NOTICE.md) when sharing the software. Third-party components,
+including Hatchet, keep their own licenses.
+
 ## Quick start
 
 ### 1. Prepare your environment
@@ -297,6 +311,10 @@ before enabling automation on sensitive repositories.
 These capabilities are planned and are not available in the current release.
 Current integrations use GitHub, Hatchet and Docker on a shared host; no release
 date is committed.
+
+The [project and dynamic-workflow implementation roadmap](docs/project-workflow-roadmap.md)
+tracks multi-repository projects, shared worker pools, and built-in/Docker actions
+as GitHub issues. These are planned capabilities.
 
 ## Website and documentation
 
