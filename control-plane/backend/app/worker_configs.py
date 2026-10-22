@@ -1,10 +1,11 @@
 """Scoped configuration API and immutable snapshot compilation."""
 
 import uuid
-from fastapi import HTTPException
+from fastapi import HTTPException, Request, APIRouter
 from pydantic import BaseModel, ConfigDict, Field
 from factory.configuration import read_configuration, profile_fragment
 from sqlalchemy import select, desc, text
+from app.projects import request_scope, require_owned
 from app.database import Revision, WorkerConfiguration, Worker, Audit, DEFAULT_PROJECT_ID
 
 
@@ -130,23 +131,26 @@ class FactoryEdit(BaseModel):
 
 
 def install(app, sessions, config, row):
-    @app.get("/api/v1/worker-profiles")
-    @app.get("/api/v1/worker-configs")
-    def configurations():
+    router = APIRouter()
+    @router.get("/worker-profiles")
+    @router.get("/worker-configs")
+    def configurations(request: Request):
         with sessions() as db:
+            scope = request_scope(request, db)
             items = db.scalars(
-                select(WorkerConfiguration).order_by(
+                select(WorkerConfiguration).where(WorkerConfiguration.project_id == scope.project_id).order_by(
                     desc(WorkerConfiguration.created_at)
                 )
             ).all()
             return [row(item) for item in items]
 
-    @app.get("/api/v1/worker-configs/template/{profile}")
-    def template(profile: str):
+    @router.get("/worker-configs/template/{profile}")
+    def template(profile: str, request: Request):
         with sessions() as db:
+            scope = request_scope(request, db)
             factory = db.scalar(
                 select(Revision)
-                .where(Revision.scope == "factory")
+                .where(Revision.scope == "factory", Revision.project_id == scope.project_id)
                 .order_by(desc(Revision.created_at))
                 .limit(1)
             )
@@ -159,10 +163,11 @@ def install(app, sessions, config, row):
                 "document": config.split(factory.document, profile)[1],
             }
 
-    @app.post("/api/v1/worker-profiles/validate")
-    def validate_profile(body: WorkerConfigEdit):
+    @router.post("/worker-profiles/validate")
+    def validate_profile(body: WorkerConfigEdit, request: Request):
         with sessions() as db:
-            factory = db.get(Revision, body.factory_revision_id)
+            scope = request_scope(request, db)
+            factory = require_owned(db, scope, Revision, body.factory_revision_id)
             if factory is None or factory.scope != "factory":
                 raise HTTPException(404, "Factory configuration not found")
             if body.profile not in factory.document["workers"]:
@@ -170,13 +175,14 @@ def install(app, sessions, config, row):
             config.compose(factory.document, body.profile, body.document)
         return {"valid": True}
 
-    @app.post("/api/v1/worker-profiles", status_code=201)
-    @app.post("/api/v1/worker-configs", status_code=201)
-    def save(body: WorkerConfigEdit):
+    @router.post("/worker-profiles", status_code=201)
+    @router.post("/worker-configs", status_code=201)
+    def save(body: WorkerConfigEdit, request: Request):
         with sessions.begin() as db:
+            scope = request_scope(request, db)
             if body.parent_id and body.cloned_from:
                 raise HTTPException(422, "Choose revision or clone")
-            factory = db.get(Revision, body.factory_revision_id)
+            factory = require_owned(db, scope, Revision, body.factory_revision_id)
             if factory is None or factory.scope != "factory":
                 raise HTTPException(404, "Factory revision not found")
             if body.profile not in factory.document["workers"]:
@@ -185,7 +191,7 @@ def install(app, sessions, config, row):
             parent = db.get(
                 WorkerConfiguration, body.parent_id or body.cloned_from or ""
             )
-            if (body.parent_id or body.cloned_from) and parent is None:
+            if (body.parent_id or body.cloned_from) and (parent is None or parent.project_id != scope.project_id):
                 raise HTTPException(404, "Source configuration not found")
             if body.parent_id:
                 if db.bind.dialect.name == "postgresql":
@@ -195,7 +201,7 @@ def install(app, sessions, config, row):
                     )
                 latest = db.scalar(
                     select(WorkerConfiguration)
-                    .where(WorkerConfiguration.family_id == parent.family_id)
+                    .where(WorkerConfiguration.family_id == parent.family_id, WorkerConfiguration.project_id == scope.project_id)
                     .order_by(desc(WorkerConfiguration.created_at))
                     .limit(1)
                 )
@@ -206,6 +212,7 @@ def install(app, sessions, config, row):
                 if parent.profile != body.profile:
                     raise HTTPException(422, "Clone to change the worker profile")
             item = WorkerConfiguration(
+                project_id=scope.project_id,
                 id=str(uuid.uuid4()),
                 family_id=parent.family_id if body.parent_id else str(uuid.uuid4()),
                 **body.model_dump(),
@@ -215,12 +222,13 @@ def install(app, sessions, config, row):
             db.flush()
             return row(item)
 
-    @app.get("/api/v1/factory-config")
-    def factory_config():
+    @router.get("/factory-config")
+    def factory_config(request: Request):
         with sessions() as db:
+            scope = request_scope(request, db)
             revision = db.scalar(
                 select(Revision)
-                .where(Revision.scope == "factory")
+                .where(Revision.scope == "factory", Revision.project_id == scope.project_id)
                 .order_by(desc(Revision.created_at))
                 .limit(1)
             )
@@ -229,14 +237,16 @@ def install(app, sessions, config, row):
                 "document": config.factory_view(revision.document),
             }
 
-    @app.post("/api/v1/factory-config", status_code=201)
-    def save_factory(body: FactoryEdit):
+    @router.post("/factory-config", status_code=201)
+    def save_factory(body: FactoryEdit, request: Request):
         with sessions.begin() as db:
+            scope = request_scope(request, db)
             if db.bind.dialect.name == "postgresql":
                 db.execute(text("SELECT pg_advisory_xact_lock(6423400)"))
+            require_owned(db, scope, Revision, body.parent_id)
             latest = db.scalar(
                 select(Revision)
-                .where(Revision.scope == "factory")
+                .where(Revision.scope == "factory", Revision.project_id == scope.project_id)
                 .order_by(desc(Revision.created_at))
                 .with_for_update()
                 .limit(1)
@@ -247,6 +257,7 @@ def install(app, sessions, config, row):
                 )
             document = config.update_factory(latest.document, body.document)
             revision = Revision(
+                project_id=scope.project_id,
                 id=str(uuid.uuid4()),
                 parent_id=latest.id,
                 summary=body.summary,
@@ -257,3 +268,6 @@ def install(app, sessions, config, row):
             db.add(Audit(action="factory-config.publish", resource=revision.id))
             db.flush()
             return {"id": revision.id, "document": config.factory_view(document)}
+
+    app.include_router(router, prefix="/api/v1")
+    app.include_router(router, prefix="/api/v1/projects/{project_id}")
