@@ -83,3 +83,18 @@ has `pages: write` and `id-token: write`. No application secrets are used.
 
 `coverage.json` in the build contains the guide, route and settings inventory for
 inspection. `npm run check` verifies source-route parity and required topics.
+
+## Link previews and sharing assets
+
+Every built page includes an absolute Open Graph PNG URL and large-image card
+metadata. The homepage adds its own title/description; docs retain their page
+specific metadata. `scripts/render-social-assets.mjs` renders a 1200×630 banner
+and 192×192 PNG favicon from the canonical frontend Folded F icon using Sharp.
+`npm run prepare-content` regenerates both, so fresh CI checkouts need no local
+asset files. `npm run check` verifies social tags, image targets and dimensions.
+
+Sharing assets are public static files; no browser login or JavaScript is required
+for crawlers. Slack controls its own preview layout and caching. Existing messages
+may retain old previews after a deployment. Repost the link after publishing; a
+new query string such as `?share=flumic-v1` can help test a newly fetched URL.
+See [Slack's crawler documentation](https://api.slack.com/robots).

@@ -28,3 +28,6 @@ docs/superpowers
 website/public/favicon.svg
 .playwright-cli/
 output/
+# Generated raster sharing assets, rendered from the canonical icon.
+website/public/favicon.png
+website/public/social/

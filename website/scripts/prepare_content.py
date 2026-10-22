@@ -17,6 +17,9 @@ GITHUB = 'https://github.com/phudekar/flumic-software-factory/blob/main/'
 GUIDES = {
     'docs/control-plane.md': 'Control-plane handbook',
     'docs/worker-configuration.md': 'Worker configuration handbook',
+    'docs/configuration-workers.md': 'Worker settings: effects and examples',
+    'docs/configuration-workflows.md': 'Workflow settings: effects and examples',
+    'docs/configuration-control-plane.md': 'Control Plane settings: effects and examples',
     'docs/worker-image-builds.md': 'Worker image builds',
     'docs/control-plane-workflows.md': 'Workflow control architecture',
     'docs/observability.md': 'Observability handbook',
@@ -180,7 +183,8 @@ settings = next(n for n in settings_tree.body if isinstance(n, ast.ClassDef) and
 configuration_path = 'worker/factory/configuration.py'
 config_tree = ast.parse((ROOT / configuration_path).read_text())
 config_models = [n for n in config_tree.body if isinstance(n, ast.ClassDef)]
-body = ['Types and code defaults below come directly from the repository. Checked-in YAML and saved profiles can override code defaults; consult the [configuration handbook](' + BASE + 'handbook/worker-configuration/) for precedence. '
+body = ['Read the detailed guides for [worker execution settings](' + BASE + 'handbook/configuration-workers/), [workflow/task/label settings](' + BASE + 'handbook/configuration-workflows/) and [Control Plane/environment settings](' + BASE + 'handbook/configuration-control-plane/) for effects, examples and adoption timing.\n',
+        'Types and code defaults below come directly from the repository. Checked-in YAML and saved profiles can override code defaults; consult the [configuration handbook](' + BASE + 'handbook/worker-configuration/) for precedence. '
         'The `control_revision` field is runtime metadata, not an operator override.\n',
         '## Worker settings\n\n' + source_link(settings_path, settings) + '\n\n' + table(model_fields(settings))]
 for model in config_models:

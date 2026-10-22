@@ -7,7 +7,7 @@
     "node": ">=22.23.4"
   },
   "scripts": {
-    "prepare-content": "python3 scripts/prepare_content.py",
+    "prepare-content": "python3 scripts/prepare_content.py && node scripts/render-social-assets.mjs",
     "dev": "npm run prepare-content && astro dev --host 127.0.0.1",
     "build": "npm run prepare-content && astro build",
     "check": "node scripts/check-site.mjs",
@@ -16,5 +16,8 @@
   "dependencies": {
     "@astrojs/starlight": "0.42.6",
     "astro": "7.4.2"
+  },
+  "devDependencies": {
+    "sharp": "0.35.5"
   }
 }

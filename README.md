@@ -103,6 +103,12 @@ for immediate issue and PR-feedback events. Polling remains available for recove
 
 ## Configuration
 
+Field-by-field guides explain execution effects, valid values and examples:
+[worker settings](docs/configuration-workers.md),
+[workflow/task/label settings](docs/configuration-workflows.md), and
+[Control Plane/environment settings](docs/configuration-control-plane.md).
+
+
 ### Credentials and local state
 
 | Location | Purpose |
@@ -282,6 +288,15 @@ key, with network access. Redaction and guardrails reduce exposure but cannot
 prove content is free of confidential data. Review generated changes, especially
 CI and infrastructure changes. Read the [security boundary](docs/issue-lifecycle.md#security-boundary-and-limitations)
 before enabling automation on sensitive repositories.
+
+## Coming soon
+
+- **GitLab-based workflows:** planned support for issue-to-merge-request development flows on GitLab.
+- **Kubernetes orchestration:** planned support for running and orchestrating workflows and workers on Kubernetes.
+
+These capabilities are planned and are not available in the current release.
+Current integrations use GitHub, Hatchet and Docker on a shared host; no release
+date is committed.
 
 ## Website and documentation
 

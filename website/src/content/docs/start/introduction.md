@@ -25,6 +25,13 @@ Flumic AI turns issue requirements into draft pull requests through explicit, ob
 | Shared SQLite/files | Factory execution state and claims across workers on one host |
 | Optional SigNoz | OpenTelemetry traces, metrics, logs and infrastructure dashboards |
 
+## Coming soon
+
+- **GitLab-based workflows:** planned issue-to-merge-request collaboration on GitLab.
+- **Kubernetes workflow and worker orchestration:** planned support for Kubernetes-based execution and operations.
+
+Both are planned capabilities, not current deployment options. Release timing and final scope are not committed. Current setup instructions remain GitHub- and Docker-based with Hatchet orchestration.
+
 ## Scope today
 
 The deployment is for a trusted local developer with Docker access. It does not provide multi-user roles, verified graceful drain, automatic rolling configuration migration or Kubernetes execution. Multiple workers must share execution state on one host. Humans review and merge PRs.

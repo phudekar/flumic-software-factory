@@ -1,5 +1,6 @@
 import { defineConfig } from 'astro/config';
 import starlight from '@astrojs/starlight';
+import { socialHead } from './src/social.mjs';
 
 export default defineConfig({
   site: 'https://phudekar.github.io',
@@ -7,6 +8,8 @@ export default defineConfig({
   trailingSlash: 'always',
   integrations: [starlight({
     title: 'Flumic AI',
+    favicon: '/favicon.png',
+    head: socialHead,
     logo: { src: '../control-plane/frontend/src/assets/flumic.svg', alt: 'Flumic AI icon' },
     description: 'Run, configure, and observe AI development workflows from GitHub issue to reviewed pull request.',
     social: [{ icon: 'github', label: 'GitHub', href: 'https://github.com/phudekar/flumic-software-factory' }],

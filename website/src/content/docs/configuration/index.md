@@ -16,6 +16,14 @@ The manifest includes runtime settings, models, workflow definitions and bootstr
 
 Task settings resolve from code compatibility defaults → task defaults → named task template → task override. Model overrides at task level take precedence over backend defaults. Worker profiles override relevant shared defaults.
 
+## Field-by-field effects and examples
+
+- [Worker execution settings](/flumic-software-factory/handbook/configuration-workers/): every worker setting, model/backend limits, logging, state, telemetry and image/startup controls.
+- [Workflow, task and label settings](/flumic-software-factory/handbook/configuration-workflows/): every task option, scheduling/retry interactions, manifest precedence, lifecycle labels and price-file fields.
+- [Control Plane and environment settings](/flumic-software-factory/handbook/configuration-control-plane/): database, authentication, paths, browser origin, worker connectivity, credentials and deployment controls.
+
+Each guide distinguishes code defaults from deployment overrides, explains when an edit takes effect, and includes possible values. Use the saved effective configuration to establish what a particular worker actually loaded.
+
 ## Complete reference
 
 - [Worker settings, task/label fields, exact defaults and validation](/flumic-software-factory/reference/configuration/)

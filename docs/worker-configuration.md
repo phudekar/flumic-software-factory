@@ -1,5 +1,10 @@
 # Worker configuration
 
+For field-by-field defaults, execution effects and example values, read the
+[worker setting guide](configuration-workers.md),
+[workflow/task/label guide](configuration-workflows.md) and
+[Control Plane/environment guide](configuration-control-plane.md).
+
 `worker-config.yaml` is a small manifest that includes related YAML files:
 
 | File | Edit here for |

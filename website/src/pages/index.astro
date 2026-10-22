@@ -1,5 +1,6 @@
 ---
 import '../styles/home.css';
+import { socialHead } from '../social.mjs';
 const base = import.meta.env.BASE_URL.replace(/\/$/, '') + '/';
 const link = (path: string) => base + path;
 const steps = ['Issue', 'Plan', 'Implement', 'Review', 'Merge'];
@@ -15,8 +16,14 @@ const controls = [
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width" />
     <meta name="description" content="Turn GitHub issues into reviewed pull requests with configurable AI workflows, multiple workers, and stage-level token and cost visibility." />
+    <meta property="og:title" content="Flumic AI — AI development, under your control" />
+    <meta property="og:description" content="Turn GitHub issues into reviewed pull requests with configurable AI workflows, multiple workers, and stage-level token and cost visibility." />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Flumic AI" />
+    <meta property="og:url" content="https://phudekar.github.io/flumic-software-factory/" />
+    {socialHead.map(({ tag: Tag, attrs }) => <Tag {...attrs} />)}
     <meta name="theme-color" content="#0b1018" />
-    <link rel="icon" type="image/svg+xml" href={link('favicon.svg')} />
+    <link rel="icon" type="image/png" sizes="192x192" href={link('favicon.png')} />
     <title>Flumic AI — AI development, under your control</title>
     <link rel="canonical" href="https://phudekar.github.io/flumic-software-factory/" />
   </head>
@@ -61,6 +68,7 @@ const controls = [
       </section>
       <section class="wrap section observe-section"><div class="observe-copy"><div class="eyebrow">OPERATE WITH CONTEXT</div><h2>Your workers.<br />Your configuration.<br /><span>Your view of the system.</span></h2><p>Manage worker lifecycles in the control plane. Inspect profiles and prompts. Add SigNoz for correlated traces, metrics, logs and container resource monitoring.</p><a href={link('observability/setup/')}>Set up observability →</a></div><div class="worker-preview"><a href={link('images/control-plane-workers.png')} aria-label="Open full worker management screenshot"><img src={link('images/control-plane-workers.png')} width="1440" height="1000" alt="Workers view showing role-specific instances, runtime status, engine registration and configuration revision" loading="lazy" /></a><p>Manage simple and developer instances with independent lifecycle controls.</p></div></section>
       <section class="wrap section documentation"><div><div class="eyebrow">LESS GUESSING. MORE BUILDING.</div><h2>Go deeper.</h2></div><div class="doc-links"><a href={link('start/quick-start/')}><span>01 / START</span><h3>Run it locally</h3><p>Credentials, first workers and your first issue.</p><b aria-hidden="true">↗</b></a><a href={link('configuration/')}><span>02 / CONFIGURE</span><h3>Make it yours</h3><p>Profiles, models, stages, prompts and limits.</p><b aria-hidden="true">↗</b></a><a href={link('reference/api/')}><span>03 / INTEGRATE</span><h3>Explore the API</h3><p>Authentication, endpoints and request contracts.</p><b aria-hidden="true">↗</b></a></div></section>
+      <section class="wrap section"><div class="eyebrow">COMING SOON</div><h2>More platforms.<br /><span>More deployment options.</span></h2><p>GitLab-based workflows and Kubernetes workflow and worker orchestration are planned. Current releases use GitHub and Docker with Hatchet; release timing and final scope are not committed.</p><a href={link('start/introduction/#coming-soon')}>Explore current and planned capabilities →</a></section>
       <section class="wrap final-cta"><div class="eyebrow">START WITH ONE WELL-DEFINED ISSUE</div><h2>Build your next change<br /><span>with a workflow you can inspect.</span></h2><a class="button primary" href={link('start/quick-start/')}>Get started locally →</a><p>Designed for a trusted local Docker operator. Multiple workers currently share state on one host.</p></section>
     </main>
     <footer class="wrap"><a class="brand" href={base}><img class="brand-icon" src={link('favicon.svg')} width="33" height="33" alt="" aria-hidden="true" />Flumic <span>AI</span></a><p>Configurable AI workflows. Developer-owned outcomes.</p><a href={link('operations/security/')}>Security & limitations</a><a href="https://github.com/phudekar/flumic-software-factory">View source ↗</a></footer>
