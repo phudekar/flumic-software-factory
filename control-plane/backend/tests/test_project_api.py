@@ -231,3 +231,19 @@ class ProjectAPITests(unittest.TestCase):
         self.assertEqual(self.client.post('/api/v1/worker-profiles/validate',json=body).status_code,404)
         document=self.client.get('/api/v1/config/revisions/'+self.revision['id']).json()['document']
         self.assertEqual(self.client.post('/api/v1/config/validate',json={'document':document,'parent_id':foreign['factory_revision_id']}).status_code,404)
+
+    def test_repository_writes_validate_configured_profiles_without_assuming_simple(self):
+        project=self.project('developer-only')
+        path=f'/api/v1/projects/{project}'
+        repo=self.client.post(path+'/repositories',json={'alias':'backend','owner':'example','name':'old'}).json()
+        latest=self.client.get(path+'/config/revisions').json()[0]
+        document=self.client.get(path+'/config/revisions/'+latest['id']).json()['document']
+        document['workers']={'developer':document['workers']['developer']}
+        published=self.client.post(path+'/config/revisions',json={'parent_id':latest['id'],'document':document})
+        self.assertEqual(published.status_code,201,published.text)
+        with self.subTest(operation='create'):
+            response=self.client.post(path+'/repositories',json={'alias':'frontend','owner':'example','name':'web'})
+            self.assertEqual(response.status_code,201,response.text)
+        with self.subTest(operation='update'):
+            response=self.client.put(path+'/repositories/'+repo['id'],json={'alias':'backend','owner':'example','name':'new','parent_id':repo['revision_id']})
+            self.assertEqual(response.status_code,200,response.text)

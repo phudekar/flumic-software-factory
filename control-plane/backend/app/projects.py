@@ -128,7 +128,7 @@ def install(app, sessions, config, row):
             db.flush()
             item.revision_id = revision.id
             # Validate the full resolved Settings, not only override keys.
-            effective_configuration(db, scope, config, body.alias)
+            validate_repository_configuration(db, scope, config, body.alias)
             return row(item)
 
     @app.put("/api/v1/projects/{project_id}/repositories/{identifier}", dependencies=[Depends(project_parameter)])
@@ -158,7 +158,7 @@ def install(app, sessions, config, row):
                 setattr(item, key, value)
             item.revision_id = revision.id
             db.flush()
-            effective_configuration(db, scope, config, item.alias)
+            validate_repository_configuration(db, scope, config, item.alias)
             return row(item)
 
     @app.post("/api/v1/projects/{project_id}/config/effective", dependencies=[Depends(project_parameter)])
@@ -228,3 +228,15 @@ def effective_configuration(db, scope, config, repository, *, stage_repository=N
     value = config.effective(factory.document, profile, revision.document,
                              workflow or {}, stage or {}, limits=limits)
     return value, factory, connection
+
+
+def validate_repository_configuration(db, scope, config, alias):
+    """A connection must resolve for the project's actual configured profiles."""
+    from sqlalchemy import desc
+    factory = db.scalar(select(Revision).where(Revision.project_id == scope.project_id,
+        Revision.scope == "factory").order_by(desc(Revision.created_at)).limit(1))
+    if factory is None:
+        raise HTTPException(404, "Configuration not found")
+    for profile in factory.document["workers"]:
+        effective_configuration(db, scope, config, alias, profile=profile,
+                                factory_revision_id=factory.id)
