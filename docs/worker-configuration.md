@@ -190,8 +190,11 @@ A Git evaluation failure blocks patch publication rather than guessing rules.
 
 Hatchet groups issue workflows by `repository + issue_number`. At most one issue
 workflow executes for that key, while `workflow_concurrency` still limits total
-issue workflow throughput. A shared named tenant concurrency strategy also
-serializes standalone feedback and merge-verification work against that issue.
+issue workflow throughput. Each issue workflow task shares a named tenant
+concurrency strategy with standalone feedback and merge-verification work, so
+those stages cannot execute simultaneously for the same issue. The multi-task
+workflow itself uses workflow-local limits; Hatchet rejects tenant-scoped limits
+at that level.
 Feedback events are queued, not deduplicated, so distinct reviews remain eligible.
 
 Status-based issue-run idempotency rejects duplicate active triggers from cron,

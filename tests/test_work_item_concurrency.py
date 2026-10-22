@@ -39,14 +39,25 @@ class WorkItemConcurrencyTests(unittest.TestCase):
         self.assertEqual(options["idempotency"].key_expression, key)
         limits = options["concurrency"]
         self.assertEqual(limits[0].expression, key)
-        self.assertTrue(limits[0].is_tenant_scoped)
+        # Hatchet rejects tenant-scoped concurrency on a multi-task workflow.
+        self.assertFalse(limits[0].is_tenant_scoped)
         self.assertEqual(limits[0].max_runs, 1)
         self.assertEqual(limits[1].max_runs, 7)
         for name in (
+            "load-issue",
+            "plan-issue-and-create-sub-issues",
+            "triage-issue",
+            "generate-and-open-draft-pr",
+            "review-opened-pull-request",
+            "record-workflow-result",
             "process-open-pull-request-feedback",
             "verify-merged-pr-and-close-issue",
         ):
-            self.assertEqual(tasks[name]["concurrency"][0], limits[0])
+            shared = tasks[name]["concurrency"][0]
+            self.assertTrue(shared.is_tenant_scoped)
+            self.assertEqual(shared.name, "software-factory-work-item")
+            self.assertEqual(shared.expression, key)
+            self.assertEqual(shared.max_runs, 1)
             self.assertEqual(tasks[name]["schedule_timeout"], timedelta(days=1))
 
     def test_duplicate_issue_dispatch_is_already_active_not_failure(self):

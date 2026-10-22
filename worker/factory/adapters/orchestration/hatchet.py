@@ -34,13 +34,13 @@ from factory.adapters.control import engine_context
 ISSUE_KEY = "input.repository + ':issue:' + string(input.issue_number)"
 
 
-def issue_concurrency():
+def issue_concurrency(*, tenant_scoped=True):
     return ConcurrencyExpression(
         expression=ISSUE_KEY,
         max_runs=1,
         limit_strategy=ConcurrencyLimitStrategy.GROUP_ROUND_ROBIN,
-        name="software-factory-work-item",
-        is_tenant_scoped=True,
+        name="software-factory-work-item" if tenant_scoped else None,
+        is_tenant_scoped=tenant_scoped,
     )
 
 
@@ -154,7 +154,9 @@ def build_worker(hatchet, service, settings, dispatch):
         name="software-factory-issue-agent",
         input_validator=IssueInput,
         concurrency=[
-            issue_concurrency(),
+            # Multi-task workflows require workflow-local limits. Share the
+            # tenant limit on their tasks instead, alongside standalone work.
+            issue_concurrency(tenant_scoped=False),
             ConcurrencyExpression.from_int(settings.workflow_concurrency),
         ],
         idempotency=StatusBasedIdempotencyConfig(
@@ -164,7 +166,7 @@ def build_worker(hatchet, service, settings, dispatch):
     )
 
     @issue_workflow.task(
-        **task_options("load_issue"),
+        **task_options("load_issue", serialize_issue=True),
         name="load-issue",
     )
     @engine_context
@@ -173,7 +175,7 @@ def build_worker(hatchet, service, settings, dispatch):
             return service.load_issue(input)
 
     @issue_workflow.task(
-        **task_options("plan_issue"),
+        **task_options("plan_issue", serialize_issue=True),
         name="plan-issue-and-create-sub-issues",
         parents=[load_issue],
     )
@@ -183,7 +185,7 @@ def build_worker(hatchet, service, settings, dispatch):
             return service.plan_issue(input, ctx.task_output(load_issue))
 
     @issue_workflow.task(
-        **task_options("triage_issue"),
+        **task_options("triage_issue", serialize_issue=True),
         name="triage-issue",
         parents=[load_issue, plan_issue],
     )
@@ -195,7 +197,7 @@ def build_worker(hatchet, service, settings, dispatch):
             )
 
     @issue_workflow.task(
-        **task_options("generate_and_open_draft_pr"),
+        **task_options("generate_and_open_draft_pr", serialize_issue=True),
         name="generate-and-open-draft-pr",
         parents=[triage_issue],
     )
@@ -207,7 +209,7 @@ def build_worker(hatchet, service, settings, dispatch):
             )
 
     @issue_workflow.task(
-        **task_options("review_opened_pull_request"),
+        **task_options("review_opened_pull_request", serialize_issue=True),
         name="review-opened-pull-request",
         parents=[generate_and_open_draft_pr],
     )
@@ -219,7 +221,7 @@ def build_worker(hatchet, service, settings, dispatch):
             )
 
     @issue_workflow.task(
-        **task_options("record_workflow_result"),
+        **task_options("record_workflow_result", serialize_issue=True),
         name="record-workflow-result",
         parents=[review_opened_pull_request],
     )

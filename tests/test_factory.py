@@ -579,7 +579,7 @@ from factory.application.service import FactoryService
             "input.repository + ':issue:' + string(input.issue_number)",
         )
         self.assertEqual(len(definitions[0].concurrency_arr), 2)
-        self.assertTrue(definitions[0].concurrency_arr[0].is_tenant_scoped)
+        self.assertFalse(definitions[0].concurrency_arr[0].is_tenant_scoped)
         self.assertEqual(definitions[0].concurrency_arr[0].max_runs, 1)
         self.assertEqual(len(workflows[0].tasks), 6)
         self.assertIsNotNone(dispatch.tasks)
