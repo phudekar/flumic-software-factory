@@ -19,7 +19,7 @@ class DockerRuntime:
             managed = labels.get(LABEL) == "factory"
             discovered = labels.get(
                 "com.docker.compose.project"
-            ) == self.settings.project and labels.get("com.docker.compose.service") in {
+            ) == (getattr(self.settings, "compose_project_name", None) or self.settings.project) and labels.get("com.docker.compose.service") in {
                 "worker",
                 "developer-worker",
             }
@@ -217,7 +217,7 @@ class DockerRuntime:
         managed = labels.get(LABEL) == "factory"
         discovered = labels.get(
             "com.docker.compose.project"
-        ) == self.settings.project and labels.get("com.docker.compose.service") in {
+        ) == (getattr(self.settings, "compose_project_name", None) or self.settings.project) and labels.get("com.docker.compose.service") in {
             "worker",
             "developer-worker",
         }
