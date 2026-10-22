@@ -14,8 +14,14 @@ class AppSettings:
     frontend: Path
     public_origin: str = "http://localhost:3400"
     worker_endpoint: str = "http://factory-control-api:8000"
-    project: str = "hatchet-test"
+    compose_project_name: str = "hatchet-test"
+    # Deprecated constructor alias for integrations using the old Compose name.
+    project: str | None = None
     cookie_secure: bool = False
+
+    def __post_init__(self):
+        if self.project is not None:
+            object.__setattr__(self, "compose_project_name", self.project)
 
     @classmethod
     def load(cls):

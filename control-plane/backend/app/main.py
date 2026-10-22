@@ -18,6 +18,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select, desc, or_, text
 from app.database import (
     database,
+    Project, DEFAULT_PROJECT_ID,
     Revision,
     Worker,
     Operation,
@@ -92,7 +93,10 @@ def create_app(settings=None, sessions=None, runtime=None, workflow=None):
     @asynccontextmanager
     async def lifespan(app):
         with sessions.begin() as db:
-            if db.scalar(select(Revision.id).limit(1)) is None:
+            if db.get(Project, DEFAULT_PROJECT_ID) is None:
+                db.add(Project(id=DEFAULT_PROJECT_ID, slug="default", name="Default project"))
+                db.flush()
+            if db.scalar(select(Revision.id).where(Revision.project_id == DEFAULT_PROJECT_ID).limit(1)) is None:
                 config.validate(config.approved)
                 db.add(
                     Revision(

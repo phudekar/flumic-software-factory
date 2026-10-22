@@ -5,19 +5,19 @@ from fastapi import HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 from factory.configuration import read_configuration, profile_fragment
 from sqlalchemy import select, desc, text
-from app.database import Revision, WorkerConfiguration, Worker, Audit
+from app.database import Revision, WorkerConfiguration, Worker, Audit, DEFAULT_PROJECT_ID
 
 
-def bootstrap(db, config):
+def bootstrap(db, config, project_id=DEFAULT_PROJECT_ID):
     if db.bind.dialect.name == "postgresql":
         db.execute(text("SELECT pg_advisory_xact_lock(6423401)"))
     latest = db.scalar(
         select(Revision)
-        .where(Revision.scope == "factory")
+        .where(Revision.scope == "factory", Revision.project_id == project_id)
         .order_by(desc(Revision.created_at))
         .limit(1)
     )
-    if not db.scalar(select(WorkerConfiguration.id).limit(1)):
+    if not db.scalar(select(WorkerConfiguration.id).where(WorkerConfiguration.project_id == project_id).limit(1)):
         paths = sorted((config.root / "config/worker-profiles").glob("*.yaml"))
         if not paths:
             raise ValueError("Bootstrap worker profile files are missing")
@@ -51,6 +51,7 @@ def bootstrap(db, config):
             resolved = config.compose(latest.document, parsed.profile, parsed.document)
             db.add(
                 WorkerConfiguration(
+                    project_id=project_id,
                     id=str(uuid.uuid4()),
                     family_id=str(uuid.uuid4()),
                     name=parsed.name,
@@ -59,6 +60,8 @@ def bootstrap(db, config):
                     document=config.split(resolved, parsed.profile)[1],
                 )
             )
+    if project_id != DEFAULT_PROJECT_ID:
+        return
     for worker in db.scalars(
         select(Worker).where(
             Worker.config_id.is_(None), Worker.desired_state != "removed"
@@ -98,6 +101,7 @@ def compile_revision(db, config, cfg):
     revision = Revision(
         id=str(uuid.uuid4()),
         scope="worker_snapshot",
+        project_id=cfg.project_id,
         summary=cfg.name,
         document=document,
         digest=config.hash(document),

@@ -2,7 +2,7 @@
 
 import time
 import uuid
-from sqlalchemy import String, Text, Float, JSON, create_engine
+from sqlalchemy import String, Text, Float, JSON, ForeignKey, UniqueConstraint, create_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 
 
@@ -14,7 +14,38 @@ class Base(DeclarativeBase):
     pass
 
 
-class Revision(Base):
+DEFAULT_PROJECT_ID = "00000000-0000-0000-0000-000000000001"
+
+
+class Project(Base):
+    __tablename__ = "projects"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=identity)
+    slug: Mapped[str] = mapped_column(String(100), unique=True)
+    name: Mapped[str] = mapped_column(String(100))
+    defaults: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[float] = mapped_column(Float, default=time.time)
+
+
+class RepositoryConnection(Base):
+    __tablename__ = "repository_connections"
+    __table_args__ = (UniqueConstraint("project_id", "alias", name="uq_repository_project_alias"),)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=identity)
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), index=True)
+    alias: Mapped[str] = mapped_column(String(100))
+    provider: Mapped[str] = mapped_column(String(20), default="github")
+    host: Mapped[str] = mapped_column(String(240), default="github.com")
+    owner: Mapped[str] = mapped_column(String(100))
+    name: Mapped[str] = mapped_column(String(100))
+    overrides: Mapped[dict] = mapped_column(JSON, default=dict)
+    credential_id: Mapped[str | None] = mapped_column(String(36))
+    created_at: Mapped[float] = mapped_column(Float, default=time.time)
+
+
+class ProjectOwned:
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), default=DEFAULT_PROJECT_ID, server_default=DEFAULT_PROJECT_ID, index=True)
+
+
+class Revision(ProjectOwned, Base):
     __tablename__ = "config_revisions"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=identity)
     scope: Mapped[str] = mapped_column(String(32), default="factory")
@@ -50,7 +81,7 @@ class Operation(Base):
     error: Mapped[str | None] = mapped_column(String(240))
 
 
-class Event(Base):
+class Event(ProjectOwned, Base):
     __tablename__ = "execution_events"
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     kind: Mapped[str] = mapped_column(String(40), index=True)
@@ -63,7 +94,11 @@ class Event(Base):
     payload: Mapped[dict] = mapped_column(JSON)
 
 
-class Conversation(Base):
+    # NULL means historical repository attribution is unknown, never guessed.
+    repository_id: Mapped[str | None] = mapped_column(ForeignKey("repository_connections.id"))
+
+
+class Conversation(ProjectOwned, Base):
     __tablename__ = "conversation_content"
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     ciphertext: Mapped[str] = mapped_column(Text)
@@ -97,7 +132,7 @@ def database(url):
     return engine, sessionmaker(engine, expire_on_commit=False)
 
 
-class WorkerConfiguration(Base):
+class WorkerConfiguration(ProjectOwned, Base):
     __tablename__ = "worker_configurations"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=identity)
     family_id: Mapped[str] = mapped_column(String(36), index=True)
@@ -110,7 +145,7 @@ class WorkerConfiguration(Base):
     created_at: Mapped[float] = mapped_column(Float, default=time.time)
 
 
-class WorkflowControlOperation(Base):
+class WorkflowControlOperation(ProjectOwned, Base):
     __tablename__ = "workflow_control_operations"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=identity)
     key: Mapped[str] = mapped_column(String(160), unique=True)
