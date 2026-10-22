@@ -8,7 +8,7 @@ from unittest.mock import Mock, patch
 
 from alembic import command
 from alembic.config import Config
-from sqlalchemy import text, select, inspect, create_engine
+from sqlalchemy import text, select, inspect, create_engine, MetaData, event
 from sqlalchemy.engine import make_url
 import uuid
 from sqlalchemy.exc import IntegrityError
@@ -21,12 +21,22 @@ ROOT = Path(__file__).resolve().parents[3]
 DEFAULT = "00000000-0000-0000-0000-000000000001"
 
 
+def create_schema(engine):
+    # PostgreSQL emits ALTER constraints for the repository/revision cycle.
+    # SQLAlchemy's AddConstraint marks its source metadata to suppress inline
+    # DDL; do not reuse that mutable DDL state in later SQLite fixtures.
+    metadata = MetaData()
+    for table in models.Base.metadata.tables.values():
+        table.to_metadata(metadata)
+    metadata.create_all(engine)
+
+
 class ProjectTests(unittest.TestCase):
     def test_repository_revisions_are_immutable_references_with_scoped_ownership(self):
         self.assertTrue(hasattr(models, "RepositoryRevision"), "repository revision schema missing")
         engine, sessions = models.database("sqlite://")
         self.addCleanup(engine.dispose)
-        models.Base.metadata.create_all(engine)
+        create_schema(engine)
         with sessions.begin() as db:
             db.add_all([models.Project(id=DEFAULT, slug="default", name="Default"),
                         models.Project(id="other", slug="other", name="Other")])
@@ -50,7 +60,7 @@ class ProjectTests(unittest.TestCase):
     def test_repository_heads_reject_other_repository_and_unknown_revisions(self):
         engine, sessions = models.database("sqlite://")
         self.addCleanup(engine.dispose)
-        models.Base.metadata.create_all(engine)
+        create_schema(engine)
         with sessions.begin() as db:
             db.add_all([models.Project(id=DEFAULT,slug="default",name="Default"),models.Project(id="other",slug="other",name="Other")])
             db.flush()
@@ -70,7 +80,7 @@ class ProjectTests(unittest.TestCase):
     def test_event_repository_must_belong_to_its_project(self):
         engine,sessions=models.database("sqlite://")
         self.addCleanup(engine.dispose)
-        models.Base.metadata.create_all(engine)
+        create_schema(engine)
         with sessions.begin() as db:
             db.add_all([models.Project(id=DEFAULT,slug="default",name="Default"),models.Project(id="other",slug="other",name="Other")])
             db.flush()
@@ -79,18 +89,22 @@ class ProjectTests(unittest.TestCase):
             db.add(models.Event(id="foreign",project_id=DEFAULT,repository_id="repo",kind="heartbeat",worker_id="worker",occurred_at=1,payload={}))
 
     def test_project_has_multiple_repository_aliases(self):
-        self.assertTrue(hasattr(models, "RepositoryConnection"), "project repositories missing")
         engine, sessions = models.database("sqlite://")
         self.addCleanup(engine.dispose)
-        models.Base.metadata.create_all(engine)
+        create_schema(engine)
         with sessions.begin() as db:
-            db.add(models.Project(id=DEFAULT, slug="default", name="Default"))
+            db.add_all([models.Project(id=DEFAULT, slug="default", name="Default"),
+                        models.Project(id="other", slug="other", name="Other")])
             db.flush()
-            for alias, name in [("backend", "api"), ("frontend", "web")]:
-                db.add(models.RepositoryConnection(project_id=DEFAULT, alias=alias,
-                    provider="github", host="github.com", owner="example", name=name))
+            for project in (DEFAULT,"other"):
+                for alias, name in [("backend", "api"), ("frontend", "web")]:
+                    db.add(models.RepositoryConnection(project_id=project, alias=alias,
+                        provider="github", host="github.com", owner="example", name=name))
         with sessions() as db:
-            self.assertEqual([r.alias for r in db.scalars(select(models.RepositoryConnection).order_by(models.RepositoryConnection.alias))], ["backend", "frontend"])
+            for project in (DEFAULT,"other"):
+                aliases = db.scalars(select(models.RepositoryConnection.alias).where(
+                    models.RepositoryConnection.project_id == project).order_by(models.RepositoryConnection.alias)).all()
+                self.assertEqual(aliases, ["backend", "frontend"])
         with self.assertRaises(IntegrityError), sessions.begin() as db:
             db.add(models.RepositoryConnection(project_id=DEFAULT, alias="backend",
                 provider="github", host="github.com", owner="other", name="repo"))
@@ -120,7 +134,7 @@ class ProjectTests(unittest.TestCase):
         self.assertTrue(hasattr(models, "Project"), "project bootstrap missing")
         engine, sessions = models.database("sqlite://")
         self.addCleanup(engine.dispose)
-        models.Base.metadata.create_all(engine)
+        create_schema(engine)
         config = Configurations(ROOT)
         for identity, slug in [(DEFAULT, "default"), ("00000000-0000-0000-0000-000000000002", "second")]:
             with sessions.begin() as db:
@@ -189,6 +203,18 @@ class ProjectTests(unittest.TestCase):
                     db.get(models.RepositoryConnection,"a").revision_id="rev-b"
                 with self.assertRaises(IntegrityError), sessions.begin() as db:
                     db.add(models.Event(id="foreign",project_id=DEFAULT,repository_id="b",kind="heartbeat",worker_id="worker",occurred_at=1,payload={}))
+
+    def test_migrations_release_pooled_database_connections(self):
+        closed=[]
+        def tracked_engine(*args, **kwargs):
+            engine=create_engine(*args, **kwargs)
+            event.listen(engine,"close",lambda *_:closed.append(True))
+            return engine
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg=Config(str(ROOT / "control-plane/backend/alembic.ini"))
+            with patch.dict(os.environ,{"CONTROL_DATABASE_URL":"sqlite:///"+tmp+"/connections.db"}), patch("sqlalchemy.create_engine",side_effect=tracked_engine):
+                command.upgrade(cfg,"head")
+            self.assertTrue(closed,"Alembic left its DBAPI connection pooled after completing")
 
     def test_fresh_install_creates_default_project_and_revision_tables(self):
         with tempfile.TemporaryDirectory() as tmp:
