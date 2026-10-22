@@ -146,15 +146,19 @@ class DockerRuntime:
             pass
         return container.id
 
-    def create_shared(self, worker, document, token):
-        existing = self.container(worker.id, missing_ok=True)
-        if existing is not None:
-            return existing.id
+    def shared_image(self, document):
         image = ('hatchet-test-developer-worker:latest' if document['role'] == 'developer'
                  else 'hatchet-test-worker:latest')
         labels = self.client.images.get(image).attrs.get('Config', {}).get('Labels') or {}
         if labels.get('software-factory.shared-protocol') != '1':
             raise ValueError('Rebuild worker image for explicit shared protocol support')
+        return image
+
+    def create_shared(self, worker, document, token, image=None):
+        existing = self.container(worker.id, missing_ok=True)
+        if existing is not None:
+            return existing.id
+        image = image or self.shared_image(document)
         engine_token = os.environ.get('HATCHET_CLIENT_TOKEN')
         if not engine_token:
             raise ValueError('Configure Hatchet infrastructure credentials')
@@ -214,9 +218,10 @@ class DockerRuntime:
             if current.status == "running":
                 raise ValueError("Stop the worker before changing its configuration")
         if getattr(worker, 'protocol', 'legacy') == 'shared-v1':
+            image = self.shared_image(document)
             if current is not None:
                 current.remove()
-            return self.create_shared(worker, document, token)
+            return self.create_shared(worker, document, token, image=image)
         self.config_service.validate(document)
         snapshot = self.config_service.snapshot(
             document, worker.profile, worker.name, worker.revision_id
