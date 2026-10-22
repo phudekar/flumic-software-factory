@@ -1,308 +1,293 @@
 # Software Factory
 
-This project runs an python based agentic worker that monitors issues in a configured github repository, asks for clarification when needed, proposes code
-changes on an isolated branch, and opens a draft pull request. Hatchet handles
-the task DAG, three concurrent issue workflows, five-minute scan schedule,
-event triggers, and durable waits.
+[![CI tests](https://github.com/phudekar/software-factory/actions/workflows/tests.yml/badge.svg)](https://github.com/phudekar/software-factory/actions/workflows/tests.yml)
 
-## Architecture and migration
+Turn GitHub issues into reviewed draft pull requests with Python workers, Hatchet
+orchestration, and your choice of Codex, Claude Code, or a direct model API.
+The factory plans work, creates sub-issues, implements changes on isolated
+branches, reviews PRs, and applies actionable feedback to the same branch.
+Developers own requirements, CI, approval, and merging.
 
-The factory now separates application operations from Hatchet, coding agents,
-state, and telemetry. See [the migration plan](docs/architecture-migration.md)
-and [the implemented architecture and extension guide](docs/architecture.md).
-Planning, implementation, review, state, and observation adapters can be selected
-independently. Existing Hatchet task names and GitHub recovery markers remain.
+The React/TypeScript control plane provides worker lifecycle controls,
+versioned configuration, workflow runs, stage logs, redacted model history, and
+usage estimates. It is intended for a trusted developer running Docker locally.
 
-## Worker and model dashboards
+![Control-plane overview showing worker counts, recent workflow runs, tokens, and estimated spend](docs/images/control-plane-overview.png)
 
-An optional SigNoz stack visualizes worker activity, issue traces, models, token
-usage, and estimated costs. See [the observability guide](docs/observability.md).
-Start it with `./scripts/start-observability.sh`, open `http://localhost:3301`,
-and the factory dashboard is provisioned automatically. Start factory
-workers with telemetry using `./scripts/start-observed-workers.sh -d`.
+Screenshots show an existing local installation; profiles, counts, and run states
+will differ on a fresh setup. Cost figures are estimates, and missing prices are
+reported separately.
 
-## Control-plane application
+## Quick start
 
-A separate React/TypeScript webapp provides worker management, Hatchet run/stage
-views, structured logs, redacted model history, stage-level usage, and saved
-worker profiles with prompts and startup scripts. Profile edits take effect for
-linked workers on their next restart; factory settings are managed separately.
-Start it with `./scripts/start-control-plane.sh` and open `http://localhost:3400`.
-The private `.env.control-plane` file contains the generated administrator password.
-Existing workers are discovered read-only and are not restarted by this command.
-See the [operator guide](docs/control-plane.md) for capabilities and current
-limits, and the [architecture plan](docs/control-plane-architecture.md) for the
-full design and remaining milestones.
+### 1. Prepare your environment
 
-## Prerequisites
+You need:
 
-- Docker Engine and the standalone `docker-compose` command
-- Hatchet CLI with a profile named `development`
-- Fine-grained GitHub token for the github project to be monitored
-- OpenAI API key
-- A GitHub webhook configured to deliver issue and pull-request events to
-  Hatchet (see below)
-- An initialized github repository with a default branch
-  and source files
+- Git, Python 3, Docker Engine/Desktop, and the `docker-compose` command used by the launch scripts.
+- Hatchet with a reachable instance and a CLI profile named `development`.
+- An initialized target GitHub repository with a default branch and source files.
+- A fine-grained GitHub token scoped to that repository: Contents, Issues, and
+  Pull requests read/write; Checks and Commit statuses read access.
+- An OpenAI API key for the default planner/reviewer. Claude coding additionally
+  requires an Anthropic key. Configured model IDs must be available to your account.
 
-## Configure credentials
+```sh
+git clone https://github.com/phudekar/software-factory.git
+cd software-factory
+cp .env.example .env
+```
 
-Copy `.env.example` to `.env` and set `GITHUB_TOKEN` and `OPENAI_API_KEY`.
-[`worker-config.yaml`](worker-config.yaml) includes related files under `config/` for models,
-agent selection, limits, task retries/timeouts, per-task additional prompts,
-GitHub labels, scan cron, logging, and telemetry. See the
-[configuration guide](docs/worker-configuration.md) for examples and precedence.
+Edit `.env` with your credentials. Set `defaults.repository` in
+`config/runtime.yaml` to `YOUR_ORG/YOUR_REPO` before starting any workers.
+Review model choices in `config/models.yaml` and
+`config/worker-profiles/developer.yaml` for your provider account.
 
-Set `workers.developer.developer_agent` to `codex`, `claude`, or `api`.
-Codex/API coding requires `OPENAI_API_KEY` (or `DEVELOPER_OPENAI_API_KEY`);
-Claude Code requires `ANTHROPIC_API_KEY`. The developer image includes both CLIs.
-`defaults.codex_model` selects the model used by coding and the Codex healthcheck.
-Restart workers after editing YAML; rebuild once to apply this migration.
+The launchers load Hatchet credentials from the `development` CLI profile.
+Keep `.env` private; do not copy Hatchet tokens into repository configuration.
 
-The GitHub token needs permission to read issues and source, create comments
-and labels, create/link sub-issues, create branches, and open draft pull requests.
-Configure it only for this repository (`Contents: read/write`,
-`Issues: read/write`,
-`Pull requests: read/write`, and `Checks`/`Commit statuses: read`). Do not put
-the Hatchet profile token in `.env`.
+### 2. Start the control plane
 
-Do not commit or share `.env`. Hatchet credentials stay in the host CLI profile.
-The launcher loads the specifically named profile and passes its
-`HATCHET_CLIENT_TOKEN` and TLS setting to Compose as container environment
-variables; the CLI profile store is not copied into the image.
+```sh
+./scripts/start-control-plane.sh
+```
 
-## Start workers
+Open [localhost:3400](http://localhost:3400). Sign in with
+`CONTROL_ADMIN_PASSWORD` from the generated, Git-ignored `.env.control-plane`.
+The first build can take several minutes. The launcher builds worker images and
+starts the API, PostgreSQL, and reconciler; existing workers are not restarted.
 
-Start the simple and developer workers:
+### 3. Start a simple worker and a developer worker
+
+In **Workers → Create worker**, create one instance using the **Default** profile
+and another using **Developer**. Creation leaves each container stopped.
+Choose **Start** for each, then verify that Runtime is running and Hatchet is
+registered. Starting workers enables issue scanning, GitHub writes, and billable
+model requests.
+
+Simple workers handle intake, planning, and review; developer workers handle code
+changes. Both roles are needed for the complete workflow.
+
+![Workers page showing managed instances, runtime and Hatchet registration, profile revisions, and lifecycle actions](docs/images/control-plane-workers.png)
+
+For a Compose-only deployment, use this instead of creating managed instances:
 
 ```sh
 ./scripts/start-workers.sh -d
+docker-compose ps
 ```
 
-Scale the lightweight simple-worker role to three containers:
+Compose workers appear as discovered, read-only instances in the control plane.
+Manage their lifecycle through Compose. Avoid starting duplicate fleets
+unintentionally.
 
-```sh
-./scripts/start-workers.sh --scale worker=3 -d
-```
+### 4. Process your first issue
 
-The script loads the `development` profile using the CLI's checked two-step
-environment export, then builds and starts the services. Hatchet routes intake,
-planning, waiting, and review tasks to workers labeled `worker_type=simple`;
-code generation and PR-feedback changes require `worker_type=developer`.
-Both roles must be running for end-to-end issue processing. The simple workers
-join `worker-network`. All workers have shared directories mounted read/write
-at `/shared` and `/data`. Factory state and prepared changes are stored in
-`/data/factory.sqlite3`; all workers must share this database and its lock directory
-on the same host. See the architecture guide before using multiple hosts.
-
-Developer CLI processes run as the unprivileged `agent` user with a reduced
-environment and receive the configured provider API key directly. They can run
-shell commands in an isolated repository workspace, but can access network
-resources and the mounted shared directories. Treat repositories and their
-model-generated changes as untrusted, and do not place sensitive data in the
-mounted directories.
-
-When `workers.developer.developer_agent: codex`, Compose checks the developer worker by making a
-small Codex completion request using the configured `defaults.codex_model` and provider
-key every 10 minutes. The same model is used for Codex code-generation tasks. This
-verifies that Codex can reach and use the configured OpenAI endpoint, not just
-that DNS or TCP connectivity works. The request can incur a small provider
-charge. Check `docker-compose ps developer-worker` for the health status and
-inspect probe output with:
-
-```sh
-docker inspect --format '{{range .State.Health.Log}}{{println .End .ExitCode .Output}}{{end}}' \
-  "$(docker-compose ps -q developer-worker)"
-```
-
-CLI process completion logs contain the agent name and exit code. Raw JSON
-streams, prompts, completions, and tool output are not exported as normal progress
-logs. Structured usage is recorded by the optional OpenTelemetry observer.
-Use `docker-compose logs developer-worker` for workflow and process metadata.
-
-To check Hatchet connectivity, authenticated GitHub repository access, and
-OpenAI model access from an ephemeral container without starting the worker:
-
-```sh
-./scripts/check-hatchet-connectivity.sh
-```
-
-The check uses the configured Hatchet profile endpoint and reports DNS
-resolution, TCP connection, and gRPC channel readiness. It also makes an
-authenticated read request for `defaults.repository` using `GITHUB_TOKEN`. The
-token is never printed. Finally, it sends a small, standalone JSON-mode
-completion request to the configured `defaults.openai_model` using `OPENAI_API_KEY`;
-this request is billable. API failures report status/type/code, not the key.
-For example, `model_not_found` means the configured model is unavailable to
-the API project or the project is not authorized to use it.
-The GitHub check confirms repository read access, not write permissions such
-as creating issues, branches, or pull requests.
-
-## Worker operating model
-
-### Issue processing
-
-1. A Hatchet cron-triggered task checks for open, unblocked issues every five
-   minutes. GitHub issue webhooks can also start work immediately.
-2. Issues needing clarification are deferred before planning: the worker adds
-   `needs-discussion`, posts questions, and waits durably for a team member to
-   add `ready-for-agent`. Adding that label marks discussion resolved; the
-   worker uses issue comments as context. The durable waiter polls every 30
-   seconds, so resumption does not depend on GitHub webhook delivery.
-3. Before implementation, the worker creates an implementation plan from the
-   issue requirements, comments, and safe repository path inventory. It posts
-   the plan on the parent issue, then creates one labeled `agent-subtask` issue
-   per independent task with an objective and acceptance criteria, and links
-   each child using GitHub's native sub-issues relationship. Each child
-   is eligible for a worker immediately, with up to three issue workflows
-   active concurrently. The parent receives
-   `agent-plan-created` and is not itself sent through patch generation. A
-   persisted plan and per-child markers let retries resume without duplicating
-   already-created sub-issues.
-4. Each sub-issue worker receives its task requirements and comments, plus
-   specific safe text files selected from the repository inventory.
-   If no existing file is relevant, it may still propose a new file. The total
-   model request, including its reserved response budget, is limited to 32,000
-   tokens, with up to 16,000 tokens reserved for the response. Patch generation
-   can use up to `defaults.max_patch_iterations` incremental model rounds (default 10,
-   configurable from 1 to 20), each changing at most five files. Earlier
-   changes and progress carry forward; the worker publishes only after the
-   model reports the requirements complete. Set the variable in `.env` to
-   customize it for Docker Compose.
-5. A fail-closed scanner checks issue text, selected files, outgoing model
-   prompts, model responses, and proposed comments/changes. If configured
-   secret patterns are detected, processing stops; logs include finding
-   categories only, not the matched text.
-6. Patch generation runs on a `worker_type=developer` worker. With the `api`
-   backend, the model has no GitHub tools, shell, or credentials. With the
-   Codex/Claude backends, the CLI works in a temporary repository workspace as
-   an unprivileged user; it receives the provider API key but no GitHub or
-   Hatchet credentials. The worker validates
-   changed paths and content, then writes a dedicated `hatchet/issue-N` branch
-   through the GitHub API and opens a draft PR.
-7. After creating a draft PR, a separate workflow step compares its diff with
-   the issue requirements and comments, the current contents of changed files,
-   and up to three related source files selected from the PR branch. It posts
-   actionable defects and specific improvement suggestions—or a no-findings
-   summary—as a PR comment. It applies `agent-pr-reviewed` to the PR once review
-   succeeds, and skips a second post-creation review when that label is present.
-   This review reports findings; it does not modify the PR branch.
-8. Draft-PR CI runs in GitHub. Configure required status checks and branch
-   protection in GitHub; the worker does not run project-controlled tests in
-   its credential-bearing container. A team member marks the draft ready for
-   review, approves it, and merges it.
-9. Durable Hatchet tasks poll current PR state through review and merge, verify the merged
-   commit and checks, comment on the issue, and close it. Cron processing then
-   advances to the next pending issue.
-10. A separate five-minute scan and GitHub comment/review webhooks inspect open
-   PRs linked to issues labeled `agent-pr-open`. New PR conversation comments,
-   inline review comments, and submitted review bodies are passed as untrusted
-   feedback alongside selected files from the PR branch. For actionable code
-   requests—including findings in the worker's own post-creation review—the
-   developer worker commits changes to that same branch; it never opens a second PR. A
-   cursor comment and commit marker prevent already-processed feedback from
-   being applied repeatedly.
-
-The Hatchet DAG is `load-issue` → `plan-issue-and-create-sub-issues` →
-`triage-issue` →
-`generate-and-open-draft-pr` → `review-opened-pull-request` →
-`record-workflow-result`. Task outputs contain only issue/PR metadata and
-selected file paths; source contents, diffs, and generated file contents are
-not returned as Hatchet task outputs. Durable tasks perform the long
-human-review waits without relying on a worker process staying alive.
-
-### Configure GitHub webhook delivery
-
-In the Hatchet dashboard, create a GitHub webhook with:
-
-- Event key expression:
-  `'github:' + headers['x-github-event'] + ':' + input.action`
-- Events: issues (`opened`, `reopened`, `labeled`), issue comments (`created`),
-  pull-request review comments (`created`), pull request reviews (`submitted`),
-  and pull requests (`closed`)
-- A webhook secret, also configured in the GitHub repository's webhook settings
-
-Use the generated Hatchet URL as the GitHub webhook payload URL and set content
-type to `application/json`. The expression must produce the event keys used by
-the worker, including `github:issues:labeled`,
-`github:issue_comment:created`,
-`github:pull_request_review_comment:created`,
-`github:pull_request_review:submitted`, and `github:pull_request:closed`.
-
-When an issue needs discussion, a team member adds the `ready-for-agent` label
-to resume work. The issue remains open while its draft PR is reviewed. The
-webhook can queue eligible issues immediately; durable discussion waits also
-poll GitHub, so a missed label webhook does not leave them waiting indefinitely.
-
-### Cron schedule and manual event
-
-The scan schedule defaults to `*/5 * * * *` (UTC) in factory settings.
-Set `defaults.scan_cron` in `config/workflow.yaml` and restart/redeploy workers to change it. List registered
-cron jobs for the named profile with:
-
-```sh
-hatchet cron list --profile development --output json
-```
-
-Upcoming executions are visible in the Hatchet dashboard under **Triggers →
-Cron Jobs**.
-
-To trigger one sample issue event:
+Create a small issue in the configured target repository with clear acceptance
+criteria. The default scan runs every five minutes. To submit an existing issue
+immediately, replace `123` with its number:
 
 ```sh
 ./scripts/push-sample-event.sh 123
 ```
 
-The helper pushes the `issue-agent:issue` event; it uses the same
-`development` profile already loaded into the running worker container.
-Replace `123` with an existing issue number.
+Follow **Workflow runs** for stages and logs. If the issue receives
+`needs-discussion`, answer the questions in GitHub and add `ready-for-agent`.
+The factory decomposes work into sub-issues and opens draft PRs for eligible
+implementation tasks. Review the diff and CI results, mark the PR ready, approve,
+and merge. Durable waits track review and merge; the factory then verifies the
+result and closes the associated issue.
 
-## Check status, logs, and runs
+Configure [GitHub webhooks](docs/issue-lifecycle.md#configure-github-webhook-delivery)
+for immediate issue and PR-feedback events. Polling remains available for recovery.
+
+## Configuration
+
+### Credentials and local state
+
+| Location | Purpose |
+| --- | --- |
+| `.env` | `GITHUB_TOKEN`, `OPENAI_API_KEY`, optional `DEVELOPER_OPENAI_API_KEY` and `ANTHROPIC_API_KEY` |
+| Hatchet `development` CLI profile | Engine endpoint, token, and TLS settings loaded by launchers |
+| `.env.control-plane` | Generated administrator password, database password, and encryption key |
+| `data/` | Shared factory SQLite state, locks, snapshots, and build logs |
+
+Back up the control database and encryption key together. PostgreSQL uses a named
+volume by default; see [host database storage](docs/control-plane.md#host-database-storage)
+for an optional host directory. All workers must share the factory SQLite state
+and locks on one host.
+
+### Repository configuration
+
+`worker-config.yaml` includes the following files in order. Later values override
+earlier ones; mappings merge recursively and lists/scalars replace earlier values.
+
+| File | Configure |
+| --- | --- |
+| `config/runtime.yaml` | Target repository, adapters, logging, state, telemetry |
+| `config/models.yaml` | Models, context/completion budgets, provider retries and timeouts |
+| `config/workflow.yaml` | Scan cron, concurrency, labels, task routing, retries, timeouts, prompts |
+| `config/worker-profiles/default.yaml` | Bootstrap simple-worker settings and prompts |
+| `config/worker-profiles/developer.yaml` | Bootstrap coding tool, image build, limits, and prompts |
+
+For example, change these existing entries in `config/runtime.yaml`:
+
+```yaml
+defaults:
+  repository: YOUR_ORG/YOUR_REPO
+  log_level: INFO
+```
+
+Change scheduling in `config/workflow.yaml`:
+
+```yaml
+defaults:
+  scan_cron: '*/10 * * * *'
+  workflow_concurrency: 3
+```
+
+These snippets show entries to edit, not replacements for the complete files.
+Cron uses UTC. Restart standalone workers after editing configuration; rebuild
+images when changing Python code or dependencies. Credentials belong outside YAML.
+
+### Saved worker profiles in the UI
+
+Open **Configuration → Worker profiles** to select models, choose `codex`,
+`claude`, or `api` as the coding backend, set limits, and configure worker images.
+Use **Worker prompts** for Markdown instructions. Validate YAML before saving.
+
+![Configuration page showing saved profile selection, revision history, and the worker behavior YAML editor](docs/images/control-plane-configuration.png)
+
+Saving appends an immutable revision. Linked workers load the latest profile on
+their next start/restart; running processes retain their loaded settings.
+**Clone as new profile** creates a separate identity. Bootstrap YAML seeds profiles
+only when the store is empty; editing those files does not overwrite saved profiles.
+Shared orchestration is edited separately under **Factory settings**.
+
+For CLI coding, use `codex_model` or `claude_model`; direct API requests use
+`openai_model`. Task model overrides take precedence. The developer-specific
+OpenAI key can separate coding access from planning/review access.
+
+See the [configuration reference](docs/worker-configuration.md),
+[bootstrap profile guide](config/worker-profiles/README.md), and
+[control-plane guide](docs/control-plane.md) for precedence, image builds,
+startup scripts, and revision behavior.
+
+## Developer workflow
+
+The backend is Python/FastAPI with SQLAlchemy and PostgreSQL; the frontend is
+React/TypeScript with Vite. Worker domain/application code lives under
+`worker/factory`, with adapters for orchestration, coding, persistence, and telemetry.
+
+```sh
+python3 -m venv .venv
+.venv/bin/python -m pip install -r worker/requirements.txt -r control-plane/backend/requirements.lock
+.venv/bin/python -m unittest discover -s tests -q
+PYTHONPATH=worker:control-plane/backend .venv/bin/python -m unittest discover -s control-plane/backend/tests -q
+```
+
+```sh
+cd control-plane/frontend
+npm ci
+npm test
+npm run build
+```
+
+CI uses Python 3.14 and Node.js 22. The [test workflow](.github/workflows/tests.yml)
+runs worker/backend/frontend suites and the frontend build on pushes and PRs.
+Backend tests use SQLite by default; optional PostgreSQL testing is documented in
+the [development guide](docs/control-plane.md#development-and-verification).
+
+Useful runtime checks:
 
 ```sh
 docker-compose ps
-docker-compose logs -f worker
+docker-compose logs -f worker developer-worker
 hatchet worker list --profile development --output json
 hatchet runs list --profile development --output json --since 1h
 ```
 
-Worker INFO logs record workflow progress with the repository, issue and PR
-numbers, safe titles, and stage/status details. Issue bodies, comments, and
-source contents are not logged; titles matching configured sensitive-content
-patterns are redacted. If a model response contains no text, a warning records
-only response metadata (model/response ID, finish reason, refusal presence,
-and token counts) to help diagnose the result; request and response content is
-not logged.
+For managed instances, use worker detail pages for build/startup logs and stage
+attempts; use run detail pages for stage logs and redacted model exchanges.
+To stop Compose workers, run `docker-compose down`. Stop managed workers through
+**Workers → Stop**. Stopping can interrupt active tasks, which Hatchet may retry.
 
-## Stop workers
+## FAQ
+
+### Why is my issue not being processed?
+
+Confirm `defaults.repository`, token access, both worker roles, and Hatchet
+registration. Allow for the scan interval. Check GitHub labels: an issue waiting
+for clarification needs a response and `ready-for-agent`. Inspect **Workflow runs**
+and worker startup logs for errors. The sample-event command above bypasses the
+wait for the next scan.
+
+### Why are coding tasks queued while other stages run?
+
+They require a registered developer worker with the matching routing label.
+A simple worker cannot execute those tasks. Check the developer worker's build,
+startup, and registration status before increasing concurrency.
+
+### Why did a saved configuration change not affect my worker?
+
+Managed workers load saved profile revisions on start/restart. Bootstrap files do
+not overwrite existing profiles. Compose workers read the mounted YAML on startup.
+Image changes require runtime replacement; a plain Docker restart cannot change
+an image. See [worker image builds](docs/worker-image-builds.md).
+
+### Can I use Claude or a direct API instead of Codex?
+
+Yes. Set `developer_agent` in the developer profile to `claude` or `api`, choose
+the corresponding model, and supply the matching provider key. The default
+planner/reviewer still use OpenAI unless their adapters are changed. See the
+[architecture and extension guide](docs/architecture.md) for custom adapters.
+
+### Where do tests run for generated pull requests?
+
+In the target repository's GitHub CI. Configure its workflows and required checks
+before relying on generated PRs. The factory does not run project-controlled tests
+in its credential-bearing worker process; coding CLIs can execute commands in
+isolated workspaces. Human review and merge remain part of the workflow.
+
+### Why is model history empty or cost incomplete?
+
+History begins with instrumented workers; earlier conversations cannot be
+reconstructed. Capture may be disabled or metadata-only. CLI captures contain
+submitted prompts and final results, not full internal conversations. Usage can
+lack provider accounting or a matching price, so totals are estimates.
+
+### How do I diagnose connection or model-access failures?
 
 ```sh
-docker-compose down
+./scripts/check-hatchet-connectivity.sh
 ```
 
-This removes worker containers and the Compose network, but not the host
-directories `shared/` or `data/`.
+This checks Hatchet connectivity, GitHub repository read access, and an OpenAI
+completion. It makes a billable provider request. A missing model can mean the
+configured ID is unavailable to your account. When using Codex, its periodic
+healthcheck also makes a small billable completion request.
 
-## Security boundary and limitations
+### Can I run this across hosts or expose the UI to a team?
 
-The issue and selected source context are intentionally sent to the configured
-provider. The scanner and path checks reduce exposure but cannot prove that
-content is free of confidential information; do not enable this workflow unless
-that data-sharing policy is acceptable. Repository files and issue text are
-treated as untrusted instructions. The simple worker's direct API requests
-contain no GitHub or Hatchet credentials. Codex/Claude CLI agents can run
-commands against the repository as UID 10001 inside the developer container.
-The CLI subprocess receives only its selected provider API key, not the
-worker's GitHub or Hatchet credentials. Since the developer container has
-network access, repository code and CLI subprocesses can use that provider key;
-use a dedicated, restricted provider key if that risk is not acceptable.
+The current deployment supports local Docker and a trusted administrator.
+The API/reconciler have Docker socket access. Multi-user roles and Kubernetes
+execution are not implemented. PostgreSQL for the control plane does not remove
+the worker SQLite/file-lock requirement for a shared single host.
 
-Codex/Claude CLI workers receive a full repository archive as their workspace.
-They may create or modify any UTF-8 text file in it, including hidden files,
-dependency lockfiles, CI, deployment, and infrastructure files. They cannot
-modify `.git` metadata or delete files; binary changes are not supported. The
-API-backed worker continues to use the narrower source-path allowlist. All
-changed content is still checked for known secret patterns and size limits, but
-this does not guarantee that content is safe. Review high-impact changes
-carefully and configure GitHub branch protection and required CI checks before
-allowing merges.
+### What data reaches model providers?
+
+Issue context and selected repository contents are sent to the configured
+provider. Coding CLIs receive a full repository archive and their selected API
+key, with network access. Redaction and guardrails reduce exposure but cannot
+prove content is free of confidential data. Review generated changes, especially
+CI and infrastructure changes. Read the [security boundary](docs/issue-lifecycle.md#security-boundary-and-limitations)
+before enabling automation on sensitive repositories.
+
+## Further reading
+
+- [Issue lifecycle, GitHub webhooks, labels, and security boundaries](docs/issue-lifecycle.md)
+- [Control-plane operation and troubleshooting](docs/control-plane.md)
+- [Worker configuration reference](docs/worker-configuration.md)
+- [Architecture and extension points](docs/architecture.md)
+- [Optional SigNoz observability](docs/observability.md)
+- [Architecture migration history](docs/architecture-migration.md)
