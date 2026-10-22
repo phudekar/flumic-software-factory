@@ -45,7 +45,7 @@ MAX_CLI_OUTPUT_BYTES = 4 * 1024 * 1024
 MAX_CLI_ERROR_BYTES = 4_000
 MAX_CLI_LOG_BYTES = 8_000
 GENERATED_DIRECTORY_NAMES = frozenset(
-    {"node_modules", ".venv", "venv", "__pycache__", "target"}
+    {"node_modules", ".venv", "venv", "__pycache__", "target", "dist"}
 )
 _CODEX_AUTH_LOCK = threading.Lock()
 _CODEX_AUTHENTICATED_KEY_HASH: str | None = None
