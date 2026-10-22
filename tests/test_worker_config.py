@@ -329,7 +329,7 @@ class WorkerConfigTests(unittest.TestCase):
         engine.durable_task.side_effect = decorator
         engine.workflow.return_value.task.side_effect = decorator
         build_worker(engine, Mock(), settings, HatchetDispatch())
-        self.assertEqual(engine.workflow.call_args.kwargs["concurrency"], 7)
+        self.assertEqual(engine.workflow.call_args.kwargs["concurrency"][1].max_runs, 7)
         task = options["generate-and-open-draft-pr"]
         self.assertEqual(task["retries"], 4)
         self.assertEqual(task["execution_timeout"], timedelta(seconds=450))

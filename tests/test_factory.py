@@ -217,6 +217,9 @@ class FactoryTests(unittest.TestCase):
         self.assertIsNone(self.state.get("patch:v1:owner/repo:2"))
 
     def test_overlapping_delivery_cannot_generate_a_second_patch(self):
+        from factory.configuration import TaskSettings
+
+        self.service.task_settings = lambda stage: TaskSettings(lock_wait_seconds=0)
         with self.state.claim("owner/repo:issue:2", "other-run"):
             with self.assertRaises(OperationBusy):
                 self.service.generate_and_open_draft_pr(self.command, self.triage)
@@ -571,6 +574,13 @@ from factory.application.service import FactoryService
         self.assertEqual(len(workflows), 11)
         definitions = [workflow.to_proto() for workflow in workflows]
         self.assertEqual(definitions[0].name, "software-factory-issue-agent")
+        self.assertEqual(
+            definitions[0].idempotency.expression,
+            "input.repository + ':issue:' + string(input.issue_number)",
+        )
+        self.assertEqual(len(definitions[0].concurrency_arr), 2)
+        self.assertTrue(definitions[0].concurrency_arr[0].is_tenant_scoped)
+        self.assertEqual(definitions[0].concurrency_arr[0].max_runs, 1)
         self.assertEqual(len(workflows[0].tasks), 6)
         self.assertIsNotNone(dispatch.tasks)
 

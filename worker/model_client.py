@@ -413,6 +413,11 @@ class ModelClient:
             )
         return plan
 
+    def _count_input_tokens(self, model, messages):
+        return self.client.responses.input_tokens.count(
+            model=model, input=messages
+        ).input_tokens
+
     def _complete(self, messages: list[dict[str, str]]) -> str:
         task = current_task()
         model = task.model or self.model
@@ -435,6 +440,7 @@ class ModelClient:
             model,
             max_context_tokens=self.max_context_tokens,
             max_completion_tokens=self.max_completion_tokens,
+            remote_counter=self._count_input_tokens,
         )
         with model_call("openai", model) as call:
             record_conversation(request=messages)

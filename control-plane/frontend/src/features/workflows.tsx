@@ -29,7 +29,7 @@ interface Receipt {
   status: string;
   created_at?: number;
   error?: string | null;
-  result: { run_id?: string };
+  result: { run_id?: string; deduplicated?: boolean };
 }
 type Verb = "trigger" | "pause" | "resume";
 function inputMapping(value: Record<string, unknown>) {
@@ -189,7 +189,9 @@ export function WorkflowsPage() {
             setSelection(null);
             setMessage(
               selection.action === "trigger"
-                ? "Workflow run submitted."
+                ? receipt.result.deduplicated
+                  ? "A matching workflow run is already active."
+                  : "Workflow run submitted."
                 : selection.action === "pause"
                   ? "Workflow paused."
                   : "Workflow resumed.",

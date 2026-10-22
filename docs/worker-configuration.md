@@ -41,8 +41,16 @@ Profile values override defaults. Observed profiles inherit changes made to thei
 base profile. Task model overrides take precedence over `openai_model`,
 `codex_model`, or `claude_model`. A null task model uses the backend default;
 an empty `claude_model` uses the Claude CLI's default. Model identifiers must be
-supported by the selected backend and account. Direct API models must have a
-known tokenizer in the installed `tiktoken` package.
+supported by the selected backend and account. Direct API requests use the
+installed `tiktoken` mapping when available. If the effective configured model
+(including a task override) is unknown locally, the OpenAI adapter calls
+`responses.input_tokens.count` with that model and the prepared messages. This
+adds a provider request before generation and sends the prompt to the provider
+after the existing sensitive-text checks. Counting failures, invalid counts and
+over-budget requests block generation; there is no guessed tokenizer or
+model-name allowlist. The SDK/provider must support the counting endpoint.
+Actual usage and costs still come from generation responses, not this estimate.
+Worker images must be rebuilt to receive changes to this code.
 
 For example, edit the corresponding entries in the files listed above:
 
@@ -161,3 +169,63 @@ Managed profiles may select a `base_image`, additional `system_packages` and an
 to install the runtime into that image; standalone Compose builds keep their
 existing Dockerfile behavior. Build fields have no effect on an already running
 standalone container. See [worker image builds](worker-image-builds.md).
+
+
+### CLI workspace ignore rules
+
+CLI patch collection uses Git's `.gitignore` rules for new files, including nested
+ignore files, anchored patterns and negation. Git's global excludes and inherited
+repository configuration are disabled, so collection depends on the workspace
+rules. A temporary Git metadata directory is kept outside the workspace; the
+worker does not initialize or change the workspace repository for this check.
+Git must be installed in the CLI worker image.
+
+Files included in the initial repository snapshot remain checked even when an
+ignore rule matches them. Their changes and deletions cannot be hidden by editing
+`.gitignore`. Newly generated `node_modules`, `.venv`, `venv`, `__pycache__` and
+Cargo `target` directories also remain excluded by the existing artifact policy.
+A Git evaluation failure blocks patch publication rather than guessing rules.
+
+### Issue dispatch and concurrent work
+
+Hatchet groups issue workflows by `repository + issue_number`. At most one issue
+workflow executes for that key, while `workflow_concurrency` still limits total
+issue workflow throughput. A shared named tenant concurrency strategy also
+serializes standalone feedback and merge-verification work against that issue.
+Feedback events are queued, not deduplicated, so distinct reviews remain eligible.
+
+Status-based issue-run idempotency rejects duplicate active triggers from cron,
+webhooks, discussion waits and manual submissions. The dispatcher logs SDK
+collisions as already active. Completion, failure or cancellation releases the
+key; a later event can start new work. `workflow_dedup_ttl_seconds` defaults to
+86400 and caps the idempotency key lifetime if a run never terminates. Expiry
+can admit another queued run, but per-issue concurrency still prevents parallel
+issue execution. These policies require a Hatchet engine/SDK supporting
+status-based idempotency, chained and tenant-scoped concurrency.
+
+The application state claim remains a backstop independent of Hatchet.
+`lock_wait_seconds` in task defaults/templates or individual tasks defaults to
+30 (0 disables local waiting). It is capped below the task execution timeout.
+Only acquisition is retried; a stage body that has begun is never repeated by
+this wait loop. The kernel releases SQLite/flock claims when a process exits.
+Multi-host use outside Hatchet needs a distributed state-claim adapter.
+
+If local waiting expires, the exception propagates to the engine's configured
+retry policy. Control history and OpenTelemetry record `outcome: waiting`, with
+an INFO log, rather than an application failure. Integration/model errors remain
+failures. Exhausting all retries or the execution timeout can still fail the
+native engine task; waiting is never reported as fake success. No stale lock
+files are deleted to bypass an active owner.
+
+GitHub/code execution effects and automatically scheduled work are not used as
+verification probes for these policies; tests cover registration serialization,
+dispatch collisions, bounded acquisition waits and observer classification.
+
+`schedule_timeout_seconds` in task defaults/templates or individual tasks defaults
+to 86400 (24 hours, maximum30 days), separate from `timeout_seconds` for execution.
+This avoids the SDK's five-minute scheduling default for work queued behind long
+coding runs. Tasks can still expire if queueing exceeds this configured limit.
+The dispatch port returns a boolean for issue submission: false means an existing
+run is active. Discussion waiters retain durable polling on false until the
+continuation is accepted. Manual control actions use the SDK's typed collision
+path and link to the existing run instead of reporting an uncertain outcome.

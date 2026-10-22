@@ -16,6 +16,7 @@ class LocalDispatch:
 
     def enqueue_issue(self, issue):
         self.requests.append(("issue", issue))
+        return True
 
     def wait_for_discussion(self, issue):
         self.requests.append(("discussion", issue))

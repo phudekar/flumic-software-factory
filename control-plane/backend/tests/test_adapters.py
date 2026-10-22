@@ -185,18 +185,11 @@ class AdapterTests(unittest.TestCase):
             "name": "software-factory-issue-agent",
             "isPaused": False,
         }
-        client.runs.create.return_value = {
-            "run": {
-                "metadata": {"id": "run-id"},
-                "status": "QUEUED",
-                "input": {"hidden": "secret"},
-                "output": {"hidden": "secret"},
-            }
-        }
+        client.workflow.return_value.run.return_value.workflow_run_id = "run-id"
         engine = HatchetEngine(Path(__file__).resolve().parents[3], client)
         with self.assertRaises(ValueError):
             engine.control("wf", "trigger", {"issue_number": -1})
-        client.runs.create.assert_not_called()
+        client.workflow.return_value.run.assert_not_called()
         result = engine.control(
             "wf",
             "trigger",
@@ -204,6 +197,34 @@ class AdapterTests(unittest.TestCase):
         )
         self.assertEqual(result["run_id"], "run-id")
         self.assertNotIn("secret", str(result))
+
+    def test_manual_duplicate_trigger_returns_existing_run_identity(self):
+        from hatchet_sdk.exceptions import IdempotencyCollisionError
+
+        client = Mock()
+        client.workflows.get.return_value = {
+            "metadata": {"id": "wf"},
+            "name": "software-factory-issue-agent",
+            "isPaused": False,
+        }
+        client.workflow.return_value.run.side_effect = IdempotencyCollisionError(
+            "existing-run"
+        )
+        engine = HatchetEngine(Path(__file__).resolve().parents[3], client)
+        result = engine.control(
+            "wf",
+            "trigger",
+            {"repository": "phudekar/software-factory", "issue_number": 13},
+        )
+        self.assertEqual(
+            result,
+            {
+                "run_id": "existing-run",
+                "status": "ALREADY_ACTIVE",
+                "deduplicated": True,
+            },
+        )
+        client.workflow.return_value.run.assert_called_once()
 
     def test_unknown_pause_capability_is_not_assumed_supported(self):
         client = Mock()

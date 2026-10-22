@@ -12,6 +12,7 @@ import uuid
 from contextlib import contextmanager
 from contextvars import ContextVar
 
+from factory.domain.models import OperationBusy
 from opentelemetry import metrics, trace
 from opentelemetry.propagators.textmap import DefaultGetter
 from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
@@ -265,6 +266,10 @@ class OpenTelemetryObserver(LoggingObserver):
                         yield
                 finally:
                     self.stage.reset(stage_token)
+            except OperationBusy:
+                outcome = "waiting"
+                span.set_attribute("factory.wait.reason", "work_item_busy")
+                raise
             except BaseException as error:
                 outcome = "failed"
                 span.set_attribute("error.type", type(error).__name__)

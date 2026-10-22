@@ -3,6 +3,8 @@
 defaults:
   scan_cron: '*/5 * * * *'
   workflow_concurrency: 3
+  # Active-run deduplication safety TTL; completion normally releases the key.
+  workflow_dedup_ttl_seconds: 86400
   discussion_poll_seconds: 30
   max_patch_iterations: 10
   max_files_per_iteration: 5
@@ -16,6 +18,10 @@ defaults:
     plan_created: agent-plan-created
     plan_subtask: agent-subtask
 task_defaults:
+  # Allow queued tasks to wait behind long coding runs (separate from execution).
+  schedule_timeout_seconds: 86400
+  # Wait for a competing issue owner before asking the engine to retry.
+  lock_wait_seconds: 30
   worker_type: simple
   retries: 2
   backoff_factor: 2.0

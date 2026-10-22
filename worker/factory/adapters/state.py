@@ -12,8 +12,7 @@ from contextlib import contextmanager
 from pathlib import Path
 
 
-class OperationBusy(RuntimeError):
-    pass
+from factory.domain.models import OperationBusy  # compatibility re-export
 
 
 class SQLiteStateStore:

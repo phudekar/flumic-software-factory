@@ -51,6 +51,41 @@ class ModelClientTests(unittest.TestCase):
         )
         self.assertEqual(plan.changes[0].content, "é" * 6)
 
+    def test_unmapped_model_counting_uses_effective_task_model_and_prompt(self):
+        from factory.configuration import TaskSettings, task_context
+
+        self.client.model = "profile-model"
+        self.client.client = Mock()
+        self.client.client.responses.input_tokens.count.return_value = SimpleNamespace(
+            input_tokens=42
+        )
+        self.client.client.chat.completions.create.return_value = SimpleNamespace(
+            usage=None, choices=[SimpleNamespace(message=SimpleNamespace(content="{}"))]
+        )
+        with (
+            task_context(TaskSettings(model="task-specific-model")),
+            patch("tiktoken.encoding_for_model", side_effect=KeyError),
+        ):
+            self.assertEqual(
+                self.client._complete([{"role": "user", "content": "Task"}]), "{}"
+            )
+        count_args = self.client.client.responses.input_tokens.count.call_args.kwargs
+        generation_args = self.client.client.chat.completions.create.call_args.kwargs
+        self.assertEqual(count_args["model"], "task-specific-model")
+        self.assertEqual(count_args["input"], generation_args["messages"])
+        self.assertEqual(count_args["model"], generation_args["model"])
+
+    def test_counting_failure_does_not_generate(self):
+        self.client.model = "configured-model"
+        self.client.client = Mock()
+        self.client.client.responses.input_tokens.count.side_effect = RuntimeError(
+            "private"
+        )
+        with patch("tiktoken.encoding_for_model", side_effect=KeyError):
+            with self.assertRaisesRegex(ValueError, "Provider token counting failed"):
+                self.client._complete([{"role": "user", "content": "Task"}])
+        self.client.client.chat.completions.create.assert_not_called()
+
     def test_provider_failure_keeps_type_and_status_without_response_body(self):
         class RateLimitError(Exception):
             status_code = 429

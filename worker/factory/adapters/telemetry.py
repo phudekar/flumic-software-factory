@@ -9,6 +9,7 @@ import time
 import uuid
 from contextlib import contextmanager
 
+from factory.domain.models import OperationBusy
 from factory.domain.safety import find_sensitive_categories
 
 _context = contextvars.ContextVar("factory_context", default={})
@@ -73,6 +74,9 @@ class LoggingObserver:
         outcome, error_type = "completed", None
         try:
             yield
+        except OperationBusy:
+            outcome = "waiting"
+            raise
         except BaseException as error:
             outcome, error_type = "failed", type(error).__name__
             raise

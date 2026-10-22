@@ -54,6 +54,7 @@ class Settings:
     api_timeout_seconds: float = 90.0
     cli_timeout_seconds: int = 240
     workflow_concurrency: int = 3
+    workflow_dedup_ttl_seconds: int = 86400
     discussion_poll_seconds: int = 30
     worker_label_key: str = "worker_type"
     labels: Labels = field(default_factory=Labels)
@@ -164,6 +165,7 @@ class Settings:
             "api_timeout_seconds",
             "cli_timeout_seconds",
             "workflow_concurrency",
+            "workflow_dedup_ttl_seconds",
             "discussion_poll_seconds",
         ):
             value = getattr(self, name)

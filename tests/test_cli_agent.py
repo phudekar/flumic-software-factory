@@ -94,6 +94,146 @@ class CLIAgentTests(unittest.TestCase):
             },
         )
 
+    def test_change_collection_ignores_new_nested_cargo_build_artifacts(self):
+        with tempfile.TemporaryDirectory() as directory:
+            workspace = Path(directory)
+            source = workspace / "backend/src/main.rs"
+            source.parent.mkdir(parents=True)
+            source.write_text("fn main() {}")
+            baseline = cli_agent._snapshot(workspace)
+            source.write_text('fn main() { println!("done"); }')
+            target = workspace / "backend/target/debug"
+            target.mkdir(parents=True)
+            (target / "app").write_bytes(b"\xff\xfecompiled")
+            (target / "dependency").symlink_to("missing")
+            changes = cli_agent._collect_changes(
+                workspace=workspace,
+                baseline=baseline,
+                previous=baseline,
+                existing_paths=set(baseline),
+            )
+            self.assertEqual(
+                [change.path for change in changes], ["backend/src/main.rs"]
+            )
+
+    def test_original_target_directory_is_not_ignored(self):
+        with tempfile.TemporaryDirectory() as directory:
+            workspace = Path(directory)
+            target = workspace / "target"
+            target.mkdir()
+            path = target / "original.txt"
+            path.write_text("original")
+            baseline = cli_agent._snapshot(workspace)
+            path.write_bytes(b"\xffinvalid")
+            with self.assertRaisesRegex(ModelError, "UTF-8 text: target/original.txt"):
+                cli_agent._collect_changes(
+                    workspace=workspace,
+                    baseline=baseline,
+                    previous=baseline,
+                    existing_paths=set(baseline),
+                )
+
+    def test_gitignore_filters_new_files_with_nested_rules_and_negations(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / ".gitignore").write_text("*.log\n/build/\n")
+            (root / "backend").mkdir()
+            (root / "backend/.gitignore").write_text("*.bin\n!keep.bin\n")
+            baseline = cli_agent._snapshot(root)
+            for path in ("debug.log", "build/app", "backend/cache.bin"):
+                file = root / path
+                file.parent.mkdir(parents=True, exist_ok=True)
+                file.write_bytes(b"\xffbinary")
+            (root / "backend/keep.bin").write_text("included")
+            changes = cli_agent._collect_changes(
+                workspace=root,
+                baseline=baseline,
+                previous=baseline,
+                existing_paths=set(baseline),
+            )
+            self.assertEqual([c.path for c in changes], ["backend/keep.bin"])
+            self.assertFalse((root / ".git").exists())
+
+    def test_gitignore_does_not_hide_existing_changes_or_deletions(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / ".gitignore").write_text("tracked/\n")
+            (root / "tracked").mkdir()
+            source = root / "tracked/original.rs"
+            source.write_text("original")
+            baseline = cli_agent._snapshot(root)
+            source.write_text("changed")
+            (root / "tracked/new.bin").write_bytes(b"\xffbinary")
+            changes = cli_agent._collect_changes(
+                workspace=root,
+                baseline=baseline,
+                previous=baseline,
+                existing_paths=set(baseline),
+            )
+            self.assertEqual([c.path for c in changes], ["tracked/original.rs"])
+            source.unlink()
+            with self.assertRaisesRegex(ModelError, "deleted files"):
+                cli_agent._collect_changes(
+                    workspace=root,
+                    baseline=baseline,
+                    previous=baseline,
+                    existing_paths=set(baseline),
+                )
+
+    def test_gitignore_cannot_reinclude_file_under_excluded_directory(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / ".gitignore").write_text("ignored/\n!ignored/keep.txt\n")
+            baseline = cli_agent._snapshot(root)
+            (root / "ignored").mkdir()
+            (root / "ignored/keep.txt").write_text("still ignored")
+            self.assertEqual(
+                cli_agent._collect_changes(
+                    workspace=root,
+                    baseline=baseline,
+                    previous=baseline,
+                    existing_paths=set(baseline),
+                ),
+                [],
+            )
+
+    def test_gitignore_does_not_use_host_excludes_or_inherited_repository(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "workspace"
+            root.mkdir()
+            excludes = Path(directory) / "excludes"
+            excludes.write_text("*.rs\n")
+            config = Path(directory) / "global-config"
+            config.write_text(f"[core]\nexcludesFile = {excludes}\n")
+            baseline = cli_agent._snapshot(root)
+            (root / "source.rs").write_text("fn main() {}")
+            with patch.dict(
+                os.environ,
+                {"GIT_CONFIG_GLOBAL": str(config), "GIT_DIR": "/missing-repository"},
+            ):
+                changes = cli_agent._collect_changes(
+                    workspace=root,
+                    baseline=baseline,
+                    previous=baseline,
+                    existing_paths=set(),
+                )
+            self.assertEqual([c.path for c in changes], ["source.rs"])
+
+    def test_gitignore_fails_closed_when_git_is_unavailable(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with patch(
+                "factory.adapters.git_ignore.subprocess.run",
+                side_effect=FileNotFoundError,
+            ):
+                with self.assertRaisesRegex(ModelError, "Git is required"):
+                    cli_agent._collect_changes(
+                        workspace=root,
+                        baseline={},
+                        previous={},
+                        existing_paths=set(),
+                    )
+
     def test_archive_rejects_parent_directory_traversal(self):
         archive = make_archive({"../outside.py": b"bad"})
         with tempfile.TemporaryDirectory() as temporary_directory:

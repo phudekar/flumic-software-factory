@@ -26,6 +26,8 @@ class TaskSettings(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
     worker_type: Literal["simple", "developer"] = "simple"
     timeout_seconds: int = Field(default=120, ge=1, le=2_592_000)
+    schedule_timeout_seconds: int = Field(default=86400, ge=1, le=2_592_000)
+    lock_wait_seconds: int = Field(default=30, ge=0, le=3600)
     retries: int = Field(default=2, ge=0, le=20)
     backoff_factor: float = Field(default=2.0, ge=1, le=100)
     backoff_max_seconds: int = Field(default=30, ge=1, le=86400)

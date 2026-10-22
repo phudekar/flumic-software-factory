@@ -167,7 +167,7 @@ describe("workflow controls", () => {
       queue_ttl_seconds: 86400,
     });
   });
-  it("retries an uncertain HTTP request using the same idempotency key", async () => {
+  it.each([false, true])("retries an uncertain HTTP request using the same idempotency key (deduplicated=%s)", async (deduplicated) => {
     let attempts = 0;
     vi.stubGlobal(
       "fetch",
@@ -192,7 +192,7 @@ describe("workflow controls", () => {
           return json({
             id: "operation-1",
             status: "completed",
-            result: { run_id: "run-1" },
+            result: { run_id: "run-1", deduplicated },
           });
         }
         if (path.endsWith("/actions")) return json([]);
@@ -214,7 +214,7 @@ describe("workflow controls", () => {
     fireEvent.click(
       await screen.findByRole("button", { name: "Retry request" }),
     );
-    await screen.findByText("Workflow run submitted.");
+    await screen.findByText(deduplicated ? "A matching workflow run is already active." : "Workflow run submitted.");
     const calls = vi
       .mocked(fetch)
       .mock.calls.filter(([, options]) => options?.method === "POST");

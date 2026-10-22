@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import nullcontext
 import hashlib
 import io
 import json
@@ -18,6 +19,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from factory.application.telemetry import model_call, record_conversation
 from factory.configuration import current_task
 from functools import partial
+from factory.adapters.git_ignore import git_ignore_rules
 from factory.adapters.cli_usage import record_codex_usage, read_claude_result
 from factory.domain.safety import (
     MAX_SOURCE_FILE_BYTES,
@@ -42,7 +44,9 @@ MAX_ARCHIVE_UNPACKED_BYTES = 512 * 1024 * 1024
 MAX_CLI_OUTPUT_BYTES = 4 * 1024 * 1024
 MAX_CLI_ERROR_BYTES = 4_000
 MAX_CLI_LOG_BYTES = 8_000
-GENERATED_DIRECTORY_NAMES = frozenset({"node_modules", ".venv", "venv", "__pycache__"})
+GENERATED_DIRECTORY_NAMES = frozenset(
+    {"node_modules", ".venv", "venv", "__pycache__", "target"}
+)
 _CODEX_AUTH_LOCK = threading.Lock()
 _CODEX_AUTHENTICATED_KEY_HASH: str | None = None
 _CLI_ERROR_MARKERS = re.compile(
@@ -323,33 +327,52 @@ def _snapshot(
             parent.as_posix() for parent in PurePosixPath(relative).parents
         )
     result: dict[str, str] = {}
-    for directory, directories, files in os.walk(workspace, followlinks=False):
-        for name in directories[:]:
-            path = Path(directory) / name
-            relative = path.relative_to(workspace).as_posix()
-            if path.is_symlink():
-                raise ModelError(f"CLI agent created a symbolic link: {relative}")
-            # Prune before inspecting contents, but never hide original directories.
-            if (
-                baseline is not None
-                and name in GENERATED_DIRECTORY_NAMES
-                and relative not in protected_directories
-            ):
-                directories.remove(name)
-        for name in files:
-            path = Path(directory) / name
-            relative = path.relative_to(workspace).as_posix()
-            if path.is_symlink():
-                raise ModelError(f"CLI agent created a symbolic link: {relative}")
-            if not path.is_file():
-                continue
-            relative_path = PurePosixPath(relative)
-            if "__pycache__" in relative_path.parts or relative_path.suffix in {
-                ".pyc",
-                ".pyo",
-            }:
-                continue
-            result[relative] = hashlib.sha256(path.read_bytes()).hexdigest()
+    with (
+        git_ignore_rules(workspace) if baseline is not None else nullcontext(None)
+    ) as ignore:
+        for directory, directories, files in os.walk(workspace, followlinks=False):
+            # Reject directory links before Git interprets a trailing slash.
+            for name in directories:
+                path = Path(directory) / name
+                if path.is_symlink():
+                    relative = path.relative_to(workspace).as_posix()
+                    raise ModelError(f"CLI agent created a symbolic link: {relative}")
+            candidates = [
+                (Path(directory) / name).relative_to(workspace).as_posix() + "/"
+                for name in directories
+            ] + [
+                (Path(directory) / name).relative_to(workspace).as_posix()
+                for name in files
+            ]
+            ignored = ignore(candidates) if ignore else set()
+            for name in directories[:]:
+                path = Path(directory) / name
+                relative = path.relative_to(workspace).as_posix()
+                if path.is_symlink():
+                    raise ModelError(f"CLI agent created a symbolic link: {relative}")
+                # Prune before inspecting contents, but never hide original directories.
+                if (
+                    baseline is not None
+                    and (name in GENERATED_DIRECTORY_NAMES or relative + "/" in ignored)
+                    and relative not in protected_directories
+                ):
+                    directories.remove(name)
+            for name in files:
+                path = Path(directory) / name
+                relative = path.relative_to(workspace).as_posix()
+                if relative in ignored and relative not in (baseline or {}):
+                    continue
+                if path.is_symlink():
+                    raise ModelError(f"CLI agent created a symbolic link: {relative}")
+                if not path.is_file():
+                    continue
+                relative_path = PurePosixPath(relative)
+                if "__pycache__" in relative_path.parts or relative_path.suffix in {
+                    ".pyc",
+                    ".pyo",
+                }:
+                    continue
+                result[relative] = hashlib.sha256(path.read_bytes()).hexdigest()
     return result
 
 
@@ -401,7 +424,7 @@ def _collect_changes(
         try:
             decoded = content.decode("utf-8")
         except UnicodeDecodeError:
-            raise ModelError("CLI agent output must be UTF-8 text") from None
+            raise ModelError(f"CLI agent output must be UTF-8 text: {path}") from None
         assert_safe_text(path, decoded)
         changes.append(FileChange(path=path, content=decoded))
     return changes

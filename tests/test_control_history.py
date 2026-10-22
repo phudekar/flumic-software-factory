@@ -1,3 +1,4 @@
+import logging
 import os
 from pathlib import Path
 import sys
@@ -114,6 +115,34 @@ class ControlHistoryTests(unittest.TestCase):
             self.assertTrue(error_logs)
             self.assertIn("size limit", error_logs[0]["message"])
         finally:
+            observer.shutdown()
+
+    def test_work_item_contention_is_waiting_without_error_log(self):
+        from factory.domain.models import OperationBusy
+
+        observer, publisher = self.capture()
+        logger = logging.getLogger("issue-worker.operations")
+        old_level = logger.level
+        logger.setLevel(logging.INFO)
+        try:
+            with (
+                self.assertRaises(OperationBusy),
+                observer.observe("generate_and_open_draft_pr", {}),
+            ):
+                raise OperationBusy("Another execution owns this work item")
+            records = publisher.emit.call_args_list
+            payload = next(
+                item.args[1] for item in records if item.args[0] == "attempt.completed"
+            )
+            self.assertEqual(payload["outcome"], "waiting")
+            self.assertTrue(payload["retryable"])
+            logs = [item.args[1] for item in records if item.args[0] == "log"]
+            self.assertFalse(any(record["level"] == "ERROR" for record in logs))
+            self.assertTrue(
+                any("waiting" in record["message"].lower() for record in logs)
+            )
+        finally:
+            logger.setLevel(old_level)
             observer.shutdown()
 
     def test_dispatch_enqueue_failure_is_inside_observed_boundary(self):

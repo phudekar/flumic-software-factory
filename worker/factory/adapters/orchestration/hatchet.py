@@ -2,10 +2,18 @@
 
 from __future__ import annotations
 
+import logging
 from contextlib import contextmanager
 from datetime import timedelta
 from types import SimpleNamespace
 from hatchet_sdk import Context, DesiredWorkerLabel, DurableContext, EmptyModel
+
+from hatchet_sdk.types.concurrency import (
+    ConcurrencyExpression,
+    ConcurrencyLimitStrategy,
+)
+from hatchet_sdk.types.idempotency import StatusBasedIdempotencyConfig
+from hatchet_sdk.exceptions import IdempotencyCollisionError
 
 from factory.domain.models import (
     IssueInput,
@@ -22,6 +30,19 @@ from factory.adapters.github_events import GitHubWebhook, normalize_webhook
 from factory.adapters.telemetry import correlation
 from factory.application.telemetry import capture_trace, incoming_trace
 from factory.adapters.control import engine_context
+
+ISSUE_KEY = "input.repository + ':issue:' + string(input.issue_number)"
+
+
+def issue_concurrency():
+    return ConcurrencyExpression(
+        expression=ISSUE_KEY,
+        max_runs=1,
+        limit_strategy=ConcurrencyLimitStrategy.GROUP_ROUND_ROBIN,
+        name="software-factory-work-item",
+        is_tenant_scoped=True,
+    )
+
 
 ISSUE_EVENT = "issue-agent:issue"
 PR_REVIEW_EVENT = "github:pull_request_review:submitted"
@@ -66,7 +87,17 @@ class HatchetDispatch:
 
     def enqueue_issue(self, issue):
         with self._prepare(issue) as issue:
-            self.tasks.issue_workflow.run(issue, wait_for_result=False)
+            try:
+                self.tasks.issue_workflow.run(issue, wait_for_result=False)
+            except IdempotencyCollisionError as collision:
+                logging.getLogger("issue-worker.dispatch").info(
+                    "Issue workflow already active: repository=%s issue=%d existing_run_id=%s",
+                    issue.repository,
+                    issue.issue_number,
+                    collision.existing_run_external_id,
+                )
+                return False
+            return True
 
     def wait_for_discussion(self, issue):
         with self._prepare(issue) as issue:
@@ -95,7 +126,7 @@ def build_worker(hatchet, service, settings, dispatch):
     dispatch.observer = service.observer
     SCAN_CRON = settings.scan_cron
 
-    def task_options(name):
+    def task_options(name, *, serialize_issue=False):
         task = settings.task(name)
         options = {
             "desired_worker_labels": [
@@ -104,18 +135,32 @@ def build_worker(hatchet, service, settings, dispatch):
                 )
             ],
             "execution_timeout": timedelta(seconds=task.timeout_seconds),
+            "schedule_timeout": timedelta(seconds=task.schedule_timeout_seconds),
             "retries": task.retries,
             "backoff_factor": task.backoff_factor,
             "backoff_max_seconds": task.backoff_max_seconds,
         }
         if task.concurrency is not None:
             options["concurrency"] = task.concurrency
+        if serialize_issue:
+            options["concurrency"] = [issue_concurrency()]
+            if task.concurrency is not None:
+                options["concurrency"].append(
+                    ConcurrencyExpression.from_int(task.concurrency)
+                )
         return options
 
     issue_workflow = hatchet.workflow(
         name="software-factory-issue-agent",
         input_validator=IssueInput,
-        concurrency=settings.workflow_concurrency,
+        concurrency=[
+            issue_concurrency(),
+            ConcurrencyExpression.from_int(settings.workflow_concurrency),
+        ],
+        idempotency=StatusBasedIdempotencyConfig(
+            key_expression=ISSUE_KEY,
+            fallback_ttl=timedelta(seconds=settings.workflow_dedup_ttl_seconds),
+        ),
     )
 
     @issue_workflow.task(
@@ -186,7 +231,7 @@ def build_worker(hatchet, service, settings, dispatch):
             )
 
     @hatchet.task(
-        **task_options("verify_merged_pr"),
+        **task_options("verify_merged_pr", serialize_issue=True),
         name="verify-merged-pr-and-close-issue",
         input_validator=PullInput,
     )
@@ -196,7 +241,7 @@ def build_worker(hatchet, service, settings, dispatch):
             return service.verify_merged_pr(input)
 
     @hatchet.task(
-        **task_options("process_pull_request_feedback"),
+        **task_options("process_pull_request_feedback", serialize_issue=True),
         name="process-open-pull-request-feedback",
         input_validator=PullInput,
     )
@@ -298,8 +343,7 @@ def build_worker(hatchet, service, settings, dispatch):
         with correlation(input.factory_run_id):
             while True:
                 status = service.discussion_status(input)
-                if status == "ready":
-                    dispatch.enqueue_issue(input)
+                if status == "ready" and dispatch.enqueue_issue(input):
                     return {"status": "resumed"}
                 if status == "issue-not-open":
                     return {"status": status}

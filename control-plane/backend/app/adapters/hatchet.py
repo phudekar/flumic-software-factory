@@ -278,20 +278,33 @@ class HatchetEngine:
         if action == "resume":
             return self.definition_summary(self.client.workflows.unpause(identifier))
         if action == "trigger":
-            value = plain(
-                self.client.runs.create(
-                    definition["name"],
-                    input=self.validate_input(definition["name"], payload),
+            from hatchet_sdk.exceptions import IdempotencyCollisionError
+
+            name = definition["name"]
+            prepared = self.input_model(name).model_validate(
+                self.validate_input(name, payload)
+            )
+            # Construct a local run handle, not a registration. Workflow.run uses
+            # the SDK's typed collision handling and performs one trigger call.
+            workflow = self.client.workflow(
+                name=name, input_validator=self.input_model(name)
+            )
+            try:
+                ref = workflow.run(
+                    prepared,
+                    wait_for_result=False,
                     additional_metadata={"factory_control_operation_id": operation_id}
                     if operation_id
                     else {},
                 )
-            )
-            run = value.get("run") or {}
-            identifier = run.get("workflowRunExternalId") or (
-                run.get("metadata") or {}
-            ).get("id")
-            if not identifier:
+            except IdempotencyCollisionError as collision:
+                return {
+                    "run_id": collision.existing_run_external_id,
+                    "status": "ALREADY_ACTIVE",
+                    "deduplicated": True,
+                }
+            identifier = ref.workflow_run_id
+            if not isinstance(identifier, str) or not identifier:
                 raise RuntimeError("Engine response did not contain a run identity")
-            return {"run_id": identifier, "status": run.get("status")}
+            return {"run_id": identifier, "status": "SUBMITTED"}
         raise ValueError("Unsupported workflow action")

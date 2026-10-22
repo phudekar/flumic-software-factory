@@ -73,6 +73,16 @@ class TelemetryTests(unittest.TestCase):
         self.assertNotIn("gen_ai.usage.input_tokens", span.attributes)
         self.assertNotIn("factory.cost.estimated_usd", span.attributes)
 
+    def test_work_item_contention_is_waiting_without_error_span(self):
+        from factory.domain.models import OperationBusy
+
+        with self.assertRaises(OperationBusy), self.observer.observe("implement", {}):
+            raise OperationBusy("Another execution owns this work item")
+        span = self.exporter.get_finished_spans()[0]
+        self.assertEqual(span.attributes["factory.outcome"], "waiting")
+        self.assertNotIn("error.type", span.attributes)
+        self.assertNotEqual(span.status.status_code.name, "ERROR")
+
     def test_exception_text_and_stack_trace_are_not_exported(self):
         with self.assertRaises(RuntimeError):
             with self.observer.observe("implement", {}):

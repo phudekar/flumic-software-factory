@@ -9,6 +9,10 @@ MAX_PATCH_ITERATIONS = 10
 MAX_PATCH_FILES = MAX_PATCH_ITERATIONS * MAX_PATCH_FILES_PER_ITERATION
 
 
+class OperationBusy(RuntimeError):
+    """A work item is owned by another active execution; engine retry is safe."""
+
+
 class AgentError(RuntimeError):
     pass
 

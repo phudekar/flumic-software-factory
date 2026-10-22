@@ -18,6 +18,7 @@ import uuid
 from factory.application.telemetry import current_recorder, use_recorder
 from factory.adapters.telemetry import current_metadata
 from factory.adapters.pricing import Pricing
+from factory.domain.models import OperationBusy
 from factory.domain.safety import find_sensitive_categories
 
 _engine = ContextVar("factory_engine_context", default={})
@@ -315,6 +316,13 @@ class ControlObserver:
             try:
                 with use_recorder(Recorder(self, current_recorder())):
                     yield
+            except OperationBusy:
+                outcome = "waiting"
+                failure = {"reason": "work_item_busy", "retryable": True}
+                logging.getLogger("issue-worker.operations").info(
+                    "Stage waiting: another execution owns this work item; engine retry remains enabled"
+                )
+                raise
             except BaseException as error:
                 outcome = "failed"
                 failure = failure_details(error)
