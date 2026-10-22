@@ -6,6 +6,7 @@ from unittest.mock import Mock
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "worker"))
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "control-plane/backend"))
 from app.adapters.hatchet import HatchetEngine
+from factory.settings import Settings
 from app.adapters.docker import DockerRuntime
 from app.settings import AppSettings
 
@@ -42,7 +43,9 @@ class AdapterTests(unittest.TestCase):
             ],
         }
         client.workflows.get.return_value = {"name": "software-factory-issue-agent"}
-        engine = HatchetEngine(Path("."), client)
+        engine = HatchetEngine(
+            Settings(repository="phudekar/software-factory-test"), client
+        )
         self.assertEqual(len(engine.runs()), 1)
         self.assertNotIn("never return", str(engine.runs()))
         self.assertNotIn("never return", str(engine.run("run-1")))
@@ -73,7 +76,9 @@ class AdapterTests(unittest.TestCase):
                         }
                     ]
                 }
-                engine = HatchetEngine(Path("."), client)
+                engine = HatchetEngine(
+                    Settings(repository="phudekar/software-factory-test"), client
+                )
                 logs = engine.logs("task-id")
                 self.assertEqual(logs[0]["message"], "Stage log")
                 self.assertNotIn("must not be returned", str(logs))
@@ -101,7 +106,9 @@ class AdapterTests(unittest.TestCase):
                 client = Mock()
                 client.runs.get_task_run.return_value = task
                 client.workflows.get.return_value = definition
-                engine = HatchetEngine(Path("."), client)
+                engine = HatchetEngine(
+                    Settings(repository="phudekar/software-factory-test"), client
+                )
                 with self.assertRaisesRegex(ValueError, "outside this factory"):
                     engine.logs("task-id")
                 client.logs.list.assert_not_called()
@@ -161,7 +168,9 @@ class AdapterTests(unittest.TestCase):
             "name": "scan-pending-github-issues",
             "isPaused": True,
         }
-        engine = HatchetEngine(Path("."), client)
+        engine = HatchetEngine(
+            Settings(repository="phudekar/software-factory-test"), client
+        )
         result = engine.control("factory-id", "pause", {}, 3600, "DROP", "QUEUE")
         self.assertTrue(result["paused"])
         client.workflows.pause.assert_called_once_with(
@@ -186,7 +195,9 @@ class AdapterTests(unittest.TestCase):
             "isPaused": False,
         }
         client.workflow.return_value.run.return_value.workflow_run_id = "run-id"
-        engine = HatchetEngine(Path(__file__).resolve().parents[3], client)
+        engine = HatchetEngine(
+            Settings(repository="phudekar/software-factory-test"), client
+        )
         with self.assertRaises(ValueError):
             engine.control("wf", "trigger", {"issue_number": -1})
         client.workflow.return_value.run.assert_not_called()
@@ -210,7 +221,9 @@ class AdapterTests(unittest.TestCase):
         client.workflow.return_value.run.side_effect = IdempotencyCollisionError(
             "existing-run"
         )
-        engine = HatchetEngine(Path(__file__).resolve().parents[3], client)
+        engine = HatchetEngine(
+            Settings(repository="phudekar/software-factory-test"), client
+        )
         result = engine.control(
             "wf",
             "trigger",
@@ -232,7 +245,9 @@ class AdapterTests(unittest.TestCase):
             "metadata": {"id": "wf"},
             "name": "scan-pending-github-issues",
         }
-        engine = HatchetEngine(Path("."), client)
+        engine = HatchetEngine(
+            Settings(repository="phudekar/software-factory-test"), client
+        )
         with self.assertRaisesRegex(ValueError, "pause"):
             engine.control("wf", "pause", {})
         client.workflows.pause.assert_not_called()

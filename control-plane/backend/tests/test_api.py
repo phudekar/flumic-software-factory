@@ -6,7 +6,7 @@ import tempfile
 import time
 import unittest
 import uuid
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "worker"))
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "control-plane/backend"))
@@ -132,6 +132,110 @@ class ControlPlaneTests(unittest.TestCase):
         self.assertEqual(len(after), 3)
         self.assertEqual(after[0]["id"], saved.json()["id"])
         self.assertEqual(after[0]["name"], "Customized default")
+
+    def test_workflow_controls_follow_database_configuration_without_yaml_reload(self):
+        sdk = Mock()
+        workflow_id = str(uuid.uuid4())
+        definition = {
+            "metadata": {"id": workflow_id},
+            "name": "software-factory-issue-agent",
+            "isPaused": False,
+        }
+        sdk.workflows.list.return_value = {"rows": [definition]}
+        sdk.workflows.get.return_value = definition
+        sdk.workflow.return_value.run.return_value.workflow_run_id = "submitted-run"
+
+        def save_repository(repository, tls="tls"):
+            current = self.client.get("/api/v1/factory-config").json()
+            for profile in current["document"]["profiles"].values():
+                profile["settings"]["repository"] = repository
+                profile["settings"]["hatchet_tls_strategy"] = tls
+            response = self.client.post(
+                "/api/v1/factory-config",
+                json={"parent_id": current["id"], "document": current["document"]},
+            )
+            self.assertEqual(response.status_code, 201, response.text)
+
+        save_repository("example/runtime-target")
+        app = create_app(self.settings, self.sessions, self.runtime)
+        with patch("app.adapters.hatchet.create_client", return_value=sdk) as factory:
+            with TestClient(app) as client:
+                login = client.post(
+                    "/api/v1/auth/login", json={"password": "test-admin-password"}
+                )
+                client.headers.update({"X-CSRF-Token": login.json()["csrf"]})
+                # Runtime reads must not reload the bootstrap YAML.
+                with patch(
+                    "factory.settings.Settings.load",
+                    side_effect=AssertionError("YAML runtime read"),
+                ):
+                    result = client.get("/api/v1/workflows").json()
+                    self.assertEqual(result["warnings"], [])
+                    self.assertEqual(
+                        result["items"][0]["input_example"]["repository"],
+                        "example/runtime-target",
+                    )
+                    self.assertEqual(
+                        factory.call_args.args[0].repository, "example/runtime-target"
+                    )
+                    save_repository("example/updated-target")
+                    result = client.get("/api/v1/workflows").json()
+                    self.assertEqual(
+                        result["items"][0]["input_example"]["repository"],
+                        "example/updated-target",
+                    )
+                    self.assertEqual(factory.call_count, 1)
+                    # A newer per-worker snapshot must not shadow the factory revision.
+                    with self.sessions.begin() as db:
+                        db.add(
+                            Revision(
+                                scope="worker_snapshot",
+                                summary="Worker snapshot",
+                                document={},
+                                digest="snapshot",
+                            )
+                        )
+                    result = client.get("/api/v1/workflows").json()
+                    self.assertEqual(
+                        result["items"][0]["input_example"]["repository"],
+                        "example/updated-target",
+                    )
+                    rejected = client.post(
+                        f"/api/v1/workflows/{workflow_id}/actions",
+                        json={
+                            "action": "trigger",
+                            "input": {
+                                "repository": "example/runtime-target",
+                                "issue_number": 7,
+                            },
+                        },
+                        headers={"Idempotency-Key": str(uuid.uuid4())},
+                    )
+                    self.assertEqual(rejected.status_code, 422, rejected.text)
+                    sdk.workflow.return_value.run.assert_not_called()
+                    accepted = client.post(
+                        f"/api/v1/workflows/{workflow_id}/actions",
+                        json={
+                            "action": "trigger",
+                            "input": {
+                                "repository": "example/updated-target",
+                                "issue_number": 7,
+                            },
+                        },
+                        headers={"Idempotency-Key": str(uuid.uuid4())},
+                    )
+                    self.assertEqual(accepted.status_code, 200, accepted.text)
+                    self.assertEqual(
+                        accepted.json()["result"]["run_id"], "submitted-run"
+                    )
+                    save_repository("example/updated-target", tls="none")
+                    self.assertEqual(
+                        client.get("/api/v1/workflows").json()["warnings"], []
+                    )
+                    self.assertEqual(factory.call_count, 2)
+                    self.assertEqual(
+                        factory.call_args.args[0].hatchet_tls_strategy, "none"
+                    )
 
     def test_authentication_csrf_and_origin(self):
         self.client.cookies.clear()

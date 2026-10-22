@@ -1,4 +1,4 @@
-# Software factory control plane
+# Flumic AI control plane
 
 The first implementation is a separate React/TypeScript application with a
 FastAPI backend, PostgreSQL, and a background lifecycle reconciler. Its compact
@@ -118,6 +118,13 @@ model/API retry behavior. Worker profiles pin a factory revision. To adopt share
 changes, select the new factory revision in each participating profile and save;
 then restart its workers with matching shared definitions. Coordinated workflow
 registration migration and rolling deployment/drain are not implemented.
+
+Workflow listing, input examples and manual-trigger repository validation read the
+latest saved factory revision from the database on each request. Repository and
+Hatchet TLS changes take effect in the control-plane adapter without restarting
+the API. The bootstrap YAML is not reloaded for these operations. Running workers
+still use their pinned configuration until their profiles are updated and they
+restart, as described above.
 
 The initial YAML configuration is imported into a factory revision. Existing
 managed workers are linked to imported profiles with matching settings, preserving

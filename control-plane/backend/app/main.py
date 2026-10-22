@@ -108,7 +108,7 @@ def create_app(settings=None, sessions=None, runtime=None, workflow=None):
         yield
 
     app = FastAPI(
-        title="Software Factory Control Plane",
+        title="Flumic AI Control Plane",
         lifespan=lifespan,
         docs_url=None,
         redoc_url=None,
@@ -127,13 +127,29 @@ def create_app(settings=None, sessions=None, runtime=None, workflow=None):
             runtime = DockerRuntime(settings, config)
         return runtime
 
-    def workflow_adapter():
-        nonlocal workflow
-        if workflow is None:
-            from app.adapters.hatchet import HatchetEngine
+    workflow_clients = {}
 
-            workflow = HatchetEngine(settings.root)
-        return workflow
+    def workflow_adapter():
+        if workflow is not None:
+            return workflow
+        from app.adapters.hatchet import HatchetEngine, create_client
+
+        with sessions() as db:
+            revision = db.scalar(
+                select(Revision)
+                .where(Revision.scope == "factory")
+                .order_by(desc(Revision.created_at))
+                .limit(1)
+            )
+            if revision is None:
+                raise ValueError("No saved factory configuration is available")
+            resolved = config.resolve(revision.document, "simple")
+        # Repository policy is refreshed per call; transport clients only depend
+        # on TLS strategy and process-level credentials.
+        strategy = resolved.hatchet_tls_strategy
+        if strategy not in workflow_clients:
+            workflow_clients[strategy] = create_client(resolved)
+        return HatchetEngine(resolved, workflow_clients[strategy])
 
     from app.workflow_controls import install as install_workflow_controls
 

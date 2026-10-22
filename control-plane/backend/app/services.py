@@ -62,27 +62,31 @@ class Configurations:
                 }
         return profiles
 
-    def snapshot(self, document, profile, name, revision):
-        from dataclasses import asdict
-
+    def resolve(self, document, profile):
+        """Resolve a saved document without reading the bootstrap configuration."""
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "config.yaml"
             path.write_text(yaml.safe_dump(document))
-            settings = load_settings(path, profile)
-            values = asdict(settings)
-            values["labels"] = settings.labels.model_dump()
-            values["tasks"] = {
-                key: value.model_dump() for key, value in settings.tasks.items()
-            }
-            tasks = values.pop("tasks")
-            values["worker_name"] = name
-            values["control_revision"] = revision
-            return {
-                "version": 1,
-                "defaults": values,
-                "workers": {profile: {}},
-                "tasks": tasks,
-            }
+            return load_settings(path, profile)
+
+    def snapshot(self, document, profile, name, revision):
+        from dataclasses import asdict
+
+        settings = self.resolve(document, profile)
+        values = asdict(settings)
+        values["labels"] = settings.labels.model_dump()
+        values["tasks"] = {
+            key: value.model_dump() for key, value in settings.tasks.items()
+        }
+        tasks = values.pop("tasks")
+        values["worker_name"] = name
+        values["control_revision"] = revision
+        return {
+            "version": 1,
+            "defaults": values,
+            "workers": {profile: {}},
+            "tasks": tasks,
+        }
 
     @staticmethod
     def hash(document):

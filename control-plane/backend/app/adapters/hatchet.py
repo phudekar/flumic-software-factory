@@ -21,18 +21,14 @@ def items(value):
 
 
 class HatchetEngine:
-    def __init__(self, root, client=None):
-        self.root = root
+    def __init__(self, settings: Settings, client=None):
+        self.settings = settings
         self._client = client
 
     @property
     def client(self):
         if self._client is None:
-            self._client = create_client(
-                Settings.load(
-                    {"WORKER_CONFIG_FILE": str(self.root / "worker-config.yaml")}
-                )
-            )
+            self._client = create_client(self.settings)
         return self._client
 
     def workers(self):
@@ -204,9 +200,7 @@ class HatchetEngine:
         fields = model.model_fields
         if not fields:
             return {}
-        repository = Settings.load(
-            {"WORKER_CONFIG_FILE": str(self.root / "worker-config.yaml")}
-        ).repository
+        repository = self.settings.repository
         if "action" in fields:
             return {
                 "action": "opened",
@@ -243,9 +237,7 @@ class HatchetEngine:
         repository = getattr(parsed, "repository", None)
         if repository is not None:
             repository = getattr(repository, "full_name", repository)
-            expected = Settings.load(
-                {"WORKER_CONFIG_FILE": str(self.root / "worker-config.yaml")}
-            ).repository
+            expected = self.settings.repository
             if repository != expected:
                 raise ValueError("Workflow input repository is outside this factory")
         return parsed.model_dump(mode="json")

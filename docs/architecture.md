@@ -1,4 +1,4 @@
-# Software factory architecture
+# Flumic AI architecture
 
 The [migration plan](architecture-migration.md) records the original analysis,
 sequence, and acceptance criteria. This document describes the implemented

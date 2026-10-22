@@ -1,0 +1,20 @@
+{
+  "name": "flumic-ai-docs",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "engines": {
+    "node": ">=22.23.4"
+  },
+  "scripts": {
+    "prepare-content": "python3 scripts/prepare_content.py",
+    "dev": "npm run prepare-content && astro dev --host 127.0.0.1",
+    "build": "npm run prepare-content && astro build",
+    "check": "node scripts/check-site.mjs",
+    "preview": "astro preview --host 127.0.0.1"
+  },
+  "dependencies": {
+    "@astrojs/starlight": "0.42.6",
+    "astro": "7.4.2"
+  }
+}

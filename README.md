@@ -1,8 +1,8 @@
-# Software Factory
+# Flumic AI
 
 [![CI tests](https://github.com/phudekar/software-factory/actions/workflows/tests.yml/badge.svg)](https://github.com/phudekar/software-factory/actions/workflows/tests.yml)
 
-Turn GitHub issues into reviewed draft pull requests with Python workers, Hatchet
+Flumic AI turns GitHub issues into reviewed draft pull requests with Python workers, Hatchet
 orchestration, and your choice of Codex, Claude Code, or a direct model API.
 The factory plans work, creates sub-issues, implements changes on isolated
 branches, reviews PRs, and applies actionable feedback to the same branch.
@@ -282,6 +282,13 @@ key, with network access. Redaction and guardrails reduce exposure but cannot
 prove content is free of confidential data. Review generated changes, especially
 CI and infrastructure changes. Read the [security boundary](docs/issue-lifecycle.md#security-boundary-and-limitations)
 before enabling automation on sensitive repositories.
+
+## Website and documentation
+
+The GitHub Pages website combines a product introduction with searchable usage,
+configuration, API and observability guides. See [website development and publishing](website/README.md)
+for local preview commands and Pages setup. The expected deployment address is
+[phudekar.github.io/software-factory](https://phudekar.github.io/software-factory/).
 
 ## Further reading
 

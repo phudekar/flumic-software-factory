@@ -1,4 +1,4 @@
-# Worker and model observability
+# Flumic AI observability
 
 The optional monitoring stack is self-hosted SigNoz. Workers export standard
 OpenTelemetry traces, metrics, and logs over OTLP/HTTP. The factory application
@@ -12,7 +12,9 @@ still depends only on its observation and usage interfaces.
 
 The startup script provisions `observability/dashboards/software-factory.json`
 through an authenticated, one-shot container. Open **http://localhost:3301** and
-choose **Dashboards → Software Factory**. Repeated starts update the same dashboard
+choose **Dashboards → Software Factory**. The provisioned dashboard retains its
+existing name, **Software Factory — Workers and AI Usage**, after the Flumic AI
+product rename; telemetry service names and labels also remain unchanged. Repeated starts update the same dashboard
 by its stable name; they do not create duplicates. Local dashboard edits may be
 replaced by the checked-in JSON on subsequent starts.
 
@@ -61,6 +63,14 @@ SigNoz also has **AI Observability** for GenAI traces. Configure prices for your
 models there to populate its native cost panels. Our custom dashboard's
 estimated-cost panels use the separate, versioned application price file below;
 keep both pricing configurations consistent if using both views.
+
+### Worker and stage dashboard
+
+![SigNoz dashboard showing active tasks, worker heartbeats, stage attempt rates and failures](images/signoz-workers-stages.png)
+
+Captured from an existing local installation using **Last 1 day**. The panels
+show recorded worker and stage activity; gaps can indicate missing telemetry or
+stopped workers. A flat or absent series alone does not establish worker health.
 
 ## Enable telemetry on factory workers
 
@@ -154,6 +164,16 @@ CLI-supplied costs are labeled reported client estimates and shown separately;
 do not add them to calculated estimates for the same calls. Tool fees, pricing
 tiers, discounts, provider-internal retries, and invoice adjustments can differ.
 Reconcile with provider billing for accounting.
+
+### Token and cost dashboard
+
+![SigNoz dashboard showing model token rates, accounting events, estimated USD and stage duration](images/signoz-model-usage-cost.png)
+
+The same one-day window shows token/accounting rates and the known priced-usage
+subtotal. The CLI-reported cost panel has no data in this capture; that means no
+reported client estimate for this window, not zero cost. Dashboard rates and
+interval totals complement the control plane's run/stage/attempt accounting; they
+are not a provider invoice.
 
 ## Metadata and privacy
 
@@ -252,3 +272,13 @@ Re-run the dashboard bootstrap after changing its JSON to update the saved
 SigNoz dashboard. New metrics appear after the next scrape and export batch.
 Keep Docker disk capacity and host disk capacity monitored separately, even when
 PostgreSQL is bind-mounted to host storage.
+
+### Container resource dashboard
+
+![SigNoz container resource panels showing CPU utilization, memory usage and utilization, disk I/O and network activity](images/signoz-container-resources.png)
+
+This real one-day view includes multiple running Docker services. Compare series
+by container name; shared infrastructure and unrelated host workloads can also
+appear. A missing resource series is unknown rather than zero. CPU can exceed
+100% when a container uses multiple cores. Inspect disk-capacity panels separately
+from per-container block I/O.

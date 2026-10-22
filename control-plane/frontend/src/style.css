@@ -1397,3 +1397,9 @@ pre {
   color: #80cfff;
   text-decoration: underline;
 }
+
+/* The same brand SVG is used by the application, documentation and favicons. */
+.brand-icon img { display: block; width: 100%; height: 100%; }
+
+/* Brand assets carry their own background, including transparent corners. */
+.brand-icon:has(img) { background: transparent; box-shadow: none; }

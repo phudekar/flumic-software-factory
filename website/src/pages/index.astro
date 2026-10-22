@@ -1,0 +1,68 @@
+---
+import '../styles/home.css';
+const base = import.meta.env.BASE_URL.replace(/\/$/, '') + '/';
+const link = (path: string) => base + path;
+const steps = ['Issue', 'Plan', 'Implement', 'Review', 'Merge'];
+const controls = [
+  { n: '01', title: 'Define how each stage works.', body: 'Set task routing, retries, timeouts and concurrency. Inspect every attempt, then tune the model and instructions for the work that stage needs to do.', href: 'workflows/stages/', label: 'Explore stage management', code: 'tasks:\n  generate_and_open_draft_pr:\n    worker_type: developer\n    timeout_seconds: 3600\n    retries: 1' },
+  { n: '02', title: 'More work. More workers.', body: 'Scale planning and review separately from coding. Share versioned profiles across instances and route tasks to the right role. Today, workers share state on one host.', href: 'operations/scaling/', label: 'Plan worker capacity', code: './scripts/start-workers.sh \\\n  --scale worker=3 \\\n  --scale developer-worker=2 -d' },
+  { n: '03', title: 'Your models. Your instructions.', body: 'Choose Codex, Claude Code or direct API coding. Configure planning and review independently, override models per task, and save Markdown guidance in versioned profiles.', href: 'workflows/models-prompts/', label: 'Configure models & prompts', code: 'settings:\n  developer_agent: codex\ntasks:\n  plan_issue:\n    additional_system_prompt: |\n      Keep each subtask independently\n      reviewable. State prerequisites.' },
+];
+---
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width" />
+    <meta name="description" content="Turn GitHub issues into reviewed pull requests with configurable AI workflows, multiple workers, and stage-level token and cost visibility." />
+    <meta name="theme-color" content="#0b1018" />
+    <link rel="icon" type="image/svg+xml" href={link('favicon.svg')} />
+    <title>Flumic AI — AI development, under your control</title>
+    <link rel="canonical" href="https://phudekar.github.io/software-factory/" />
+  </head>
+  <body>
+    <a class="skip" href="#main">Skip to content</a>
+    <header class="topbar">
+      <a class="brand" href={base} aria-label="Flumic AI home"><img class="brand-icon" src={link('favicon.svg')} width="33" height="33" alt="" aria-hidden="true" /> Flumic <span>AI</span></a>
+      <nav aria-label="Main navigation">
+        <a href="#how-it-works">How it works</a>
+        <a href={link('start/introduction/')}>Documentation</a>
+        <a class="github" href="https://github.com/phudekar/software-factory">GitHub <span aria-hidden="true">↗</span></a>
+      </nav>
+      <a class="small-cta" href={link('start/quick-start/')}>Start building <span aria-hidden="true">↗</span></a>
+    </header>
+    <main id="main">
+      <section class="hero wrap">
+        <div class="eyebrow"><span class="live-dot"></span> GITHUB ISSUES IN. REVIEWED PULL REQUESTS OUT.</div>
+        <h1>AI development.<br /><span>Under your control.</span></h1>
+        <p class="hero-copy">Turn issues into working changes with durable workflows, your choice of AI models, and visibility into every stage. You set the direction. You review what ships.</p>
+        <div class="actions"><a class="button primary" href={link('start/quick-start/')}>Run your first workflow <span aria-hidden="true">→</span></a><a class="button secondary" href={link('handbook/architecture/')}>Explore the architecture <span aria-hidden="true">↗</span></a></div>
+        <p class="hero-note">Python workers · Hatchet orchestration · GitHub collaboration</p>
+        <div class="product-window">
+          <div class="window-bar"><span class="window-dots" aria-hidden="true">● ● ●</span><span>YOUR FACTORY / OVERVIEW</span><span class="window-label">Actual control-plane UI</span></div>
+          <a href={link('images/control-plane-overview.png')} aria-label="Open full control-plane overview screenshot"><img src={link('images/control-plane-overview.png')} width="1440" height="1000" alt="Control-plane overview showing managed workers, recent workflow runs, recorded tokens and estimated spend" fetchpriority="high" /></a>
+        </div>
+      </section>
+      <div class="principles"><div class="wrap"><span>Durable execution</span><span>Human review</span><span>Versioned configuration</span><span>Stage-level visibility</span></div></div>
+      <section id="how-it-works" class="wrap section flow-section">
+        <div class="section-heading"><div><div class="eyebrow">A WORKFLOW, NOT A BLACK BOX</div><h2>From intent to implementation.<br /><span>One stage at a time.</span></h2></div><p>Keep planning, coding and review explicit. Hatchet handles routing, retries and durable waits while GitHub keeps the conversation with the code.</p></div>
+        <ol class="pipeline">{steps.map((step, i) => <li><span class="step-num">0{i + 1}</span><strong>{step}</strong><span>{['Describe the outcome', 'Clarify and create sub-issues', 'Code on an isolated branch', 'Inspect findings and CI', 'Human approval and merge'][i]}</span></li>)}</ol>
+        <div class="flow-foot"><span>Feedback goes back to the same PR. Human review stays in the loop.</span><a href={link('handbook/issue-lifecycle/')}>Read the complete lifecycle →</a></div>
+      </section>
+      <section class="control-section section">
+        <div class="wrap"><div class="eyebrow">BUILT FOR THE WAY DEVELOPERS WORK</div><h2>Make the factory<br /><span>fit your workflow.</span></h2>
+          <div class="control-rows">{controls.map(item => <article class="control-row"><div class="control-copy"><span class="index">{item.n} / CONTROL</span><h3>{item.title}</h3><p>{item.body}</p><a href={link(item.href)}>{item.label} <span aria-hidden="true">→</span></a></div><div class="code-panel"><div class="code-label">{item.n === '02' ? 'SCALE BY ROLE' : 'CONFIGURATION EXAMPLE'}</div><pre><code>{item.code}</code></pre></div></article>)}</div>
+        </div>
+      </section>
+      <section class="wrap section trace-section">
+        <div class="section-heading"><div><div class="eyebrow">TRACEABILITY, ALL THE WAY DOWN</div><h2>Know what ran.<br /><span>See what it used.</span></h2></div><p>Follow a workflow into its stages and retry attempts. Connect recorded model calls to workers, loaded configuration, tokens and estimated cost.</p></div>
+        <div class="trace-panel"><div class="trace-tree"><span class="trace-label">EXECUTION CONTEXT</span><div class="tree-node">Workflow run <span>issue → PR</span></div><div class="tree-node indent-1">Stage <span>planning / coding / review</span></div><div class="tree-node indent-2">Attempt <span>worker + configuration</span></div><div class="tree-node indent-3 active">Model accounting <span>tokens + known estimate</span></div><p>Run → stage → attempt filters keep each investigation in context.</p></div><div class="accounting"><span class="trace-label">WHAT YOU CAN INSPECT</span><dl><div><dt>Execution</dt><dd>Status, errors, retries and stage logs</dd></div><div><dt>Model activity</dt><dd>Recorded redacted requests and results</dd></div><div><dt>Token usage</dt><dd>Reported input/output and cache categories</dd></div><div><dt>Cost</dt><dd>Known estimated subtotal; accounting gaps shown</dd></div></dl><a href={link('observability/stage-accounting/')}>Understand stage accounting →</a></div></div>
+        <p class="fine-print">Capture depends on instrumentation and policy. Missing usage stays unknown. Estimates are not provider invoices; CLI captures do not contain every internal exchange.</p>
+      </section>
+      <section class="wrap section observe-section"><div class="observe-copy"><div class="eyebrow">OPERATE WITH CONTEXT</div><h2>Your workers.<br />Your configuration.<br /><span>Your view of the system.</span></h2><p>Manage worker lifecycles in the control plane. Inspect profiles and prompts. Add SigNoz for correlated traces, metrics, logs and container resource monitoring.</p><a href={link('observability/setup/')}>Set up observability →</a></div><div class="worker-preview"><a href={link('images/control-plane-workers.png')} aria-label="Open full worker management screenshot"><img src={link('images/control-plane-workers.png')} width="1440" height="1000" alt="Workers view showing role-specific instances, runtime status, engine registration and configuration revision" loading="lazy" /></a><p>Manage simple and developer instances with independent lifecycle controls.</p></div></section>
+      <section class="wrap section documentation"><div><div class="eyebrow">LESS GUESSING. MORE BUILDING.</div><h2>Go deeper.</h2></div><div class="doc-links"><a href={link('start/quick-start/')}><span>01 / START</span><h3>Run it locally</h3><p>Credentials, first workers and your first issue.</p><b aria-hidden="true">↗</b></a><a href={link('configuration/')}><span>02 / CONFIGURE</span><h3>Make it yours</h3><p>Profiles, models, stages, prompts and limits.</p><b aria-hidden="true">↗</b></a><a href={link('reference/api/')}><span>03 / INTEGRATE</span><h3>Explore the API</h3><p>Authentication, endpoints and request contracts.</p><b aria-hidden="true">↗</b></a></div></section>
+      <section class="wrap final-cta"><div class="eyebrow">START WITH ONE WELL-DEFINED ISSUE</div><h2>Build your next change<br /><span>with a workflow you can inspect.</span></h2><a class="button primary" href={link('start/quick-start/')}>Get started locally →</a><p>Designed for a trusted local Docker operator. Multiple workers currently share state on one host.</p></section>
+    </main>
+    <footer class="wrap"><a class="brand" href={base}><img class="brand-icon" src={link('favicon.svg')} width="33" height="33" alt="" aria-hidden="true" />Flumic <span>AI</span></a><p>Configurable AI workflows. Developer-owned outcomes.</p><a href={link('operations/security/')}>Security & limitations</a><a href="https://github.com/phudekar/software-factory">View source ↗</a></footer>
+  </body>
+</html>

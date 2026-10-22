@@ -1,4 +1,5 @@
-import { Boxes, LoaderCircle, ShieldCheck } from "lucide-react";
+import flumicIcon from "../assets/flumic.svg";
+import { LoaderCircle, ShieldCheck } from "lucide-react";
 import { useState } from "react";
 import { api, setCsrf } from "../api";
 import { Failure } from "../components/ui";
@@ -27,9 +28,9 @@ export function Login({ onLogin }: { onLogin: () => void }) {
         }}
       >
         <div className="brand-icon">
-          <Boxes />
+          <img src={flumicIcon} alt="" aria-hidden="true" />
         </div>
-        <span className="eyebrow">SOFTWARE FACTORY</span>
+        <span className="eyebrow">FLUMIC AI</span>
         <h1>
           Your factory,
           <br />

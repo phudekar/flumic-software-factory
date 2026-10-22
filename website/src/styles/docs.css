@@ -1,0 +1,7 @@
+:root { --sl-color-accent-low: #103b32; --sl-color-accent: #2fba94; --sl-color-accent-high: #91ebcf; --sl-color-bg: #0b1018; --sl-color-bg-nav: #101722; --sl-color-bg-sidebar: #0e151f; --sl-content-width: 53rem; }
+:root[data-theme='light'] { --sl-color-accent-low: #d2f5e9; --sl-color-accent: #08775b; --sl-color-accent-high: #075842; --sl-color-bg: #fff; --sl-color-bg-nav: #f5f8f7; --sl-color-bg-sidebar: #f5f8f7; }
+.sl-markdown-content img { border: 1px solid var(--sl-color-gray-5); border-radius: .65rem; }
+.sl-markdown-content table { font-size: .88rem; }
+.sl-markdown-content h2 { letter-spacing: -.025em; }
+.sl-markdown-content a { text-underline-offset: .2em; }
+:focus-visible { outline: 3px solid var(--sl-color-accent); outline-offset: 4px; }

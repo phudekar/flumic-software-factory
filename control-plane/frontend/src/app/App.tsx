@@ -1,8 +1,8 @@
+import flumicIcon from "../assets/flumic.svg";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   Activity,
   Box,
-  Boxes,
   ChevronRight,
   Code2,
   FileSliders,
@@ -64,16 +64,16 @@ export function App() {
       <aside className="sidebar">
         <Link className="brand" to="/">
           <span className="brand-icon">
-            <Boxes size={23} />
+            <img src={flumicIcon} alt="" aria-hidden="true" />
           </span>
           <div>
-            factory<span>CONTROL PLANE</span>
+            Flumic AI<span>CONTROL PLANE</span>
           </div>
         </Link>
         <div className="workspace">
-          <span className="workspace-symbol">SF</span>
+          <span className="workspace-symbol">FA</span>
           <div>
-            Software factory<small>Local workspace</small>
+            Flumic AI<small>Local workspace</small>
           </div>
           <ChevronRight size={14} />
         </div>
@@ -130,7 +130,7 @@ export function App() {
         <header className="topbar">
           <span>
             Workspace <ChevronRight size={12} />{" "}
-            <strong>Software factory</strong>
+            <strong>Flumic AI</strong>
           </span>
           <div>
             <span className="environment">

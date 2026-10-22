@@ -11,3 +11,18 @@ data/
 control-plane/frontend/node_modules/
 control-plane/frontend/dist/
 control-plane/frontend/*.tsbuildinfo
+
+# Static documentation build and source-derived content
+website/node_modules/
+website/dist/
+website/.astro/
+website/src/content/docs/handbook/
+website/src/content/docs/reference/
+website/src/content/docs/start/quick-start.md
+website/public/images/
+website/public/coverage.json
+
+docs/superpowers
+
+# Generated website favicon; canonical SVG lives in the frontend assets.
+website/public/favicon.svg
