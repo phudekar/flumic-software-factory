@@ -47,6 +47,37 @@ class ProjectTests(unittest.TestCase):
         with self.assertRaises(IntegrityError), sessions.begin() as db:
             db.add(models.RepositoryRevision(id="foreign",project_id="other",repository_id="repo",document={}))
 
+    def test_repository_heads_reject_other_repository_and_unknown_revisions(self):
+        engine, sessions = models.database("sqlite://")
+        self.addCleanup(engine.dispose)
+        models.Base.metadata.create_all(engine)
+        with sessions.begin() as db:
+            db.add_all([models.Project(id=DEFAULT,slug="default",name="Default"),models.Project(id="other",slug="other",name="Other")])
+            db.flush()
+            for identity, project in [("a",DEFAULT),("b",DEFAULT),("c","other")]:
+                db.add(models.RepositoryConnection(id=identity,project_id=project,alias=identity,owner="example",name=identity))
+            db.flush()
+            for identity, project in [("a",DEFAULT),("b",DEFAULT),("c","other")]:
+                db.add(models.RepositoryRevision(id="rev-"+identity,project_id=project,repository_id=identity,document={}))
+            db.flush()
+            db.get(models.RepositoryConnection,"a").revision_id="rev-a"
+        for invalid in ("rev-b","rev-c","nonexistent"):
+            with self.subTest(invalid=invalid), self.assertRaises(IntegrityError), sessions.begin() as db:
+                db.get(models.RepositoryConnection,"a").revision_id=invalid
+        with self.assertRaises(IntegrityError), sessions.begin() as db:
+            db.add(models.RepositoryRevision(id="bad-parent",project_id=DEFAULT,repository_id="a",parent_id="rev-b",document={}))
+
+    def test_event_repository_must_belong_to_its_project(self):
+        engine,sessions=models.database("sqlite://")
+        self.addCleanup(engine.dispose)
+        models.Base.metadata.create_all(engine)
+        with sessions.begin() as db:
+            db.add_all([models.Project(id=DEFAULT,slug="default",name="Default"),models.Project(id="other",slug="other",name="Other")])
+            db.flush()
+            db.add(models.RepositoryConnection(id="repo",project_id="other",alias="repo",owner="example",name="repo"))
+        with self.assertRaises(IntegrityError), sessions.begin() as db:
+            db.add(models.Event(id="foreign",project_id=DEFAULT,repository_id="repo",kind="heartbeat",worker_id="worker",occurred_at=1,payload={}))
+
     def test_project_has_multiple_repository_aliases(self):
         self.assertTrue(hasattr(models, "RepositoryConnection"), "project repositories missing")
         engine, sessions = models.database("sqlite://")
@@ -120,7 +151,7 @@ class ProjectTests(unittest.TestCase):
             cfg = Config(str(ROOT / "control-plane/backend/alembic.ini"))
             with patch.dict(os.environ, {"CONTROL_DATABASE_URL": url}):
                 command.upgrade(cfg, "c82a1d6e40f3")
-                engine, _ = models.database(url)
+                engine, sessions = models.database(url)
                 self.addCleanup(engine.dispose)
                 document = {"defaults":{"repository":"phudekar/software-factory-test"}}
                 with engine.begin() as connection:
@@ -142,6 +173,22 @@ class ProjectTests(unittest.TestCase):
                     self.assertEqual(connection.execute(text("SELECT id,family_id,factory_revision_id,project_id FROM worker_configurations")).one(), ("profile","family","old",DEFAULT))
                     self.assertEqual(connection.execute(text("SELECT id,ciphertext,project_id FROM conversation_content")).one(), ("conversation","encrypted-content",DEFAULT))
                     self.assertEqual(connection.execute(text("SELECT id,request_digest,status,project_id FROM workflow_control_operations")).one(), ("control","digest","completed",DEFAULT))
+                # Exercise the migrated constraints too; metadata.create_all is
+                # not evidence that Alembic installed the same ownership rules.
+                with sessions.begin() as db:
+                    db.add(models.Project(id="other",slug="other",name="Other"))
+                    db.flush()
+                    db.add(models.RepositoryConnection(id="a",project_id=DEFAULT,alias="a",owner="example",name="a"))
+                    db.add(models.RepositoryConnection(id="b",project_id="other",alias="b",owner="example",name="b"))
+                    db.flush()
+                    db.add(models.RepositoryRevision(id="rev-a",project_id=DEFAULT,repository_id="a",document={}))
+                    db.add(models.RepositoryRevision(id="rev-b",project_id="other",repository_id="b",document={}))
+                    db.flush()
+                    db.get(models.RepositoryConnection,"a").revision_id="rev-a"
+                with self.assertRaises(IntegrityError), sessions.begin() as db:
+                    db.get(models.RepositoryConnection,"a").revision_id="rev-b"
+                with self.assertRaises(IntegrityError), sessions.begin() as db:
+                    db.add(models.Event(id="foreign",project_id=DEFAULT,repository_id="b",kind="heartbeat",worker_id="worker",occurred_at=1,payload={}))
 
     def test_fresh_install_creates_default_project_and_revision_tables(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -31,6 +31,9 @@ class RepositoryConnection(Base):
     __table_args__ = (
         UniqueConstraint("project_id", "alias", name="uq_repository_project_alias"),
         UniqueConstraint("project_id", "id", name="uq_repository_project_identity"),
+        ForeignKeyConstraint(["project_id", "id", "revision_id"],
+                             ["repository_revisions.project_id", "repository_revisions.repository_id", "repository_revisions.id"],
+                             name="fk_repository_head", use_alter=True),
     )
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=identity)
     project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), index=True)
@@ -87,6 +90,11 @@ class Operation(Base):
 
 class Event(ProjectOwned, Base):
     __tablename__ = "execution_events"
+    __table_args__ = (
+        ForeignKeyConstraint(["project_id", "repository_id"],
+                             ["repository_connections.project_id", "repository_connections.id"],
+                             name="fk_execution_events_repository"),
+    )
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     kind: Mapped[str] = mapped_column(String(40), index=True)
     worker_id: Mapped[str] = mapped_column(String(36), index=True)
@@ -99,7 +107,7 @@ class Event(ProjectOwned, Base):
 
 
     # NULL means historical repository attribution is unknown, never guessed.
-    repository_id: Mapped[str | None] = mapped_column(ForeignKey("repository_connections.id"))
+    repository_id: Mapped[str | None] = mapped_column(String(36))
 
 
 class Conversation(ProjectOwned, Base):
@@ -175,6 +183,10 @@ class RepositoryRevision(ProjectOwned, Base):
         ForeignKeyConstraint(["project_id", "repository_id"],
                              ["repository_connections.project_id", "repository_connections.id"],
                              name="fk_repository_revision_owner"),
+        UniqueConstraint("project_id", "repository_id", "id", name="uq_repository_revision_identity"),
+        ForeignKeyConstraint(["project_id", "repository_id", "parent_id"],
+                             ["repository_revisions.project_id", "repository_revisions.repository_id", "repository_revisions.id"],
+                             name="fk_repository_revision_parent"),
     )
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=identity)
     repository_id: Mapped[str] = mapped_column(String(36), index=True)

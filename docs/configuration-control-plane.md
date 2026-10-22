@@ -70,7 +70,7 @@ Derived from `root`, with no independent environment variable. Snapshot mounts a
 
 ### `compose_project_name`
 
-Fixed loader default `hatchet-test`, with no environment mapping. This selects discovery of preexisting standalone Compose workers by project label; it does not rename the `factory-control` Compose deployment. The deprecated keyword constructor alias `project="my-factory"` remains supported. Domain projects and repository connections do not change this infrastructure setting.
+Fixed loader default `hatchet-test`, with no environment mapping. This selects discovery of preexisting standalone Compose workers by project label; it does not rename the `factory-control` Compose deployment. The deprecated constructor alias, `project`, remains supported as `project="my-factory"`. Domain projects and repository connections do not change this infrastructure setting.
 
 The browser always calls relative `/api/v1` with same-origin credentials; there is no `VITE_API_URL` setting in the frontend. Its development Vite proxy sends `/api` to `http://127.0.0.1:8000`. Production should serve the UI and API under the same origin. Login uses an HttpOnly, SameSite=Strict `factory_session` cookie with an eight-hour lifetime; authenticated mutations also require the session CSRF token. The cookie Secure flag and `CONTROL_PUBLIC_ORIGIN` solve different parts of HTTPS deployment and must be set consistently.
 

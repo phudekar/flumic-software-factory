@@ -39,7 +39,12 @@ def upgrade():
         sa.Column("parent_id",sa.String(36)),
         sa.Column("document",sa.JSON(),nullable=False),
         sa.Column("created_at",sa.Float(),nullable=False),
-        sa.ForeignKeyConstraint(["project_id","repository_id"],["repository_connections.project_id","repository_connections.id"],name="fk_repository_revision_owner"))
+        sa.ForeignKeyConstraint(["project_id","repository_id"],["repository_connections.project_id","repository_connections.id"],name="fk_repository_revision_owner"),
+        sa.UniqueConstraint("project_id","repository_id","id",name="uq_repository_revision_identity"),
+        sa.ForeignKeyConstraint(["project_id","repository_id","parent_id"],["repository_revisions.project_id","repository_revisions.repository_id","repository_revisions.id"],name="fk_repository_revision_parent"))
+    with op.batch_alter_table("repository_connections") as batch:
+        batch.create_foreign_key("fk_repository_head", "repository_revisions",
+            ["project_id","id","revision_id"], ["project_id","repository_id","id"])
     op.create_index("ix_repository_revisions_project_id","repository_revisions",["project_id"])
     op.create_index("ix_repository_revisions_repository_id","repository_revisions",["repository_id"])
     op.create_index("ix_repository_connections_project_id", "repository_connections", ["project_id"])
@@ -50,7 +55,7 @@ def upgrade():
             batch.create_index("ix_" + table + "_project_id", ["project_id"])
     with op.batch_alter_table("execution_events") as batch:
         batch.add_column(sa.Column("repository_id", sa.String(36)))
-        batch.create_foreign_key("fk_execution_events_repository", "repository_connections", ["repository_id"], ["id"])
+        batch.create_foreign_key("fk_execution_events_repository", "repository_connections", ["project_id", "repository_id"], ["project_id", "id"])
 
 
 def downgrade():
@@ -62,6 +67,8 @@ def downgrade():
             batch.drop_index("ix_" + table + "_project_id")
             batch.drop_constraint("fk_" + table + "_project", type_="foreignkey")
             batch.drop_column("project_id")
+    with op.batch_alter_table("repository_connections") as batch:
+        batch.drop_constraint("fk_repository_head", type_="foreignkey")
     op.drop_table("repository_revisions")
     op.drop_table("repository_connections")
     op.drop_table("projects")
