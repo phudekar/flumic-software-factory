@@ -1,11 +1,11 @@
 """Scoped configuration API and immutable snapshot compilation."""
 
 import uuid
-from fastapi import HTTPException, Request, APIRouter
+from fastapi import HTTPException, Request, APIRouter, Depends
 from pydantic import BaseModel, ConfigDict, Field
 from factory.configuration import read_configuration, profile_fragment
 from sqlalchemy import select, desc, text
-from app.projects import request_scope, require_owned
+from app.projects import project_parameter, request_scope, require_owned
 from app.database import Revision, WorkerConfiguration, Worker, Audit, DEFAULT_PROJECT_ID
 
 
@@ -167,6 +167,9 @@ def install(app, sessions, config, row):
     def validate_profile(body: WorkerConfigEdit, request: Request):
         with sessions() as db:
             scope = request_scope(request, db)
+            for identity in (body.parent_id, body.cloned_from):
+                if identity is not None:
+                    require_owned(db, scope, WorkerConfiguration, identity)
             factory = require_owned(db, scope, Revision, body.factory_revision_id)
             if factory is None or factory.scope != "factory":
                 raise HTTPException(404, "Factory configuration not found")
@@ -270,4 +273,4 @@ def install(app, sessions, config, row):
             return {"id": revision.id, "document": config.factory_view(document)}
 
     app.include_router(router, prefix="/api/v1")
-    app.include_router(router, prefix="/api/v1/projects/{project_id}")
+    app.include_router(router, prefix="/api/v1/projects/{project_id}", dependencies=[Depends(project_parameter)])

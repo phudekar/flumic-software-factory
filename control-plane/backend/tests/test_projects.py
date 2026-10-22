@@ -204,6 +204,14 @@ class ProjectTests(unittest.TestCase):
                 with self.assertRaises(IntegrityError), sessions.begin() as db:
                     db.add(models.Event(id="foreign",project_id=DEFAULT,repository_id="b",kind="heartbeat",worker_id="worker",occurred_at=1,payload={}))
 
+                command.upgrade(cfg,"head")
+                with sessions.begin() as db:
+                    db.add(models.WorkflowControlOperation(project_id="other",key="key",request_digest="other-digest",workflow_id="workflow",workflow_name="other",action="trigger",status="completed"))
+                with sessions() as db:
+                    old = db.get(models.WorkflowControlOperation,"control")
+                    self.assertEqual((old.key,old.request_digest,old.status),("key","digest","completed"))
+                    self.assertEqual(len(db.scalars(select(models.WorkflowControlOperation).where(models.WorkflowControlOperation.key=="key")).all()),2)
+
     def test_migrations_release_pooled_database_connections(self):
         closed=[]
         def tracked_engine(*args, **kwargs):

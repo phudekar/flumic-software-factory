@@ -163,8 +163,9 @@ class WorkerConfiguration(ProjectOwned, Base):
 
 class WorkflowControlOperation(ProjectOwned, Base):
     __tablename__ = "workflow_control_operations"
+    __table_args__ = (UniqueConstraint("project_id", "key", name="uq_workflow_control_project_key"),)
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=identity)
-    key: Mapped[str] = mapped_column(String(160), unique=True)
+    key: Mapped[str] = mapped_column(String(160))
     request_digest: Mapped[str] = mapped_column(String(64))
     workflow_id: Mapped[str] = mapped_column(String(36), index=True)
     workflow_name: Mapped[str] = mapped_column(String(120))

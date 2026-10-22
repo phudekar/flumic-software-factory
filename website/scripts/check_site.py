@@ -1,4 +1,5 @@
 """Validate published project-path links, anchors, assets and source coverage."""
+from api_routes import route_nodes
 import ast
 import json
 import struct
@@ -58,13 +59,9 @@ for asset,size in [('social/flumic-ai-v1.png',(1200,630)),('favicon.png',(192,19
         errors.append(f'Unexpected sharing image dimensions: {asset}')
 coverage=json.loads((DIST/'coverage.json').read_text())
 actual=set()
-for name in ('main','worker_configs','workflow_controls'):
-    tree=ast.parse((ROOT/f'control-plane/backend/app/{name}.py').read_text())
-    for node in ast.walk(tree):
-        if isinstance(node,(ast.FunctionDef,ast.AsyncFunctionDef)):
-            for d in node.decorator_list:
-                if isinstance(d,ast.Call) and isinstance(d.func,ast.Attribute) and d.func.attr in {'get','post','put','delete','patch'} and d.args and isinstance(d.args[0],ast.Constant) and str(d.args[0].value).startswith('/api/'):
-                    actual.add(f'{d.func.attr.upper()} {d.args[0].value}')
+for path in (ROOT/'control-plane/backend/app').glob('*.py'):
+    tree=ast.parse(path.read_text())
+    actual.update(f'{method} {url}' for method,url,*_ in route_nodes(tree))
 if actual!=set(coverage['api_routes']): errors.append('Generated API route coverage does not match backend')
 settings_tree=ast.parse((ROOT/'worker/factory/settings.py').read_text())
 settings=next(n for n in settings_tree.body if isinstance(n,ast.ClassDef) and n.name=='Settings')

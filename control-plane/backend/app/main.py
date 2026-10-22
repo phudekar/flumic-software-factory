@@ -10,7 +10,7 @@ import yaml
 from argon2 import PasswordHasher
 from argon2.exceptions import VerificationError
 from cryptography.fernet import Fernet
-from fastapi import FastAPI, Request, Response, HTTPException, Query
+from fastapi import Depends, FastAPI, Request, Response, HTTPException, Query
 from fastapi.responses import FileResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.exceptions import RequestValidationError
@@ -28,7 +28,7 @@ from app.database import (
     Audit,
     WorkerConfiguration,
 )
-from app.projects import ProjectScope, request_scope, require_owned
+from app.projects import project_parameter, ProjectScope, request_scope, require_owned
 from app.services import Configurations
 from app.security import digest, redact
 from app.reconciler import worker_token
@@ -377,6 +377,10 @@ def create_app(settings=None, sessions=None, runtime=None, workflow=None):
         if body.target_id != "local-docker":
             raise HTTPException(422, "Unsupported deployment target")
         with sessions.begin() as db:
+            for field, model in (("config_id", WorkerConfiguration), ("revision_id", Revision)):
+                value = getattr(body, field)
+                if value is not None:
+                    require_owned(db, ProjectScope(DEFAULT_PROJECT_ID), model, value)
             cfg = db.get(WorkerConfiguration, body.config_id or "")
             if body.worker_profile_id:
                 cfg = db.scalar(
@@ -439,6 +443,10 @@ def create_app(settings=None, sessions=None, runtime=None, workflow=None):
         if not key or len(key) > 100:
             raise HTTPException(422, "Idempotency-Key is required")
         with sessions.begin() as db:
+            for field, model in (("config_id", WorkerConfiguration), ("revision_id", Revision)):
+                value = getattr(body, field)
+                if value is not None:
+                    require_owned(db, ProjectScope(DEFAULT_PROJECT_ID), model, value)
             worker = db.scalar(
                 select(Worker).where(Worker.id == identifier).with_for_update()
             )
@@ -593,7 +601,7 @@ def create_app(settings=None, sessions=None, runtime=None, workflow=None):
         }
 
     @app.get("/api/v1/config/revisions")
-    @app.get("/api/v1/projects/{project_id}/config/revisions")
+    @app.get("/api/v1/projects/{project_id}/config/revisions", dependencies=[Depends(project_parameter)])
     def revisions(request: Request):
         with sessions() as db:
             scope = request_scope(request, db)
@@ -608,7 +616,7 @@ def create_app(settings=None, sessions=None, runtime=None, workflow=None):
             ]
 
     @app.get("/api/v1/config/revisions/{identifier}")
-    @app.get("/api/v1/projects/{project_id}/config/revisions/{identifier}")
+    @app.get("/api/v1/projects/{project_id}/config/revisions/{identifier}", dependencies=[Depends(project_parameter)])
     def revision(identifier: str, request: Request):
         with sessions() as db:
             scope = request_scope(request, db)
@@ -618,30 +626,38 @@ def create_app(settings=None, sessions=None, runtime=None, workflow=None):
             return {**row(rev), "profiles": config.validate(rev.document)}
 
     @app.post("/api/v1/config/validate")
-    def validate(body: ConfigEdit):
+    @app.post("/api/v1/projects/{project_id}/config/validate", dependencies=[Depends(project_parameter)])
+    def validate(body: ConfigEdit, request: Request):
+        with sessions() as db:
+            scope = request_scope(request, db)
+            if body.parent_id is not None:
+                require_owned(db, scope, Revision, body.parent_id)
         return {
             "profiles": config.validate(body.document),
             "digest": config.hash(body.document),
         }
 
     @app.post("/api/v1/config/revisions", status_code=201)
-    def save_config(body: ConfigEdit):
+    @app.post("/api/v1/projects/{project_id}/config/revisions", status_code=201, dependencies=[Depends(project_parameter)])
+    def save_config(body: ConfigEdit, request: Request):
         config.validate(body.document)
         with sessions.begin() as db:
+            scope = request_scope(request, db)
             if db.bind.dialect.name == "postgresql":
                 db.execute(text("SELECT pg_advisory_xact_lock(6423400)"))
             latest = db.scalar(
                 select(Revision)
-                .where(Revision.scope == "factory", Revision.project_id == DEFAULT_PROJECT_ID)
+                .where(Revision.scope == "factory", Revision.project_id == scope.project_id)
                 .order_by(desc(Revision.created_at))
                 .with_for_update()
                 .limit(1)
             )
             if body.parent_id:
-                require_owned(db, ProjectScope(DEFAULT_PROJECT_ID), Revision, body.parent_id)
+                require_owned(db, scope, Revision, body.parent_id)
             if latest and body.parent_id != latest.id:
                 raise HTTPException(409, "Configuration changed; reload before saving")
             revision = Revision(
+                project_id=scope.project_id,
                 id=str(uuid.uuid4()),
                 parent_id=body.parent_id,
                 summary=body.summary,
@@ -654,7 +670,7 @@ def create_app(settings=None, sessions=None, runtime=None, workflow=None):
             return row(revision)
 
     @app.get("/api/v1/config/revisions/{identifier}/export")
-    @app.get("/api/v1/projects/{project_id}/config/revisions/{identifier}/export")
+    @app.get("/api/v1/projects/{project_id}/config/revisions/{identifier}/export", dependencies=[Depends(project_parameter)])
     def export(identifier: str, request: Request):
         with sessions() as db:
             revision = require_owned(db, request_scope(request, db), Revision, identifier)
@@ -851,7 +867,7 @@ def create_app(settings=None, sessions=None, runtime=None, workflow=None):
         return query
 
     @app.get("/api/v1/events")
-    @app.get("/api/v1/projects/{project_id}/events")
+    @app.get("/api/v1/projects/{project_id}/events", dependencies=[Depends(project_parameter)])
     def events(
         request: Request,
         run_id: str | None = None,
@@ -883,7 +899,7 @@ def create_app(settings=None, sessions=None, runtime=None, workflow=None):
             ]
 
     @app.get("/api/v1/model-calls/{identifier}/conversation")
-    @app.get("/api/v1/projects/{project_id}/model-calls/{identifier}/conversation")
+    @app.get("/api/v1/projects/{project_id}/model-calls/{identifier}/conversation", dependencies=[Depends(project_parameter)])
     def conversation(identifier: str, request: Request):
         with sessions.begin() as db:
             content = require_owned(db, request_scope(request, db), Conversation, identifier)
@@ -895,7 +911,7 @@ def create_app(settings=None, sessions=None, runtime=None, workflow=None):
             return json.loads(cipher.decrypt(content.ciphertext.encode()))
 
     @app.get("/api/v1/usage")
-    @app.get("/api/v1/projects/{project_id}/usage")
+    @app.get("/api/v1/projects/{project_id}/usage", dependencies=[Depends(project_parameter)])
     def usage(
         request: Request,
         since: float = Query(default=0, ge=0),
