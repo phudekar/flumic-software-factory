@@ -98,6 +98,8 @@ for source, title in GUIDES.items():
 readme = (ROOT / 'README.md').read_text()
 quick = readme.split('## Quick start\n', 1)[1].split('## Configuration\n', 1)[0]
 write('start/quick-start', 'Quick start', rewrite_links(quick, 'README.md'))
+# Generated directories are absent from fresh checkouts.
+(SITE / 'public').mkdir(exist_ok=True, parents=True)
 # Canonical icon lives with the app; docs and favicons consume that same SVG.
 shutil.copy2(ROOT / 'control-plane/frontend/src/assets/flumic.svg', SITE / 'public/favicon.svg')
 
