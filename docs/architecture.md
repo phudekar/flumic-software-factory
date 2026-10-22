@@ -6,10 +6,13 @@ boundaries and operational limits.
 
 ## Architecture at a glance
 
-![Flumic AI architecture: the Control Plane manages versioned configuration and Docker worker lifecycle; Hatchet routes stages to worker roles; application ports connect workers to GitHub, AI models, execution state and observation adapters](images/flumic-architecture.svg)
+![Flumic AI layered architecture with component icons: developer experience, Control Plane, orchestration, worker execution, integration adapters, infrastructure and persistence; observability spans every layer](images/flumic-architecture.svg)
 
 [Open the full-size architecture diagram](images/flumic-architecture.svg).
-The diagram shows the implemented system. GitLab and Kubernetes are planned
+The diagram groups the implemented system into six responsibility layers.
+Its arrows show conceptual dependencies rather than a single synchronous request
+path; the application core is shared worker code, not another deployed service.
+The observability rail represents logs, metrics, traces and model accounting. GitLab and Kubernetes are planned
 capabilities, not additional active adapters in this deployment.
 
 The **Control Plane** governs configuration, operator access, lifecycle commands

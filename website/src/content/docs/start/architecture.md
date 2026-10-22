@@ -5,9 +5,15 @@ description: "How the control plane, workers, orchestration and adapter boundari
 
 Flumic AI separates operator control, workflow scheduling and development operations. Explicit adapter boundaries keep model, storage, repository and telemetry integration details out of the application core.
 
-![Flumic AI system architecture showing Control Plane services, Hatchet, worker roles and external integration adapters](/flumic-software-factory/images/flumic-architecture.svg)
+![Flumic AI layered architecture with icons for developer experience, Control Plane, orchestration, worker execution, adapters and persistence, plus cross-cutting observability](/flumic-software-factory/images/flumic-architecture.svg)
 
 [Open the full-size diagram](/flumic-software-factory/images/flumic-architecture.svg).
+
+## Read the layers
+
+From top to bottom: developer experience → Control Plane → workflow orchestration → worker execution → integration adapters → infrastructure and persistence. The observability rail spans the layers for logs, metrics, traces and model accounting. The arrows show conceptual responsibilities and dependencies, not a synchronous sequence that every request follows.
+
+The application core is code shared by both worker roles; it is not an extra worker service. PostgreSQL stores Control Plane data while SQLite and local locks coordinate worker execution. The detailed guide explains the actual command, bootstrap and execution paths.
 
 ## Three architectural responsibilities
 
