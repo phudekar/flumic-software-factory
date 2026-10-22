@@ -2,7 +2,7 @@
 
 import time
 import uuid
-from sqlalchemy import String, Text, Float, JSON, ForeignKey, UniqueConstraint, create_engine
+from sqlalchemy import String, Text, Float, JSON, ForeignKey, ForeignKeyConstraint, UniqueConstraint, create_engine, event
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 
 
@@ -28,7 +28,10 @@ class Project(Base):
 
 class RepositoryConnection(Base):
     __tablename__ = "repository_connections"
-    __table_args__ = (UniqueConstraint("project_id", "alias", name="uq_repository_project_alias"),)
+    __table_args__ = (
+        UniqueConstraint("project_id", "alias", name="uq_repository_project_alias"),
+        UniqueConstraint("project_id", "id", name="uq_repository_project_identity"),
+    )
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=identity)
     project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), index=True)
     alias: Mapped[str] = mapped_column(String(100))
@@ -38,6 +41,7 @@ class RepositoryConnection(Base):
     name: Mapped[str] = mapped_column(String(100))
     overrides: Mapped[dict] = mapped_column(JSON, default=dict)
     credential_id: Mapped[str | None] = mapped_column(String(36))
+    revision_id: Mapped[str | None] = mapped_column(String(36))
     created_at: Mapped[float] = mapped_column(Float, default=time.time)
 
 
@@ -129,6 +133,10 @@ def database(url):
         else {}
     )
     engine = create_engine(url, pool_pre_ping=True, **kwargs)
+    if engine.dialect.name == "sqlite":
+        @event.listens_for(engine, "connect")
+        def enforce_foreign_keys(connection, _):
+            connection.execute("PRAGMA foreign_keys=ON")
     return engine, sessionmaker(engine, expire_on_commit=False)
 
 
@@ -158,3 +166,18 @@ class WorkflowControlOperation(ProjectOwned, Base):
     error: Mapped[str | None] = mapped_column(String(240))
     created_at: Mapped[float] = mapped_column(Float, default=time.time)
     updated_at: Mapped[float] = mapped_column(Float, default=time.time)
+
+
+class RepositoryRevision(ProjectOwned, Base):
+    """Append-only connection configuration; runs pin this ID rather than the head."""
+    __tablename__ = "repository_revisions"
+    __table_args__ = (
+        ForeignKeyConstraint(["project_id", "repository_id"],
+                             ["repository_connections.project_id", "repository_connections.id"],
+                             name="fk_repository_revision_owner"),
+    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=identity)
+    repository_id: Mapped[str] = mapped_column(String(36), index=True)
+    parent_id: Mapped[str | None] = mapped_column(String(36))
+    document: Mapped[dict] = mapped_column(JSON)
+    created_at: Mapped[float] = mapped_column(Float, default=time.time)

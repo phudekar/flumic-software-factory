@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 import os
 
@@ -16,7 +16,7 @@ class AppSettings:
     worker_endpoint: str = "http://factory-control-api:8000"
     compose_project_name: str = "hatchet-test"
     # Deprecated constructor alias for integrations using the old Compose name.
-    project: str | None = None
+    project: str | None = field(default=None, kw_only=True)
     cookie_secure: bool = False
 
     def __post_init__(self):

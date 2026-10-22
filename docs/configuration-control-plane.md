@@ -25,7 +25,7 @@ Standalone workers use `Settings.load`, which reads the selected YAML file/profi
 | `frontend` / `CONTROL_FRONTEND` | `control-plane/frontend/dist`, relative to process working directory; Docker image sets `/app/frontend`. | If the directory exists, serves frontend assets and SPA index. Example local override: `/srv/ui/dist`. Missing output leaves the API without the UI routes. Compose does not forward a host `CONTROL_FRONTEND`; image ENV supplies the deployed value. Frontend changes need a rebuilt server image. |
 | `public_origin` / `CONTROL_PUBLIC_ORIGIN` | `http://localhost:3400`; Compose interpolates the same default. | Exact allowed `Origin` for unsafe HTTP methods when an Origin header is present, except ingestion. Example: `https://factory.example.com` (scheme, host, optional port; no trailing slash). Wrong origin produces 403 for browser mutations, including login. It does not change listen ports, enable CORS or configure TLS. |
 | `worker_endpoint` / `CONTROL_WORKER_ENDPOINT` | `http://factory-control-api:8000`; Compose fixes this same value. | Base URL injected as `FACTORY_CONTROL_ENDPOINT` into **new** managed containers. Used for saved-profile bootstrap and event ingestion. Example alternative network endpoint: `http://control-api:8000`. It must be reachable from worker containers, not just from the browser; a host localhost URL refers to the worker itself. Override Compose explicitly to change it. |
-| `project` / no loader environment input | Dataclass default `hatchet-test`. | Discovers preexisting Compose containers whose project label matches and whose service is `worker` or `developer-worker`; also scopes access to their logs. Example programmatic override: `AppSettings(..., project="my-factory")`. No `CONTROL_PROJECT` or `FACTORY_PROJECT` variable is read. Managed containers use separate factory labels. |
+| `compose_project_name` / no loader environment input | Dataclass default `hatchet-test`. | Discovers preexisting Compose containers whose project label matches and whose service is `worker` or `developer-worker`; also scopes access to their logs. Example programmatic override: `AppSettings(..., compose_project_name="my-factory")`. No `CONTROL_PROJECT` or `FACTORY_PROJECT` variable is read. Managed containers use separate factory labels. |
 | `cookie_secure` / `CONTROL_COOKIE_SECURE` | `False`; loader enables only exact lowercase string `true`. Compose does not forward it. | Sets the login cookie's Secure flag. Example direct-process value: `true` for an HTTPS deployment. Setting it in the host env file alone has no effect with the checked-in Compose manifest: add it to API environment via an override. `True`, `1` and `yes` remain false. |
 
 ### `CONTROL_DATABASE_URL`
@@ -68,9 +68,9 @@ Configures `cookie_secure`; only `true` enables it. Add an explicit container en
 
 Derived from `root`, with no independent environment variable. Snapshot mounts and build records must persist on the shared host control-plane data directory.
 
-### `project`
+### `compose_project_name`
 
-Fixed loader default `hatchet-test`, with no environment mapping. This selects discovery of preexisting standalone Compose workers by project label; it does not rename the `factory-control` Compose deployment.
+Fixed loader default `hatchet-test`, with no environment mapping. This selects discovery of preexisting standalone Compose workers by project label; it does not rename the `factory-control` Compose deployment. The deprecated keyword constructor alias `project="my-factory"` remains supported. Domain projects and repository connections do not change this infrastructure setting.
 
 The browser always calls relative `/api/v1` with same-origin credentials; there is no `VITE_API_URL` setting in the frontend. Its development Vite proxy sends `/api` to `http://127.0.0.1:8000`. Production should serve the UI and API under the same origin. Login uses an HttpOnly, SameSite=Strict `factory_session` cookie with an eight-hour lifetime; authenticated mutations also require the session CSRF token. The cookie Secure flag and `CONTROL_PUBLIC_ORIGIN` solve different parts of HTTPS deployment and must be set consistently.
 

@@ -28,8 +28,20 @@ def upgrade():
         sa.Column("name", sa.String(100), nullable=False),
         sa.Column("overrides", sa.JSON(), nullable=False),
         sa.Column("credential_id", sa.String(36)),
+        sa.Column("revision_id", sa.String(36)),
         sa.Column("created_at", sa.Float(), nullable=False),
-        sa.UniqueConstraint("project_id", "alias", name="uq_repository_project_alias"))
+        sa.UniqueConstraint("project_id", "alias", name="uq_repository_project_alias"),
+        sa.UniqueConstraint("project_id", "id", name="uq_repository_project_identity"))
+    op.create_table("repository_revisions",
+        sa.Column("id",sa.String(36),primary_key=True),
+        sa.Column("project_id",sa.String(36),sa.ForeignKey("projects.id"),nullable=False,server_default=DEFAULT),
+        sa.Column("repository_id",sa.String(36),nullable=False),
+        sa.Column("parent_id",sa.String(36)),
+        sa.Column("document",sa.JSON(),nullable=False),
+        sa.Column("created_at",sa.Float(),nullable=False),
+        sa.ForeignKeyConstraint(["project_id","repository_id"],["repository_connections.project_id","repository_connections.id"],name="fk_repository_revision_owner"))
+    op.create_index("ix_repository_revisions_project_id","repository_revisions",["project_id"])
+    op.create_index("ix_repository_revisions_repository_id","repository_revisions",["repository_id"])
     op.create_index("ix_repository_connections_project_id", "repository_connections", ["project_id"])
     for table in OWNED:
         with op.batch_alter_table(table) as batch:
@@ -50,5 +62,6 @@ def downgrade():
             batch.drop_index("ix_" + table + "_project_id")
             batch.drop_constraint("fk_" + table + "_project", type_="foreignkey")
             batch.drop_column("project_id")
+    op.drop_table("repository_revisions")
     op.drop_table("repository_connections")
     op.drop_table("projects")

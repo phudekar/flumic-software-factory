@@ -8,7 +8,9 @@ from unittest.mock import Mock, patch
 
 from alembic import command
 from alembic.config import Config
-from sqlalchemy import text, select, inspect
+from sqlalchemy import text, select, inspect, create_engine
+from sqlalchemy.engine import make_url
+import uuid
 from sqlalchemy.exc import IntegrityError
 from app import database as models
 from app.settings import AppSettings
@@ -20,6 +22,31 @@ DEFAULT = "00000000-0000-0000-0000-000000000001"
 
 
 class ProjectTests(unittest.TestCase):
+    def test_repository_revisions_are_immutable_references_with_scoped_ownership(self):
+        self.assertTrue(hasattr(models, "RepositoryRevision"), "repository revision schema missing")
+        engine, sessions = models.database("sqlite://")
+        self.addCleanup(engine.dispose)
+        models.Base.metadata.create_all(engine)
+        with sessions.begin() as db:
+            db.add_all([models.Project(id=DEFAULT, slug="default", name="Default"),
+                        models.Project(id="other", slug="other", name="Other")])
+            db.flush()
+            repository = models.RepositoryConnection(id="repo", project_id=DEFAULT, alias="backend", owner="example", name="one")
+            db.add(repository)
+            db.flush()
+            db.add(models.RepositoryRevision(id="rev1", project_id=DEFAULT, repository_id="repo", document={"name":"one"}))
+            db.flush()
+            repository.revision_id = "rev1"
+        with sessions.begin() as db:
+            db.add(models.RepositoryRevision(id="rev2", project_id=DEFAULT, repository_id="repo", parent_id="rev1", document={"name":"two"}))
+            db.flush()
+            db.get(models.RepositoryConnection,"repo").revision_id="rev2"
+        with sessions() as db:
+            self.assertEqual(db.get(models.RepositoryRevision,"rev1").document, {"name":"one"})
+            self.assertEqual(db.get(models.RepositoryConnection,"repo").revision_id,"rev2")
+        with self.assertRaises(IntegrityError), sessions.begin() as db:
+            db.add(models.RepositoryRevision(id="foreign",project_id="other",repository_id="repo",document={}))
+
     def test_project_has_multiple_repository_aliases(self):
         self.assertTrue(hasattr(models, "RepositoryConnection"), "project repositories missing")
         engine, sessions = models.database("sqlite://")
@@ -36,6 +63,15 @@ class ProjectTests(unittest.TestCase):
         with self.assertRaises(IntegrityError), sessions.begin() as db:
             db.add(models.RepositoryConnection(project_id=DEFAULT, alias="backend",
                 provider="github", host="github.com", owner="other", name="repo"))
+
+    def test_old_constructor_arguments_preserve_compose_and_cookie_settings(self):
+        settings = AppSettings("sqlite://", "pw", "key", ROOT, ROOT, ROOT, ROOT,
+                               "http://localhost", "http://worker", "custom-compose", True)
+        self.assertEqual(settings.compose_project_name,"custom-compose")
+        self.assertIs(settings.cookie_secure,True)
+        legacy = AppSettings("sqlite://", "pw", "key", ROOT, ROOT, ROOT, ROOT,
+                             project="custom-compose")
+        self.assertEqual(legacy.compose_project_name,"custom-compose")
 
     def test_domain_project_does_not_change_compose_discovery(self):
         self.assertIn("compose_project_name", AppSettings.__dataclass_fields__)
@@ -70,6 +106,17 @@ class ProjectTests(unittest.TestCase):
     def test_upgrade_preserves_populated_legacy_records(self):
         with tempfile.TemporaryDirectory() as tmp:
             url = os.environ.get("CONTROL_MIGRATION_TEST_URL", "sqlite:///" + tmp + "/migration.db")
+            if url.startswith("postgresql"):
+                admin = create_engine(url)
+                schema = "migration_" + uuid.uuid4().hex
+                with admin.begin() as connection:
+                    connection.execute(text('CREATE SCHEMA "' + schema + '"'))
+                def cleanup():
+                    with admin.begin() as connection:
+                        connection.execute(text('DROP SCHEMA "' + schema + '" CASCADE'))
+                    admin.dispose()
+                self.addCleanup(cleanup)
+                url = make_url(url).update_query_dict({"options":"-csearch_path="+schema}).render_as_string(hide_password=False)
             cfg = Config(str(ROOT / "control-plane/backend/alembic.ini"))
             with patch.dict(os.environ, {"CONTROL_DATABASE_URL": url}):
                 command.upgrade(cfg, "c82a1d6e40f3")
@@ -79,7 +126,11 @@ class ProjectTests(unittest.TestCase):
                 with engine.begin() as connection:
                     connection.execute(text("INSERT INTO config_revisions (id,scope,parent_id,created_at,summary,document,digest) VALUES ('old','factory',NULL,1,'legacy',:doc,'unchanged')"), {"doc":json.dumps(document)})
                     connection.execute(text("INSERT INTO worker_instances (id,name,profile,revision_id,config_id,target_id,credential_hash,desired_state,created_at) VALUES ('worker','existing','simple','old',NULL,'local-docker','hash','running',1)"))
+                    connection.execute(text("INSERT INTO worker_configurations (id,family_id,parent_id,cloned_from,name,profile,factory_revision_id,document,created_at) VALUES ('profile','family',NULL,NULL,'existing','simple','old','{}',1)"))
+                    connection.execute(text("INSERT INTO conversation_content (id,ciphertext,expires_at) VALUES ('conversation','encrypted-content',9999999999)"))
+                    connection.execute(text("INSERT INTO workflow_control_operations (id,key,request_digest,workflow_id,workflow_name,action,status,result,created_at,updated_at) VALUES ('control','key','digest','workflow','legacy','trigger','completed','{}',1,1)"))
                     connection.execute(text("INSERT INTO execution_events (id,kind,worker_id,occurred_at,received_at,payload) VALUES ('event','heartbeat','worker',1,1,'{}')"))
+                command.upgrade(cfg, "e201f1000001")
                 command.upgrade(cfg, "e201f1000001")
                 with engine.connect() as connection:
                     self.assertIn("project_id", [column["name"] for column in inspect(connection).get_columns("config_revisions")])
@@ -88,3 +139,18 @@ class ProjectTests(unittest.TestCase):
                     self.assertEqual(connection.execute(text("SELECT revision_id,desired_state FROM worker_instances")).one(), ("old", "running"))
                     self.assertEqual(connection.execute(text("SELECT project_id,repository_id FROM execution_events")).one(), (DEFAULT,None))
                     self.assertEqual(connection.execute(text("SELECT COUNT(*) FROM repository_connections")).scalar(), 0)
+                    self.assertEqual(connection.execute(text("SELECT id,family_id,factory_revision_id,project_id FROM worker_configurations")).one(), ("profile","family","old",DEFAULT))
+                    self.assertEqual(connection.execute(text("SELECT id,ciphertext,project_id FROM conversation_content")).one(), ("conversation","encrypted-content",DEFAULT))
+                    self.assertEqual(connection.execute(text("SELECT id,request_digest,status,project_id FROM workflow_control_operations")).one(), ("control","digest","completed",DEFAULT))
+
+    def test_fresh_install_creates_default_project_and_revision_tables(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = Config(str(ROOT / "control-plane/backend/alembic.ini"))
+            url="sqlite:///"+tmp+"/fresh.db"
+            with patch.dict(os.environ, {"CONTROL_DATABASE_URL":url}):
+                command.upgrade(cfg,"head")
+            engine,_=models.database(url)
+            self.addCleanup(engine.dispose)
+            with engine.connect() as connection:
+                self.assertEqual(connection.execute(text("SELECT id,slug FROM projects")).one(),(DEFAULT,"default"))
+                self.assertIn("repository_revisions",inspect(connection).get_table_names())
