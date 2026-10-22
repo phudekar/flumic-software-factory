@@ -671,6 +671,12 @@ td small {
   padding: 0 20px;
   margin-top: 16px;
 }
+.profile-toolbar > .tag {
+  margin-bottom: 8px;
+}
+.profile-toolbar > .text-link {
+  min-height: 38px;
+}
 .notice {
   display: flex;
   align-items: flex-start;
