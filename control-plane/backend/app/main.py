@@ -10,7 +10,7 @@ import yaml
 from argon2 import PasswordHasher
 from argon2.exceptions import VerificationError
 from cryptography.fernet import Fernet
-from fastapi import FastAPI, Request, Response, HTTPException, Query
+from fastapi import Depends, FastAPI, Request, Response, HTTPException, Query
 from fastapi.responses import FileResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.exceptions import RequestValidationError
@@ -28,6 +28,7 @@ from app.database import (
     Audit,
     WorkerConfiguration,
 )
+from app.projects import project_parameter, ProjectScope, request_scope, require_owned
 from app.services import Configurations
 from app.security import digest, redact
 from app.reconciler import worker_token
@@ -122,6 +123,8 @@ def create_app(settings=None, sessions=None, runtime=None, workflow=None):
     from app.worker_configs import install, compile_revision, attach_imported_profile
 
     install(app, sessions, config, row)
+    from app.projects import install as install_projects
+    install_projects(app, sessions, config, row)
 
     def runtime_adapter():
         nonlocal runtime
@@ -141,11 +144,11 @@ def create_app(settings=None, sessions=None, runtime=None, workflow=None):
         with sessions() as db:
             revision = db.scalar(
                 select(Revision)
-                .where(Revision.scope == "factory")
+                .where(Revision.scope == "factory", Revision.project_id == DEFAULT_PROJECT_ID)
                 .order_by(desc(Revision.created_at))
                 .limit(1)
             )
-            if revision is None:
+            if revision is None or revision.project_id != DEFAULT_PROJECT_ID:
                 raise ValueError("No saved factory configuration is available")
             resolved = config.resolve(revision.document, "simple")
         # Repository policy is refreshed per call; transport clients only depend
@@ -374,6 +377,10 @@ def create_app(settings=None, sessions=None, runtime=None, workflow=None):
         if body.target_id != "local-docker":
             raise HTTPException(422, "Unsupported deployment target")
         with sessions.begin() as db:
+            for field, model in (("config_id", WorkerConfiguration), ("revision_id", Revision)):
+                value = getattr(body, field)
+                if value is not None:
+                    require_owned(db, ProjectScope(DEFAULT_PROJECT_ID), model, value)
             cfg = db.get(WorkerConfiguration, body.config_id or "")
             if body.worker_profile_id:
                 cfg = db.scalar(
@@ -382,15 +389,15 @@ def create_app(settings=None, sessions=None, runtime=None, workflow=None):
                     .order_by(desc(WorkerConfiguration.created_at))
                     .limit(1)
                 )
-                if cfg is None:
+                if cfg is None or cfg.project_id != DEFAULT_PROJECT_ID:
                     raise HTTPException(404, "Worker profile not found")
-            if body.config_id and cfg is None:
+            if body.config_id and (cfg is None or cfg.project_id != DEFAULT_PROJECT_ID):
                 raise HTTPException(404, "Worker configuration not found")
             revision = db.get(
                 Revision, cfg.factory_revision_id if cfg else body.revision_id or ""
             )
             profile = cfg.profile if cfg else body.profile
-            if revision is None:
+            if revision is None or revision.project_id != DEFAULT_PROJECT_ID:
                 raise HTTPException(404, "Revision not found")
             profiles = config.validate(revision.document)
             if profile not in profiles:
@@ -436,6 +443,10 @@ def create_app(settings=None, sessions=None, runtime=None, workflow=None):
         if not key or len(key) > 100:
             raise HTTPException(422, "Idempotency-Key is required")
         with sessions.begin() as db:
+            for field, model in (("config_id", WorkerConfiguration), ("revision_id", Revision)):
+                value = getattr(body, field)
+                if value is not None:
+                    require_owned(db, ProjectScope(DEFAULT_PROJECT_ID), model, value)
             worker = db.scalar(
                 select(Worker).where(Worker.id == identifier).with_for_update()
             )
@@ -459,14 +470,14 @@ def create_app(settings=None, sessions=None, runtime=None, workflow=None):
                 )
             if body.action == "configure":
                 cfg = db.get(WorkerConfiguration, body.config_id or "")
-                if body.config_id and cfg is None:
+                if body.config_id and (cfg is None or cfg.project_id != DEFAULT_PROJECT_ID):
                     raise HTTPException(404, "Worker configuration not found")
                 if cfg and cfg.profile != worker.profile:
                     raise HTTPException(422, "Configuration profile must match worker")
                 revision = db.get(
                     Revision, cfg.factory_revision_id if cfg else body.revision_id or ""
                 )
-                if revision is None:
+                if revision is None or revision.project_id != DEFAULT_PROJECT_ID:
                     raise HTTPException(404, "Configuration revision not found")
                 profiles = config.validate(revision.document)
                 if worker.profile not in profiles:
@@ -489,7 +500,7 @@ def create_app(settings=None, sessions=None, runtime=None, workflow=None):
                     compile_revision(db, config, cfg).id if cfg else revision.id
                 )
                 worker.config_id = cfg.id if cfg else None
-                if cfg is None:
+                if cfg is None or cfg.project_id != DEFAULT_PROJECT_ID:
                     attach_imported_profile(db, config, worker)
             action = body.action
             if body.action in {"start", "restart"} and worker.config_id:
@@ -590,49 +601,63 @@ def create_app(settings=None, sessions=None, runtime=None, workflow=None):
         }
 
     @app.get("/api/v1/config/revisions")
-    def revisions():
+    @app.get("/api/v1/projects/{project_id}/config/revisions", dependencies=[Depends(project_parameter)])
+    def revisions(request: Request):
         with sessions() as db:
+            scope = request_scope(request, db)
             return [
                 {key: value for key, value in row(rev).items() if key != "document"}
                 for rev in db.scalars(
                     select(Revision)
-                    .where(Revision.scope == "factory")
+                    .where(Revision.scope == "factory", Revision.project_id == scope.project_id)
                     .order_by(desc(Revision.created_at))
                     .limit(100)
                 )
             ]
 
     @app.get("/api/v1/config/revisions/{identifier}")
-    def revision(identifier: str):
+    @app.get("/api/v1/projects/{project_id}/config/revisions/{identifier}", dependencies=[Depends(project_parameter)])
+    def revision(identifier: str, request: Request):
         with sessions() as db:
-            rev = db.get(Revision, identifier)
+            scope = request_scope(request, db)
+            rev = require_owned(db, scope, Revision, identifier)
             if rev is None:
                 raise HTTPException(404, "Revision not found")
             return {**row(rev), "profiles": config.validate(rev.document)}
 
     @app.post("/api/v1/config/validate")
-    def validate(body: ConfigEdit):
+    @app.post("/api/v1/projects/{project_id}/config/validate", dependencies=[Depends(project_parameter)])
+    def validate(body: ConfigEdit, request: Request):
+        with sessions() as db:
+            scope = request_scope(request, db)
+            if body.parent_id is not None:
+                require_owned(db, scope, Revision, body.parent_id)
         return {
             "profiles": config.validate(body.document),
             "digest": config.hash(body.document),
         }
 
     @app.post("/api/v1/config/revisions", status_code=201)
-    def save_config(body: ConfigEdit):
+    @app.post("/api/v1/projects/{project_id}/config/revisions", status_code=201, dependencies=[Depends(project_parameter)])
+    def save_config(body: ConfigEdit, request: Request):
         config.validate(body.document)
         with sessions.begin() as db:
+            scope = request_scope(request, db)
             if db.bind.dialect.name == "postgresql":
                 db.execute(text("SELECT pg_advisory_xact_lock(6423400)"))
             latest = db.scalar(
                 select(Revision)
-                .where(Revision.scope == "factory")
+                .where(Revision.scope == "factory", Revision.project_id == scope.project_id)
                 .order_by(desc(Revision.created_at))
                 .with_for_update()
                 .limit(1)
             )
+            if body.parent_id:
+                require_owned(db, scope, Revision, body.parent_id)
             if latest and body.parent_id != latest.id:
                 raise HTTPException(409, "Configuration changed; reload before saving")
             revision = Revision(
+                project_id=scope.project_id,
                 id=str(uuid.uuid4()),
                 parent_id=body.parent_id,
                 summary=body.summary,
@@ -645,9 +670,10 @@ def create_app(settings=None, sessions=None, runtime=None, workflow=None):
             return row(revision)
 
     @app.get("/api/v1/config/revisions/{identifier}/export")
-    def export(identifier: str):
+    @app.get("/api/v1/projects/{project_id}/config/revisions/{identifier}/export", dependencies=[Depends(project_parameter)])
+    def export(identifier: str, request: Request):
         with sessions() as db:
-            revision = db.get(Revision, identifier)
+            revision = require_owned(db, request_scope(request, db), Revision, identifier)
             if revision is None:
                 raise HTTPException(404, "Revision not found")
             return PlainTextResponse(
@@ -841,7 +867,9 @@ def create_app(settings=None, sessions=None, runtime=None, workflow=None):
         return query
 
     @app.get("/api/v1/events")
+    @app.get("/api/v1/projects/{project_id}/events", dependencies=[Depends(project_parameter)])
     def events(
+        request: Request,
         run_id: str | None = None,
         attempt_id: str | None = None,
         kind: str | None = None,
@@ -861,6 +889,8 @@ def create_app(settings=None, sessions=None, runtime=None, workflow=None):
         elif kind:
             query = query.where(Event.kind == kind)
         with sessions() as db:
+            scope = request_scope(request, db)
+            query = query.where(Event.project_id == scope.project_id)
             return [
                 row(item)
                 for item in db.scalars(
@@ -869,9 +899,10 @@ def create_app(settings=None, sessions=None, runtime=None, workflow=None):
             ]
 
     @app.get("/api/v1/model-calls/{identifier}/conversation")
-    def conversation(identifier: str):
+    @app.get("/api/v1/projects/{project_id}/model-calls/{identifier}/conversation", dependencies=[Depends(project_parameter)])
+    def conversation(identifier: str, request: Request):
         with sessions.begin() as db:
-            content = db.get(Conversation, identifier)
+            content = require_owned(db, request_scope(request, db), Conversation, identifier)
             if content is None or content.expires_at < time.time():
                 raise HTTPException(
                     404, "Conversation not captured or retention expired"
@@ -880,7 +911,9 @@ def create_app(settings=None, sessions=None, runtime=None, workflow=None):
             return json.loads(cipher.decrypt(content.ciphertext.encode()))
 
     @app.get("/api/v1/usage")
+    @app.get("/api/v1/projects/{project_id}/usage", dependencies=[Depends(project_parameter)])
     def usage(
+        request: Request,
         since: float = Query(default=0, ge=0),
         run_id: str | None = None,
         attempt_id: str | None = None,
@@ -889,11 +922,12 @@ def create_app(settings=None, sessions=None, runtime=None, workflow=None):
         stage: str | None = None,
     ):
         with sessions() as db:
+            scope = request_scope(request, db)
             calls = db.scalars(
                 scoped_events(
                     select(Event), run_id, attempt_id, worker_id, engine_task_id, stage
                 )
-                .where(Event.kind == "model.completed", Event.occurred_at >= since)
+                .where(Event.project_id == scope.project_id, Event.kind == "model.completed", Event.occurred_at >= since)
                 .order_by(desc(Event.occurred_at))
                 .limit(10000)
             ).all()

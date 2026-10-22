@@ -3,6 +3,7 @@
 Uses only Python's standard library; does not import the application or load env.
 """
 import ast
+from api_routes import route_nodes
 import json
 import re
 import shutil
@@ -116,30 +117,20 @@ for image in (ROOT / 'docs/images').iterdir():
 
 routes = []
 models = {}
-api_paths = ['control-plane/backend/app/' + name + '.py' for name in ('main', 'worker_configs', 'workflow_controls')]
+api_paths = [path.relative_to(ROOT).as_posix() for path in sorted((ROOT / 'control-plane/backend/app').glob('*.py'))]
 for path in api_paths:
     tree = ast.parse((ROOT / path).read_text())
     for node in ast.walk(tree):
-        if isinstance(node, ast.ClassDef) and any(code(base) == 'BaseModel' for base in node.bases):
+        if isinstance(node, ast.ClassDef) and any(code(base) == 'BaseModel' or code(base) in models for base in node.bases):
             models[node.name] = (path, node)
-        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            continue
-        for decorator in node.decorator_list:
-            if not isinstance(decorator, ast.Call) or not isinstance(decorator.func, ast.Attribute):
-                continue
-            method = decorator.func.attr.upper()
-            if method not in {'GET', 'POST', 'PUT', 'PATCH', 'DELETE'} or not decorator.args:
-                continue
-            url = ast.literal_eval(decorator.args[0])
-            if not url.startswith('/api/'):
-                continue
-            routes.append((method, url, path, node, decorator))
+    for method, url, node, decorator in route_nodes(tree):
+        routes.append((method, url, path, node, decorator))
 
 api = ['Every decorated API route in the backend is listed below, including compatibility aliases. '
        'Generated directly from handlers without starting the application. Read [authentication and errors](' + BASE + 'api/authentication/) '
        'and [request recipes](' + BASE + 'api/recipes/) before making requests. '
        'The [response contracts](' + BASE + 'api/contracts/) explain resources and asynchronous receipts.\n',
-       f'**{len(routes)} method/path combinations** across the three route modules. '
+       f'**{len(routes)} method/path combinations** across backend route modules. '
        'Parameter defaults retain their Python declaration so query bounds and strict types are visible. '
        'Request/response shape details that depend on adapters are linked to the implementation.\n']
 for method, url, path, node, decorator in routes:
@@ -177,7 +168,9 @@ for method, url, path, node, decorator in routes:
         api.append('**Request body:** see `' + code(body_arg.annotation) + '` under [request models](#request-models).\n')
 api.append('## Request models\n\nTypes, defaults and field limits below are generated from Pydantic declarations. Nested configuration dictionaries also undergo application validation.\n')
 for name, (path, node) in models.items():
-    api.append(f'### {name}\n\n{source_link(path, node)}\n\n' + table(model_fields(node)))
+    parents = [code(base) for base in node.bases if code(base) in models]
+    inherited = ('Inherits ' + ', '.join(f'[{parent}](#{parent.lower()})' for parent in parents) + '.\n\n') if parents else ''
+    api.append(f'### {name}\n\n{source_link(path, node)}\n\n' + inherited + table(model_fields(node)))
 write('reference/api', 'API endpoint reference', '\n'.join(api))
 
 settings_path = 'worker/factory/settings.py'

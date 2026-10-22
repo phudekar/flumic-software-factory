@@ -435,3 +435,76 @@ Worker build logs and snapshots already use the host directory
 `data/control-plane`. This setting moves only the control PostgreSQL data;
 SigNoz storage and Docker image layers have separate storage settings. Host
 mapping does not remove the need to monitor and reclaim Docker image space.
+
+## Project-scoped configuration APIs
+
+The backend can store independent configurations and multiple repository connections
+for each project. Use `/api/v1/projects` to list or create projects, then retain the
+returned project UUID in every project URL. These endpoints use the same operator
+session, CSRF protection and `Cache-Control: no-store` policy as the existing API.
+Projects separate configuration and history; they do not introduce per-user roles.
+
+| Project URL suffix | Purpose |
+| --- | --- |
+| `/repositories` | List/create project-local aliases such as `backend` and `frontend`. |
+| `/repositories/{id}` | Read or update one connection. Updates require its current `parent_id` revision; stale edits return 409. |
+| `/factory-config` | Read/publish the project's shared settings with an optimistic parent revision. |
+| `/worker-profiles` | List/publish project-local profile revisions; parents and clone sources must belong to this project. |
+| `/config/revisions/{id}` | Read a full configuration revision; append `/export` for YAML. |
+| `/config/effective` | Preview resolved settings for a repository alias and optional workflow/stage overrides. |
+| `/events`, `/usage`, `/model-calls/{id}/conversation` | Read only the project's captured execution history and usage. |
+| `/workflow-controls` | Inspect the project's persisted control receipts; receipt lookup is ownership-checked. |
+
+All suffixes above start with `/api/v1/projects/{project_id}`. Missing or foreign
+resource UUIDs return the same 404 response. Repository aliases are unique within
+a project, so two projects may each connect a `backend` repository. Connection
+updates append immutable revision records; an older revision remains available to
+execution snapshots. Workflow-control idempotency keys are unique within a project.
+
+For example, after authenticating as shown in the
+[API recipes](../website/src/content/docs/api/recipes.md), create a project:
+
+```sh
+curl --fail-with-body -b /tmp/factory-cookies.txt \
+  -H 'Content-Type: application/json' \
+  -H 'X-CSRF-Token: YOUR_CSRF_TOKEN' \
+  --data '{"slug":"payments","name":"Payments"}' \
+  http://localhost:3400/api/v1/projects
+```
+
+Create a repository connection by posting
+`{"alias":"backend","owner":"example","name":"payments-api","overrides":{"openai_model":"gpt-4.1-mini"}}`
+to `/api/v1/projects/PROJECT_UUID/repositories`. The API validates the fully resolved
+configuration before committing; invalid limits or identity overrides are rejected.
+Credential references remain unavailable until the project credential service is
+installed; do not put credential values in configuration documents.
+
+A POST to `/api/v1/projects/PROJECT_UUID/config/effective` accepts:
+
+```json
+{
+  "repository": "backend",
+  "stage_repository": "frontend",
+  "profile": "simple",
+  "workflow": {"openai_model": "gpt-4.1-mini"},
+  "stage": {
+    "tasks": {
+      "triage_issue": {"additional_system_prompt": "Include migration considerations."}
+    }
+  }
+}
+```
+
+`stage_repository` is optional and must resolve within the same project as the run's
+`repository`. Effective behavior applies project configuration/profile defaults,
+then repository overrides, workflow defaults and stage overrides. Existing Settings
+and task-schema limits still apply; the resolver also accepts stricter deployment
+or pool limits from trusted server code. Clients cannot supply those limits. Identity,
+credential, adapter factory, worker registration and task role fields cannot be
+changed by repository/workflow/stage behavior overrides.
+
+Existing unscoped configuration, profile and history URLs always refer to the stable
+**default project**, regardless of a client's selected project. Workers, targets and
+future worker pools remain deployment infrastructure. This API increment does not
+start shared workers or install the later dynamic workflow coordinator; legacy static
+workflow controls and managed-worker lifecycle remain on their compatibility path.

@@ -69,6 +69,32 @@ class Configurations:
             path.write_text(yaml.safe_dump(document))
             return load_settings(path, profile)
 
+    def effective(self, document, profile, repository, workflow=None, stage=None, *, limits=None):
+        """Compile behavior precedence after resolving project profile defaults.
+
+        Limits come from trusted deployment/pool policy, never the HTTP body.
+        This also provides the resolver used by future pinned run contexts.
+        """
+        from copy import deepcopy
+        from app.projects import validate_overrides
+        merged = self.snapshot(document, profile, "preview", "preview")
+        for layer in (repository.get("overrides", {}), workflow or {}, stage or {}):
+            validate_overrides(layer)
+            for key, value in layer.items():
+                if key == "tasks":
+                    for task, values in value.items():
+                        merged["tasks"].setdefault(task, {}).update(deepcopy(values))
+                else:
+                    merged["defaults"][key] = deepcopy(value)
+        merged["defaults"]["repository"] = repository["owner"] + "/" + repository["name"]
+        self.validate(merged)
+        resolved = self.resolve(merged, profile)
+        for key, maximum in (limits or {}).items():
+            value = getattr(resolved, key, None)
+            if not isinstance(value, (int, float)) or isinstance(value, bool) or value > maximum:
+                raise ValueError("Effective configuration exceeds execution pool limits")
+        return resolved
+
     def snapshot(self, document, profile, name, revision):
         from dataclasses import asdict
 

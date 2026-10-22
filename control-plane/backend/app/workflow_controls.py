@@ -5,11 +5,12 @@ import time
 import uuid
 from typing import Literal
 
-from fastapi import HTTPException, Request
+from fastapi import HTTPException, Request, Depends
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select, desc, text
 
-from app.database import WorkflowControlOperation, Audit
+from app.database import WorkflowControlOperation, Audit, DEFAULT_PROJECT_ID
+from app.projects import project_parameter, require_owned, request_scope
 from app.security import digest
 from factory.domain.safety import find_sensitive_categories
 
@@ -28,6 +29,7 @@ def public(operation):
         key: getattr(operation, key)
         for key in (
             "id",
+            "project_id",
             "workflow_id",
             "workflow_name",
             "action",
@@ -41,6 +43,20 @@ def public(operation):
 
 
 def install(app, sessions, engine):
+    @app.get("/api/v1/workflow-controls")
+    @app.get("/api/v1/projects/{project_id}/workflow-controls", dependencies=[Depends(project_parameter)])
+    def receipts(request: Request):
+        with sessions() as db:
+            scope = request_scope(request, db)
+            return [public(item) for item in db.scalars(select(WorkflowControlOperation).where(
+                WorkflowControlOperation.project_id == scope.project_id).order_by(desc(WorkflowControlOperation.created_at)).limit(100))]
+
+    @app.get("/api/v1/workflow-controls/{identifier}")
+    @app.get("/api/v1/projects/{project_id}/workflow-controls/{identifier}", dependencies=[Depends(project_parameter)])
+    def receipt(identifier: str, request: Request):
+        with sessions() as db:
+            return public(require_owned(db, request_scope(request, db), WorkflowControlOperation, identifier))
+
     @app.get("/api/v1/workflows")
     def workflows():
         try:
@@ -56,7 +72,7 @@ def install(app, sessions, engine):
         with sessions() as db:
             operations = db.scalars(
                 select(WorkflowControlOperation)
-                .where(WorkflowControlOperation.workflow_id == str(identifier))
+                .where(WorkflowControlOperation.project_id == DEFAULT_PROJECT_ID, WorkflowControlOperation.workflow_id == str(identifier))
                 .order_by(desc(WorkflowControlOperation.created_at))
                 .limit(25)
             ).all()
@@ -87,7 +103,7 @@ def install(app, sessions, engine):
                 )
             existing = db.scalar(
                 select(WorkflowControlOperation).where(
-                    WorkflowControlOperation.key == key
+                    WorkflowControlOperation.project_id == DEFAULT_PROJECT_ID, WorkflowControlOperation.key == key
                 )
             )
             if existing:
