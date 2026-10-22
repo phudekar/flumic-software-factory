@@ -193,7 +193,7 @@ class AdapterTests(unittest.TestCase):
         result = engine.control(
             "wf",
             "trigger",
-            {"repository": "phudekar/software-factory", "issue_number": 13},
+            {"repository": "phudekar/software-factory-test", "issue_number": 13},
         )
         self.assertEqual(result["run_id"], "run-id")
         self.assertNotIn("secret", str(result))
@@ -214,7 +214,7 @@ class AdapterTests(unittest.TestCase):
         result = engine.control(
             "wf",
             "trigger",
-            {"repository": "phudekar/software-factory", "issue_number": 13},
+            {"repository": "phudekar/software-factory-test", "issue_number": 13},
         )
         self.assertEqual(
             result,

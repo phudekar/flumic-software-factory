@@ -1,7 +1,6 @@
-# Hatchet GitHub Issue Worker
+# Software Factory
 
-This project runs an Alpine-based Python worker that monitors issues in
-`phudekar/software-factory`, asks for clarification when needed, proposes code
+This project runs an python based agentic worker that monitors issues in a configured github repository, asks for clarification when needed, proposes code
 changes on an isolated branch, and opens a draft pull request. Hatchet handles
 the task DAG, three concurrent issue workflows, five-minute scan schedule,
 event triggers, and durable waits.
@@ -39,11 +38,11 @@ full design and remaining milestones.
 
 - Docker Engine and the standalone `docker-compose` command
 - Hatchet CLI with a profile named `development`
-- Fine-grained GitHub token for `phudekar/software-factory`
+- Fine-grained GitHub token for the github project to be monitored
 - OpenAI API key
 - A GitHub webhook configured to deliver issue and pull-request events to
   Hatchet (see below)
-- An initialized `phudekar/software-factory` repository with a default branch
+- An initialized github repository with a default branch
   and source files
 
 ## Configure credentials

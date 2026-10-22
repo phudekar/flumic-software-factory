@@ -25,7 +25,7 @@ def parse_max_patch_iterations(value: str) -> int:
 
 @dataclass(frozen=True)
 class Settings:
-    repository: str = "phudekar/software-factory"
+    repository: str = "phudekar/software-factory-test"
     worker_type: str = "simple"
     developer_agent: str = "api"
     orchestrator: str = "hatchet"

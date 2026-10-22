@@ -1,6 +1,6 @@
 # Shared runtime, logging, persistence, integrations, and telemetry.
 defaults:
-  repository: phudekar/software-factory
+  repository: phudekar/software-factory-test
   orchestrator: hatchet
   hatchet_tls_strategy: tls
   state_path: /data/factory.sqlite3
