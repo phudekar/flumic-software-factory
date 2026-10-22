@@ -67,6 +67,10 @@ class Worker(Base):
     __tablename__ = "worker_instances"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=identity)
     name: Mapped[str] = mapped_column(String(100), unique=True)
+    protocol: Mapped[str] = mapped_column(String(20), default='legacy', server_default='legacy')
+    pool_id: Mapped[str | None] = mapped_column(ForeignKey('worker_pools.id'))
+    capabilities: Mapped[dict] = mapped_column(JSON, default=dict, server_default='{}')
+    registered_at: Mapped[float | None] = mapped_column(Float)
     profile: Mapped[str] = mapped_column(String(100))
     revision_id: Mapped[str] = mapped_column(String(36))
     config_id: Mapped[str | None] = mapped_column(String(36))
@@ -221,4 +225,44 @@ class ActionContextSnapshot(ProjectOwned, Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=identity)
     execution_id: Mapped[str] = mapped_column(String(120))
     ciphertext: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[float] = mapped_column(Float, default=time.time)
+
+
+class WorkerPool(Base):
+    __tablename__ = 'worker_pools'
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=identity)
+    name: Mapped[str] = mapped_column(String(100), unique=True)
+    profile: Mapped[dict] = mapped_column(JSON)
+    created_at: Mapped[float] = mapped_column(Float, default=time.time)
+
+
+class ProjectPool(Base):
+    __tablename__ = 'project_worker_pools'
+    project_id: Mapped[str] = mapped_column(ForeignKey('projects.id'), primary_key=True)
+    pool_id: Mapped[str] = mapped_column(ForeignKey('worker_pools.id'), primary_key=True)
+
+
+class Assignment(ProjectOwned, Base):
+    __tablename__ = 'execution_assignments'
+    __table_args__ = (
+        UniqueConstraint('project_id','execution_id', name='uq_assignment_execution'),
+        ForeignKeyConstraint(['project_id','repository_id'], ['repository_connections.project_id','repository_connections.id'], name='fk_assignment_repository'),
+    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=identity)
+    repository_id: Mapped[str] = mapped_column(String(36))
+    pool_id: Mapped[str] = mapped_column(ForeignKey('worker_pools.id'))
+    run_id: Mapped[str] = mapped_column(String(120))
+    stage_id: Mapped[str] = mapped_column(String(100))
+    execution_id: Mapped[str] = mapped_column(String(120))
+    role: Mapped[str] = mapped_column(String(20))
+    executor: Mapped[str] = mapped_column(String(100))
+    action: Mapped[str] = mapped_column(String(120))
+    worker_id: Mapped[str | None] = mapped_column(ForeignKey('worker_instances.id'))
+    status: Mapped[str] = mapped_column(String(20), default='ready')
+    claim_hash: Mapped[str | None] = mapped_column(String(64))
+    expires_at: Mapped[float | None] = mapped_column(Float)
+    context_id: Mapped[str | None] = mapped_column(ForeignKey('action_context_snapshots.id'))
+    input_ciphertext: Mapped[str] = mapped_column(Text)
+    result_ciphertext: Mapped[str | None] = mapped_column(Text)
+    result_digest: Mapped[str | None] = mapped_column(String(64))
     created_at: Mapped[float] = mapped_column(Float, default=time.time)

@@ -251,3 +251,21 @@ class AdapterTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "pause"):
             engine.control("wf", "pause", {})
         client.workflows.pause.assert_not_called()
+
+    def test_shared_worker_container_has_no_project_credentials_or_global_data(self):
+        import os
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        worker=SimpleNamespace(id='shared',name='shared',profile='simple',revision_id='pool',protocol='shared-v1',pool_id='pool')
+        settings=SimpleNamespace(worker_endpoint='http://control')
+        client=Mock();client.containers.list.return_value=[]
+        client.images.get.return_value.attrs={'Config':{'Labels':{'software-factory.shared-protocol':'1'}}}
+        runtime=DockerRuntime(settings,Mock(),client)
+        with patch.dict(os.environ,{'HATCHET_CLIENT_TOKEN':'infra-token','GITHUB_TOKEN':'project-github','OPENAI_API_KEY':'project-model','ANTHROPIC_API_KEY':'project-anthropic'}):
+            runtime.create(worker,{'protocol':'shared-v1','role':'simple'},'control-token')
+        args=client.containers.create.call_args.kwargs
+        self.assertEqual(set(args['environment']),{'HATCHET_CLIENT_TOKEN','FACTORY_CONTROL_ENDPOINT','FACTORY_CONTROL_TOKEN','FACTORY_CONTROL_WORKER_ID','FACTORY_WORKER_PROTOCOL','FACTORY_WORKER_POOL_ID'})
+        self.assertEqual(args['volumes'],{})
+        self.assertNotIn('project-github',str(args))
+        self.assertNotIn('project-model',str(args))
+        self.assertNotIn('docker.sock',str(args))

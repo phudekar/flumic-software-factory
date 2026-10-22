@@ -560,7 +560,88 @@ credentials from result content, history, structured logs and escaping error mes
 Only `ActionInvocation` identifiers belong in engine payloads; full contexts and
 credential-bearing objects must stay inside the authorized action process.
 
-This increment provides internal context pinning/resolution and service composition.
-Worker-facing context delivery remains unavailable until assignment eligibility and
-lease authorization are implemented in the shared-worker/runtime milestones. Existing
+The context service provides internal pinning/resolution and isolated service composition.
+Shared workers use the assignment-authorized context delivery described below. Existing
 legacy workers continue using their existing bootstrap path.
+
+### Shared worker pools and assignment authorization
+
+A pool describes infrastructure capacity and permitted capabilities. It contains no
+repository selection, model keys, prompts or project task configuration. A project
+must be explicitly authorized to use a pool. Existing workers retain `legacy`
+protocol and default-project behavior, even when their images are rebuilt.
+
+Create a pool with `POST /api/v1/worker-pools`:
+
+```json
+{
+  "name": "shared-simple",
+  "role": "simple",
+  "normal_slots": 2,
+  "durable_slots": 16,
+  "executors": ["builtin@1"],
+  "actions": ["core.echo@1"],
+  "hatchet_tls_strategy": "tls"
+}
+```
+
+| Value | Effect and example |
+| --- | --- |
+| `name` | Unique infrastructure name, such as `shared-simple` or `shared-developer`. |
+| `role` | `simple` or `developer`; selects the standard worker image and required engine routing label. |
+| `normal_slots` | Concurrent action slots **per worker**, from 1 to 8; default 2. This does not replace project/deployment admission limits. |
+| `durable_slots` | Durable engine slots per worker, from 1 to 16; default 16. The durable coordinator is delivered in its separate milestone. |
+| `executors` | Explicit versions allowed by policy, such as `builtin@1`. A worker advertises only locally installed capabilities. |
+| `actions` | Explicit action versions allowed by policy. This increment installs the deterministic `core.echo@1` smoke action; the full builtin catalog and Docker executor follow in their tracked milestones. |
+| `hatchet_tls_strategy` | `tls` (default), `mtls`, or `none` for a deliberately unsecured development engine. |
+
+Pool profiles are immutable in this increment. Create a replacement pool and new
+workers to change infrastructure settings. Project behavior remains independently
+revisioned through project/repository configuration.
+
+Authorize a project with
+`PUT /api/v1/projects/{project_id}/worker-pools/{pool_id}` and body
+`{"enabled": true}`. Set `enabled` to `false` to deny subsequent claims, renewals,
+context delivery and completion requests through that membership. Removing membership
+cannot retract credentials already delivered or undo external effects.
+
+Create a shared worker with `POST /api/v1/worker-pools/{pool_id}/workers`, for example
+`{"name":"shared-simple-1"}`. Reconciliation creates its runtime; use the existing
+worker start/stop/restart/remove actions for lifecycle management. Shared workers
+cannot be configured with legacy project behavior profiles. To transition a legacy
+worker, stop it and explicitly create a shared worker; no existing worker is silently
+promoted. Rebuild the standard images first: shared creation requires image label
+`software-factory.shared-protocol=1`.
+
+The shared Docker environment carries only Hatchet and Control Plane infrastructure
+identity. It receives no GitHub/model keys, project snapshots, shared `/data` mount or
+Docker socket. Its separate startup path fetches the pool profile, negotiates
+`shared-v1`, registers required pool/role/protocol labels, and advertises installed
+executor/action versions. It never registers legacy repository scans or event handlers.
+The pool/role-qualified engine task accepts only invocation identifiers and returns a
+bounded execution receipt; action content stays outside engine payloads.
+
+The trusted scheduler creates an execution authorization record with its project,
+repository, run/stage/execution IDs, pool, role and exact action/executor versions.
+Workers cannot create this authority by submitting their own project/run labels.
+Claim checks authenticate the worker bearer token, explicit protocol registration,
+project membership, persisted requirements and available normal slots. PostgreSQL row
+locks ensure a concurrent claim has one owner.
+
+Worker endpoints use `X-Worker-Id` and the worker bearer token, independently of browser
+operator sessions:
+
+| Route | Behavior |
+| --- | --- |
+| `POST /api/v1/shared-worker/register` | Negotiate pool, protocol, role, installed versions and slot bounds. |
+| `POST /api/v1/shared-worker/claim` | Claim an authorized invocation with a caller-generated `claim_key`; returns the encrypted-at-rest input and a private lease proof. |
+| `POST /api/v1/shared-worker/assignments/{identifier}/renew` | Extend the current lease using its `lease_token`. |
+| `POST /api/v1/shared-worker/assignments/{identifier}/context` | Deliver the pinned settings and minimum credentials only to the owning worker with an active eligible lease. |
+| `POST /api/v1/shared-worker/assignments/{identifier}/complete` | Persist an encrypted result; identical completion retries are accepted, while a changed result conflicts. |
+
+Leases last 120 seconds and the worker renews every 20 seconds. Wrong workers, proofs,
+capabilities, run IDs and stale leases are rejected. An expired assignment retains its
+slot until reconciled; it is never silently handed to another worker while external
+effects may still be running. Durable recovery, fair project/deployment admission and
+the coordinator integrate in the run-state milestone (#7/#8). Legacy history ingestion
+is rejected for shared workers; assignment-derived history follows in #12.

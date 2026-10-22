@@ -7,6 +7,14 @@ def main():
     from factory.adapters.telemetry import configure_logging
 
     import os
+
+    protocol = os.environ.get("FACTORY_WORKER_PROTOCOL", "legacy")
+    if protocol not in {"legacy", "shared-v1"}:
+        raise ValueError("Unsupported worker protocol; refusing legacy fallback")
+    if protocol == "shared-v1":
+        from factory.shared_worker import start_shared
+
+        return start_shared()
     from factory.configuration import load_managed_settings
 
     settings = (

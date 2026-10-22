@@ -58,6 +58,8 @@ class DockerRuntime:
         return items[0]
 
     def create(self, worker, document, token, image=None):
+        if getattr(worker, 'protocol', 'legacy') == 'shared-v1':
+            return self.create_shared(worker, document, token)
         try:
             return self.container(worker.id).id
         except ValueError:
@@ -144,6 +146,30 @@ class DockerRuntime:
             pass
         return container.id
 
+    def create_shared(self, worker, document, token):
+        existing = self.container(worker.id, missing_ok=True)
+        if existing is not None:
+            return existing.id
+        image = ('hatchet-test-developer-worker:latest' if document['role'] == 'developer'
+                 else 'hatchet-test-worker:latest')
+        labels = self.client.images.get(image).attrs.get('Config', {}).get('Labels') or {}
+        if labels.get('software-factory.shared-protocol') != '1':
+            raise ValueError('Rebuild worker image for explicit shared protocol support')
+        engine_token = os.environ.get('HATCHET_CLIENT_TOKEN')
+        if not engine_token:
+            raise ValueError('Configure Hatchet infrastructure credentials')
+        container = self.client.containers.create(image, name=worker.name,
+            environment={'HATCHET_CLIENT_TOKEN':engine_token,
+                'FACTORY_CONTROL_ENDPOINT':self.settings.worker_endpoint,
+                'FACTORY_CONTROL_TOKEN':token,'FACTORY_CONTROL_WORKER_ID':worker.id,
+                'FACTORY_WORKER_PROTOCOL':'shared-v1','FACTORY_WORKER_POOL_ID':worker.pool_id},
+            labels={LABEL:'factory','factory.instance':worker.id,'factory.profile':worker.profile,
+                'factory.revision':worker.revision_id,'factory.pool':worker.pool_id,
+                'software-factory.shared-protocol':'1'},
+            volumes={}, network='worker-network', mem_limit='2g', nano_cpus=2_000_000_000,
+            restart_policy={'Name':'unless-stopped'},detach=True)
+        return container.id
+
     def prepare_image(self, worker, snapshot):
         role = snapshot["defaults"]["worker_type"]
         image = (
@@ -187,6 +213,10 @@ class DockerRuntime:
         if current is not None:
             if current.status == "running":
                 raise ValueError("Stop the worker before changing its configuration")
+        if getattr(worker, 'protocol', 'legacy') == 'shared-v1':
+            if current is not None:
+                current.remove()
+            return self.create_shared(worker, document, token)
         self.config_service.validate(document)
         snapshot = self.config_service.snapshot(
             document, worker.profile, worker.name, worker.revision_id
