@@ -1,11 +1,15 @@
 """Shared actions must never resolve credentials from another invocation."""
 
 import os
+import sys
 from pathlib import Path
 import tempfile
 from concurrent.futures import ThreadPoolExecutor
 import unittest
 from unittest.mock import patch
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "worker"))
+
 from factory.settings import Settings
 import github_client
 import model_client
@@ -303,3 +307,80 @@ class ActionCredentialTests(unittest.TestCase):
         with action_service(context, dispatch=Mock(), state=Mock()) as service:
             with self.assertRaises(ValueError):
                 service.repositories("other/repository")
+
+    def test_generic_context_dumps_exclude_configuration_content(self):
+        from factory.workflows.contracts import ActionContext
+
+        context = ActionContext(
+            project_id="p",
+            repository_id="r",
+            repository_revision_id="rv",
+            config_revision_id="cv",
+            run_id="run",
+            stage_id="s",
+            execution_id="e",
+            attempt=1,
+            assignment_id="a",
+            namespace="p/r",
+            settings_json='{"repository":"a/b","tasks":{"plan":{"additional_system_prompt":"private project guidance"}}}',
+        )
+        self.assertNotIn("private project guidance", repr(context))
+        self.assertNotIn("settings_json", context.model_dump())
+        self.assertNotIn("private project guidance", context.model_dump_json())
+
+    def test_otel_custom_log_extras_are_redacted_before_export(self):
+        import logging
+        from factory.adapters.otel import MetadataFilter, LoggingHandler
+        from factory.workflows.redaction import secret_scope
+
+        record = logging.LogRecord(
+            "issue-worker.custom", logging.INFO, "", 0, "provider failed", (), None
+        )
+        record.api_key = "custom-private-grant"
+        record.details = {"echo": "custom-private-grant"}
+        with secret_scope(["custom-private-grant"]):
+            self.assertTrue(MetadataFilter().filter(record))
+            attributes = LoggingHandler._get_attributes(record)
+            self.assertNotIn("custom-private-grant", str(attributes))
+
+    def test_scoped_nonroot_cli_does_not_try_to_switch_user_or_groups(self):
+        import cli_agent
+        from types import SimpleNamespace
+
+        captures = []
+
+        def run(command, **kwargs):
+            captures.append(kwargs)
+            return SimpleNamespace(
+                returncode=0,
+                stdout='{"type":"result","subtype":"success","result":"done"}',
+                stderr="",
+            )
+
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            patch.object(cli_agent.os, "geteuid", return_value=10001),
+            patch.object(cli_agent.subprocess, "run", side_effect=run),
+        ):
+            cli_agent._run_agent(
+                "claude",
+                Path(tmp),
+                "prompt",
+                credentials={"anthropic": "test-key"},
+                agent_home=Path(tmp),
+            )
+        self.assertFalse({"user", "group", "extra_groups"} & captures[0].keys())
+
+    def test_scoped_nonroot_workspace_keeps_current_ownership(self):
+        import cli_agent
+
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            patch.object(cli_agent.os, "geteuid", return_value=10001),
+            patch.object(
+                cli_agent.os, "chown", side_effect=PermissionError("not privileged")
+            ),
+        ):
+            home = Path(tmp)
+            (home / "file").write_text("safe")
+            cli_agent._set_agent_ownership(home, home, scoped=True)

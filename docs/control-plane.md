@@ -546,7 +546,8 @@ credential already delivered to an executing process; revoke it at the provider 
 when immediate invalidation is required.
 
 The action-context service stores an encrypted snapshot of effective settings plus
-exact factory, repository, workflow and credential-version references. Trusted runtime
+exact factory, repository, workflow and credential-version references. Generic context
+serialization and logs omit effective settings as well as credential values. Trusted runtime
 code pins this once per execution, with the required credential purposes. Replaying
 context resolution uses that snapshot rather than current configuration. GitHub grants
 come from the pinned repository revision; provider grants are explicit version IDs.

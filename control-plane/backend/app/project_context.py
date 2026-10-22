@@ -151,7 +151,14 @@ def pin_context(
         project_id=scope.project_id,
         execution_id=execution_id,
         ciphertext=encrypt(
-            {"context": context.model_dump(mode="json"), "grants": selected}, settings
+            {
+                "context": {
+                    **context.model_dump(mode="json"),
+                    "settings_json": context.settings_json,
+                },
+                "grants": selected,
+            },
+            settings,
         ),
     )
     db.add(item)

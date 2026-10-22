@@ -79,7 +79,13 @@ def selected_agent() -> str:
     return agent
 
 
-def _ensure_codex_authenticated(env: dict[str, str]) -> str | None:
+def _process_identity(*, scoped=False):
+    if scoped and os.geteuid() != 0:
+        return {}
+    return {"user": AGENT_UID, "group": AGENT_GID, "extra_groups": ()}
+
+
+def _ensure_codex_authenticated(env: dict[str, str], *, scoped=False) -> str | None:
     global _CODEX_AUTHENTICATED_KEY_HASH
 
     api_key = env["OPENAI_API_KEY"]
@@ -98,9 +104,7 @@ def _ensure_codex_authenticated(env: dict[str, str]) -> str | None:
                 env=env,
                 timeout=60,
                 check=False,
-                user=AGENT_UID,
-                group=AGENT_GID,
-                extra_groups=(),
+                **_process_identity(scoped=scoped),
             )
         except subprocess.TimeoutExpired:
             return "Codex API key login timed out"
@@ -162,7 +166,7 @@ def generate_patch(
         workspace = Path(temporary_directory)
         _extract_archive(archive, workspace)
         _scan_text_files(workspace)
-        _set_agent_ownership(workspace, home)
+        _set_agent_ownership(workspace, home, scoped=credentials is not None)
         baseline = _snapshot(workspace)
         original_directories = {
             path.relative_to(workspace).as_posix()
@@ -317,12 +321,15 @@ def _scan_text_files(workspace: Path) -> None:
         assert_safe_text(relative, text)
 
 
-def _set_agent_ownership(workspace: Path, agent_home=None) -> None:
+def _set_agent_ownership(workspace: Path, agent_home=None, *, scoped=False) -> None:
+    change_owner = not scoped or os.geteuid() == 0
     for path in (workspace, *workspace.rglob("*")):
         if path.is_symlink():
             raise ModelError("Repository workspace contains a symbolic link")
-        os.chown(path, AGENT_UID, AGENT_GID)
-    os.chown(agent_home or AGENT_HOME, AGENT_UID, AGENT_GID)
+        if change_owner:
+            os.chown(path, AGENT_UID, AGENT_GID)
+    if change_owner:
+        os.chown(agent_home or AGENT_HOME, AGENT_UID, AGENT_GID)
 
 
 def _snapshot(
@@ -561,7 +568,9 @@ def _run_agent(
             str(output_path),
             "-",
         ]
-        if login_error := _ensure_codex_authenticated(env):
+        if login_error := _ensure_codex_authenticated(
+            env, scoped=credentials is not None
+        ):
             raise ModelError(login_error)
     else:
         api_key = (
@@ -594,9 +603,7 @@ def _run_agent(
             env=env,
             timeout=timeout_seconds,
             check=False,
-            user=AGENT_UID,
-            group=AGENT_GID,
-            extra_groups=(),
+            **_process_identity(scoped=credentials is not None),
         )
         # JSON events can contain source/tool output. Export metadata only.
         logger.info(

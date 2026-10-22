@@ -73,7 +73,7 @@ class ActionContext(Contract):
     attempt: int = Field(ge=1)
     assignment_id: str
     namespace: str
-    settings_json: str
+    settings_json: str = Field(repr=False, exclude=True)
     secret_versions: tuple[str, ...] = ()
     _credentials: dict = PrivateAttr(default_factory=dict)
 

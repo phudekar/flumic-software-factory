@@ -32,6 +32,10 @@ class CorrelationFilter(logging.Filter):
             record.error_type = record.exc_info[0].__name__
             record.exc_info = None
             record.exc_text = None
+        # OTLP also exports arbitrary LogRecord extras, including nested values.
+        # Scrub before any handler translates them into telemetry attributes.
+        for key, value in tuple(vars(record).items()):
+            setattr(record, key, redact(value))
         return True
 
 
