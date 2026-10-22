@@ -18,10 +18,10 @@ Standard telemetry excludes prompts, completions and tool transcripts. Control-p
 
 Back up control PostgreSQL together with the encryption key in `.env.control-plane`. Losing the key makes stored conversations unreadable; casual rotation also affects worker ingestion credentials. Factory execution SQLite/locks and prepared changes live under the shared `data/` directory and need their own consistent backup procedure.
 
-Stop writers before filesystem-level copies; use database-aware backups when available. Do not delete volumes to troubleshoot a running installation. For host PostgreSQL storage, follow the [documented migration](/software-factory/handbook/control-plane/#host-database-storage), preserve the old volume until verified, and retain the PostgreSQL major version.
+Stop writers before filesystem-level copies; use database-aware backups when available. Do not delete volumes to troubleshoot a running installation. For host PostgreSQL storage, follow the [documented migration](/flumic-software-factory/handbook/control-plane/#host-database-storage), preserve the old volume until verified, and retain the PostgreSQL major version.
 
 ## Upgrades
 
 Build changed worker code/dependencies into new images, then replace runtimes intentionally. Coordinate shared factory revisions across profiles and workers. SigNoz has pinned/generated deployment assets; follow its lifecycle guide when regenerating. There is no automated safe rolling drain.
 
-[Detailed security boundary](/software-factory/handbook/issue-lifecycle/#security-boundary-and-limitations) · [Architecture](/software-factory/handbook/architecture/)
+[Detailed security boundary](/flumic-software-factory/handbook/issue-lifecycle/#security-boundary-and-limitations) · [Architecture](/flumic-software-factory/handbook/architecture/)

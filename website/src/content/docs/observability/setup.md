@@ -20,7 +20,7 @@ This starts real workers and enables scanning, provider requests and GitHub oper
 
 ## Worker and stage dashboard
 
-![Actual SigNoz worker and stage dashboard with active tasks, heartbeats, attempts and failures](/software-factory/images/signoz-workers-stages.png)
+![Actual SigNoz worker and stage dashboard with active tasks, heartbeats, attempts and failures](/flumic-software-factory/images/signoz-workers-stages.png)
 
 This existing installation is shown over **Last 1 day**, not a fresh-install baseline. Gaps and absent series do not establish a healthy idle worker. The dashboard name and `software-factory` telemetry filters remain stable after the product rename.
 
@@ -38,9 +38,9 @@ Export is batched and best effort; outages can lose data. OTLP exports accountin
 
 A separate collector reads Docker CPU, memory, network and I/O, and discovers new containers. It observes all running containers on the host, including unrelated workloads. Docker socket access is privileged even when mounted read-only. Disk capacity series describe filesystems, not ownership of the full disk by each worker.
 
-![Actual SigNoz CPU, memory, disk I/O and network panels for Docker containers](/software-factory/images/signoz-container-resources.png)
+![Actual SigNoz CPU, memory, disk I/O and network panels for Docker containers](/flumic-software-factory/images/signoz-container-resources.png)
 
-Resource charts include shared services and can include other Docker workloads on the host. CPU above 100% can represent multiple cores. Read [container metrics and disk-capacity semantics](/software-factory/handbook/observability/#infrastructure-resources) before comparing series.
+Resource charts include shared services and can include other Docker workloads on the host. CPU above 100% can represent multiple cores. Read [container metrics and disk-capacity semantics](/flumic-software-factory/handbook/observability/#infrastructure-resources) before comparing series.
 
 ## Validate without paid calls
 
@@ -48,4 +48,4 @@ Resource charts include shared services and can include other Docker workloads o
 .venv/bin/python scripts/telemetry-smoke.py
 ```
 
-Synthetic events use `telemetry-smoke` and `factory.synthetic=true`. They do not populate the default development filter. See the [complete observability guide](/software-factory/handbook/observability/) for credential bootstrap, pricing, panel semantics, shutdown and reproducible upgrades.
+Synthetic events use `telemetry-smoke` and `factory.synthetic=true`. They do not populate the default development filter. See the [complete observability guide](/flumic-software-factory/handbook/observability/) for credential bootstrap, pricing, panel semantics, shutdown and reproducible upgrades.

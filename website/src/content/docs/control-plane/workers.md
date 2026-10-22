@@ -6,7 +6,7 @@ title: "Manage workers and images"
 
 Choose **Workers → Create worker**, enter a unique name, and choose a saved simple or developer profile. Creation queues an operation and leaves the runtime stopped. Start separately once the image is ready. Watch both runtime state and Hatchet registration; a running container alone does not prove it can execute tasks.
 
-![Managed workers with runtime, Hatchet registration and configuration revision](/software-factory/images/control-plane-workers.png)
+![Managed workers with runtime, Hatchet registration and configuration revision](/flumic-software-factory/images/control-plane-workers.png)
 
 ## Lifecycle actions
 
@@ -26,4 +26,4 @@ Worker names open details containing stage-attempt history and usage. **Build lo
 
 Image build settings select an approved Debian/Ubuntu/Alpine base, system packages, pinned CLI versions and a build script. Build scripts execute during assembly and must not contain secrets. Startup scripts run on every process start, are timeout bounded, and should be idempotent. Changing an image requires runtime replacement; a direct Docker restart keeps the installed image.
 
-[Image build architecture and caching](/software-factory/handbook/worker-image-builds/) · [Scaling workers](/software-factory/operations/scaling/)
+[Image build architecture and caching](/flumic-software-factory/handbook/worker-image-builds/) · [Scaling workers](/flumic-software-factory/operations/scaling/)

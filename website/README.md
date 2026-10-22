@@ -14,7 +14,7 @@ npm ci
 npm run dev
 ```
 
-Open the printed URL with `/software-factory/`. To test the deployed artifact:
+Open the printed URL with `/flumic-software-factory/`. To test the deployed artifact:
 
 ```sh
 npm run build
@@ -50,7 +50,7 @@ After editing a canonical source during `dev`, rerun `npm run prepare-content`
 
 ## GitHub Pages deployment
 
-The expected URL is https://phudekar.github.io/software-factory/.
+The expected URL is https://phudekar.github.io/flumic-software-factory/.
 The project base is configured in `astro.config.mjs` and the content/link scripts;
 update them together if the repository path changes.
 

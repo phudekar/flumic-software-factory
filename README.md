@@ -1,6 +1,6 @@
 # Flumic AI
 
-[![CI tests](https://github.com/phudekar/software-factory/actions/workflows/tests.yml/badge.svg)](https://github.com/phudekar/software-factory/actions/workflows/tests.yml)
+[![CI tests](https://github.com/phudekar/flumic-software-factory/actions/workflows/tests.yml/badge.svg)](https://github.com/phudekar/flumic-software-factory/actions/workflows/tests.yml)
 
 Flumic AI turns GitHub issues into reviewed draft pull requests with Python workers, Hatchet
 orchestration, and your choice of Codex, Claude Code, or a direct model API.
@@ -33,8 +33,8 @@ You need:
   requires an Anthropic key. Configured model IDs must be available to your account.
 
 ```sh
-git clone https://github.com/phudekar/software-factory.git
-cd software-factory
+git clone https://github.com/phudekar/flumic-software-factory.git
+cd flumic-software-factory
 cp .env.example .env
 ```
 
@@ -288,7 +288,7 @@ before enabling automation on sensitive repositories.
 The GitHub Pages website combines a product introduction with searchable usage,
 configuration, API and observability guides. See [website development and publishing](website/README.md)
 for local preview commands and Pages setup. The expected deployment address is
-[phudekar.github.io/software-factory](https://phudekar.github.io/software-factory/).
+[phudekar.github.io/flumic-software-factory](https://phudekar.github.io/flumic-software-factory/).
 
 ## Further reading
 

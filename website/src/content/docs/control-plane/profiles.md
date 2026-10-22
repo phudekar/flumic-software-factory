@@ -8,7 +8,7 @@ title: "Profiles, prompts and factory settings"
 
 **Clone as new profile** creates another identity. Several workers can share a profile; saving affects the settings they load on their next start/restart. It does not hot-reload their running process. Concurrent stale edits return a conflict so another revision is not overwritten.
 
-![Saved profile selector, history and worker behavior YAML](/software-factory/images/control-plane-configuration.png)
+![Saved profile selector, history and worker behavior YAML](/flumic-software-factory/images/control-plane-configuration.png)
 
 ## Factory settings
 
@@ -20,10 +20,10 @@ On a fresh profile store, repository YAML seeds the initial profiles. Later edit
 
 ## YAML and Markdown editors
 
-![Worker prompt editor with profile revision, workflow task and Markdown guidance](/software-factory/images/control-plane-prompts.png)
+![Worker prompt editor with profile revision, workflow task and Markdown guidance](/flumic-software-factory/images/control-plane-prompts.png)
 
 The selected profile's planning guidance is shown in Write mode. Selecting a task or previewing Markdown does not save a revision.
 
 Validate checks syntax and complete server-side rules without creating a revision. Invalid YAML disables Save/Clone. Format adjusts the current draft; comments survive draft formatting but not parsed-value storage. Image build and worker behavior have separate YAML mappings. Worker prompts provide a Markdown Write/Preview interface and character limit.
 
-[Bootstrap profile format](/software-factory/handbook/bootstrap-profiles/) · [Prompt customization](/software-factory/workflows/models-prompts/)
+[Bootstrap profile format](/flumic-software-factory/handbook/bootstrap-profiles/) · [Prompt customization](/flumic-software-factory/workflows/models-prompts/)

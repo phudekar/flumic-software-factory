@@ -12,8 +12,8 @@ from urllib.parse import quote
 ROOT = Path(__file__).resolve().parents[2]
 SITE = ROOT / 'website'
 CONTENT = SITE / 'src/content/docs'
-BASE = '/software-factory/'
-GITHUB = 'https://github.com/phudekar/software-factory/blob/main/'
+BASE = '/flumic-software-factory/'
+GITHUB = 'https://github.com/phudekar/flumic-software-factory/blob/main/'
 GUIDES = {
     'docs/control-plane.md': 'Control-plane handbook',
     'docs/worker-configuration.md': 'Worker configuration handbook',

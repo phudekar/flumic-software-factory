@@ -34,7 +34,7 @@ npm ci
 npm run dev
 ```
 
-Open the printed URL with `/software-factory/`. For the production artifact and search index:
+Open the printed URL with `/flumic-software-factory/`. For the production artifact and search index:
 
 ```sh
 npm run build
@@ -50,6 +50,6 @@ Search is generated for the production build; test it with `preview`. Changes to
 
 In repository **Settings → Pages**, choose **GitHub Actions** as the source. The **Documentation website** workflow builds and validates pull requests. Only pushes to `main` and manual runs on `main` can deploy. Check the deployment job and its returned URL before treating a site update as published.
 
-The site uses the repository prefix `/software-factory/`; deployment and local preview must retain it. Changing the repository name requires updating site configuration and content/link scripts together.
+The site uses the repository prefix `/flumic-software-factory/`; deployment and local preview must retain it. Changing the repository name requires updating site configuration and content/link scripts together.
 
-[Website source and contribution details](https://github.com/phudekar/software-factory/blob/main/website/README.md) · [Architecture and extension points](/software-factory/handbook/architecture/)
+[Website source and contribution details](https://github.com/phudekar/flumic-software-factory/blob/main/website/README.md) · [Architecture and extension points](/flumic-software-factory/handbook/architecture/)

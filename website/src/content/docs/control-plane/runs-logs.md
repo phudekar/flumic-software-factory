@@ -20,16 +20,16 @@ Parsed mode extracts message/severity/stage metadata from structured JSON and pr
 
 ## Model history
 
-![Model history listing models, stages, token usage, estimated costs and completion status](/software-factory/images/control-plane-model-history.png)
+![Model history listing models, stages, token usage, estimated costs and completion status](/flumic-software-factory/images/control-plane-model-history.png)
 
 The list exposes accounting and execution metadata without opening retained request or response content.
 
 The model-history page lists retained captured calls. Open a call to inspect separate redacted input and result blocks; content reads are audited. Capture starts with instrumented workers and follows profile policy. API capture includes assembled system messages. CLI capture contains submitted guidance and final output, not a complete internal conversation.
 
-[Traceability and accounting](/software-factory/observability/stage-accounting/) · [Error coverage audit](/software-factory/handbook/telemetry-error-audit/)
+[Traceability and accounting](/flumic-software-factory/observability/stage-accounting/) · [Error coverage audit](/flumic-software-factory/handbook/telemetry-error-audit/)
 
 ## Example: attempt-scoped planning logs
 
-![Logs for a selected planning attempt with parsed severity, stage and worker identity](/software-factory/images/control-plane-stage-logs.png)
+![Logs for a selected planning attempt with parsed severity, stage and worker identity](/flumic-software-factory/images/control-plane-stage-logs.png)
 
 This actual local run completed its planning attempt. The attempt-scoped view correlates worker logs and model-call metadata without opening conversation content. Scroll position and filters are part of the shown view.

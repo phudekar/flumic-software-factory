@@ -8,7 +8,7 @@ Open `http://localhost:3400` and sign in with the administrator password from `.
 
 Overview summarizes managed workers, the latest page of workflow runs, recorded tokens and known estimated spend. Treat these as bounded views of retained records. A missing price or absent usage is not zero spend.
 
-![Overview with recent runs, worker totals and usage estimates](/software-factory/images/control-plane-overview.png)
+![Overview with recent runs, worker totals and usage estimates](/flumic-software-factory/images/control-plane-overview.png)
 
 ## Where to go
 
@@ -22,4 +22,4 @@ Overview summarizes managed workers, the latest page of workflow runs, recorded 
 | Configuration | Worker profiles, image builds and shared factory settings |
 | Worker prompts | Stage-specific Markdown guidance and history |
 
-The UI refreshes through bounded polling. **Refresh all data** requests fresh views; integration warnings indicate unknown state rather than an inferred healthy/idle system. Use the [full operator handbook](/software-factory/handbook/control-plane/) for field-level behavior and limits.
+The UI refreshes through bounded polling. **Refresh all data** requests fresh views; integration warnings indicate unknown state rather than an inferred healthy/idle system. Use the [full operator handbook](/flumic-software-factory/handbook/control-plane/) for field-level behavior and limits.

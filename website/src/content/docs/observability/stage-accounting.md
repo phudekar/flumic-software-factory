@@ -35,22 +35,22 @@ Example, for illustration only: a planning attempt may report 8,000 input and 90
 | SigNoz traces | How do instrumented spans and logs correlate? |
 | SigNoz resource metrics | Was container CPU/memory/I/O unusual? |
 
-[Detailed accounting and price formula](/software-factory/handbook/observability/#cost-estimates) · [API usage filters](/software-factory/api/contracts/#usage)
+[Detailed accounting and price formula](/flumic-software-factory/handbook/observability/#cost-estimates) · [API usage filters](/flumic-software-factory/api/contracts/#usage)
 
 ## See it in the control plane
 
-![Run detail with stage and attempt selectors and accounting for the current selection](/software-factory/images/control-plane-stage-attempts.png)
+![Run detail with stage and attempt selectors and accounting for the current selection](/flumic-software-factory/images/control-plane-stage-attempts.png)
 
 This completed planning attempt has two recorded model calls, with input/output token totals and a known estimated cost for the selection. Reported client USD remains unknown. Stage and attempt selectors keep accounting scoped to the same execution context.
 
-![Global usage page with separate token totals, known estimated cost, unpriced calls and coverage](/software-factory/images/control-plane-usage.png)
+![Global usage page with separate token totals, known estimated cost, unpriced calls and coverage](/flumic-software-factory/images/control-plane-usage.png)
 
 The global Usage page summarizes retained accounting records. It complements the run detail's stage/attempt scope; values shown here come from an existing installation and are not expected first-run totals.
 
 ## Model usage and cost in SigNoz
 
-![SigNoz one-day token, accounting-event and estimated-cost panels with stage duration](/software-factory/images/signoz-model-usage-cost.png)
+![SigNoz one-day token, accounting-event and estimated-cost panels with stage duration](/flumic-software-factory/images/signoz-model-usage-cost.png)
 
 This capture shows actual recorded model activity and known estimated spend from a local installation. The empty CLI-reported panel indicates unavailable client estimates, not free usage. Use SigNoz for rates and correlated telemetry; use the run detail's stage/attempt filters for the corresponding retained application accounting records.
 
-[Set up these dashboards](/software-factory/observability/setup/) · [Pricing and token normalization](/software-factory/handbook/observability/#cost-estimates)
+[Set up these dashboards](/flumic-software-factory/observability/setup/) · [Pricing and token normalization](/flumic-software-factory/handbook/observability/#cost-estimates)

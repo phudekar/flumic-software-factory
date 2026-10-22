@@ -58,4 +58,4 @@ Example response shape (illustrative, not a real measurement):
 {"calls":2,"input_tokens":12000,"output_tokens":1800,"estimated_usd":null,"reported_usd":null,"unpriced_calls":2,"missing_usage_calls":0,"limit":10000,"truncated":false,"note":"Known subtotal. Estimated and reported USD are separate; provider invoices may differ."}
 ```
 
-Use an attempt filter only with an attempt belonging to that task/run. Remove private request files and cookie jars when finished. [Authentication and error behavior](/software-factory/api/authentication/)
+Use an attempt filter only with an attempt belonging to that task/run. Remove private request files and cookie jars when finished. [Authentication and error behavior](/flumic-software-factory/api/authentication/)

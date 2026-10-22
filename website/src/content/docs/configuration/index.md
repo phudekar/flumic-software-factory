@@ -18,10 +18,10 @@ Task settings resolve from code compatibility defaults → task defaults → nam
 
 ## Complete reference
 
-- [Worker settings, task/label fields, exact defaults and validation](/software-factory/reference/configuration/)
-- [All task defaults](/software-factory/reference/tasks/)
-- [Manifest and configuration handbook](/software-factory/handbook/worker-configuration/)
-- [Bootstrap profile schema](/software-factory/handbook/bootstrap-profiles/)
-- [Saved profile operations](/software-factory/control-plane/profiles/)
+- [Worker settings, task/label fields, exact defaults and validation](/flumic-software-factory/reference/configuration/)
+- [All task defaults](/flumic-software-factory/reference/tasks/)
+- [Manifest and configuration handbook](/flumic-software-factory/handbook/worker-configuration/)
+- [Bootstrap profile schema](/flumic-software-factory/handbook/bootstrap-profiles/)
+- [Saved profile operations](/flumic-software-factory/control-plane/profiles/)
 
 Code defaults can differ from checked-in YAML defaults. Read both the field inventory and the effective configuration. A `control_revision` is runtime metadata; creation-time labels do not always represent loaded settings.

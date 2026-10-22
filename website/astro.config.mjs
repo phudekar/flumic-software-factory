@@ -3,13 +3,13 @@ import starlight from '@astrojs/starlight';
 
 export default defineConfig({
   site: 'https://phudekar.github.io',
-  base: '/software-factory',
+  base: '/flumic-software-factory',
   trailingSlash: 'always',
   integrations: [starlight({
     title: 'Flumic AI',
     logo: { src: '../control-plane/frontend/src/assets/flumic.svg', alt: 'Flumic AI icon' },
     description: 'Run, configure, and observe AI development workflows from GitHub issue to reviewed pull request.',
-    social: [{ icon: 'github', label: 'GitHub', href: 'https://github.com/phudekar/software-factory' }],
+    social: [{ icon: 'github', label: 'GitHub', href: 'https://github.com/phudekar/flumic-software-factory' }],
     customCss: ['./src/styles/docs.css'],
     sidebar: [
       { label: 'Start here', items: ['start/introduction', 'start/quick-start', 'start/concepts'] },

@@ -8,7 +8,7 @@ from urllib.parse import unquote, urljoin, urlsplit
 
 ROOT=Path(__file__).resolve().parents[2]
 DIST=ROOT/'website/dist'
-BASE='/software-factory/'
+BASE='/flumic-software-factory/'
 
 class Page(HTMLParser):
     def __init__(self, text):

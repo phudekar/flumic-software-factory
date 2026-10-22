@@ -16,7 +16,7 @@ The main registered DAG loads an issue, plans work and creates sub-issues, triag
 | Discussion / review waits | Simple | Poll interval and durable timeout; human labels/review remain authoritative |
 | Merge verification / recording | Simple | Verification retries and timeouts; deterministic stages do not call a model |
 
-The [task inventory](/software-factory/reference/tasks/) lists all code defaults. The [workflow configuration](/software-factory/handbook/worker-configuration/) explains repository overrides.
+The [task inventory](/flumic-software-factory/reference/tasks/) lists all code defaults. The [workflow configuration](/flumic-software-factory/handbook/worker-configuration/) explains repository overrides.
 
 ## Configure task behavior
 
@@ -43,4 +43,4 @@ Open **Workflow runs**, select a run and a stage, then use **View logs**. Inspec
 
 **Trigger, Pause and Resume** act on a workflow definition. They are not per-stage pause or replay actions. Configuration changes affect future loaded settings; they do not rewrite an in-flight stage. Stopping a worker can interrupt work, which Hatchet may retry.
 
-Read [workflow controls](/software-factory/workflows/controls/) and the [full lifecycle](/software-factory/handbook/issue-lifecycle/).
+Read [workflow controls](/flumic-software-factory/workflows/controls/) and the [full lifecycle](/flumic-software-factory/handbook/issue-lifecycle/).

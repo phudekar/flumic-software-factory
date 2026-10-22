@@ -2,7 +2,7 @@
 title: "Resource and response contracts"
 ---
 
-The [generated endpoint reference](/software-factory/reference/api/) covers every method/path, request model, query constraint, handler status and explicit HTTP errors. This guide explains the resulting resources. Adapter-owned execution data can vary by Hatchet/server capability; inspect warnings rather than inferring missing states.
+The [generated endpoint reference](/flumic-software-factory/reference/api/) covers every method/path, request model, query constraint, handler status and explicit HTTP errors. This guide explains the resulting resources. Adapter-owned execution data can vary by Hatchet/server capability; inspect warnings rather than inferring missing states.
 
 ## Workers and runtime
 
@@ -32,7 +32,7 @@ Conversation GET decrypts retained redacted JSON for an authenticated administra
 
 Usage returns `calls`, `input_tokens`, `output_tokens`, `estimated_usd`, `reported_usd`, `unpriced_calls`, `missing_usage_calls`, `limit`, `truncated` and `note`. Unknown totals are null. It processes at most the latest 10,000 matching `model.completed` events and sums accounting leaves to avoid parent/child double counting. Estimated and reported USD are separate views of costs; do not add them together.
 
-Supported scopes are `since` (nonnegative Unix seconds), `run_id`, `attempt_id`, `worker_id`, `engine_task_id`, and `stage`. See the [stage accounting guide](/software-factory/observability/stage-accounting/).
+Supported scopes are `since` (nonnegative Unix seconds), `run_id`, `attempt_id`, `worker_id`, `engine_task_id`, and `stage`. See the [stage accounting guide](/flumic-software-factory/observability/stage-accounting/).
 
 ## Profiles and factory revisions
 

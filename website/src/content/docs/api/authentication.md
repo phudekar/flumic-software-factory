@@ -29,4 +29,4 @@ Send the cookie on authenticated requests. Mutations require the returned token 
 
 Middleware 401/403 responses can have empty bodies. Validation failures use a generic `detail` message; ValueErrors are redacted. Some list routes return warnings with empty items when Docker/Hatchet is unavailable, so HTTP 200 does not imply healthy integrations.
 
-[All endpoint contracts](/software-factory/reference/api/) · [Request recipes](/software-factory/api/recipes/)
+[All endpoint contracts](/flumic-software-factory/reference/api/) · [Request recipes](/flumic-software-factory/api/recipes/)

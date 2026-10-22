@@ -191,7 +191,7 @@ Use code-native diagrams for architecture, task flow, and traceability hierarchy
 
 ## GitHub Pages and CI
 
-Expected project URL: `https://phudekar.github.io/software-factory/`, subject to
+Expected project URL: `https://phudekar.github.io/flumic-software-factory/`, subject to
 repository Pages configuration. Configure the base path for project hosting so
 assets, search, navigation, canonical links and 404 handling work under that path.
 

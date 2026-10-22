@@ -24,4 +24,4 @@ Engine workflow/task IDs and factory run/attempt IDs are related but not interch
 
 Factory revisions define shared orchestration and policy. Profiles contain worker behavior and pin a factory revision. Saving a profile creates an immutable revision in a family; cloning creates another family. Runtime snapshots combine the selected settings. Telemetry records the actual loaded revision; creation-time Docker labels may differ after direct process restarts.
 
-[Profile operations](/software-factory/control-plane/profiles/) · [Stage management](/software-factory/workflows/stages/)
+[Profile operations](/flumic-software-factory/control-plane/profiles/) · [Stage management](/flumic-software-factory/workflows/stages/)

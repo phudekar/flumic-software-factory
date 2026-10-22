@@ -24,4 +24,4 @@ For managed instances, create additional uniquely named workers using the intend
 
 A control-plane PostgreSQL database does not make execution state distributed. Kubernetes and cross-host worker fleets require additional runtime/shared-state adapters. There is no verified graceful drain; Stop can interrupt tasks, so plan configuration adoption accordingly.
 
-[Task routing and precedence](/software-factory/handbook/worker-configuration/) · [Runtime architecture](/software-factory/handbook/architecture/)
+[Task routing and precedence](/flumic-software-factory/handbook/worker-configuration/) · [Runtime architecture](/flumic-software-factory/handbook/architecture/)

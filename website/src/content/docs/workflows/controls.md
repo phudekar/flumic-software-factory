@@ -4,7 +4,7 @@ title: "Trigger, pause and resume"
 
 Open **Workflows** to inspect registered factory definitions and their supported actions.
 
-![Registered workflow definitions with status and trigger, pause and action-history controls](/software-factory/images/control-plane-workflows.png)
+![Registered workflow definitions with status and trigger, pause and action-history controls](/flumic-software-factory/images/control-plane-workflows.png)
 
 The local factory currently lists 11 registered definitions. This view shows their active status and available controls before any action is submitted.
 
@@ -22,4 +22,4 @@ If native pause capability is unknown or unsupported, the control is disabled. D
 
 Inspect the latest local action receipts before repeating an action. Transport retries reuse the same idempotency key. An uncertain engine outcome is deliberately not retried automatically because the engine might already have accepted it. Check current state and runs before submitting a fresh action.
 
-[API workflow contracts](/software-factory/api/contracts/#workflow-actions) · [Durability architecture](/software-factory/handbook/control-plane-workflows/)
+[API workflow contracts](/flumic-software-factory/api/contracts/#workflow-actions) · [Durability architecture](/flumic-software-factory/handbook/control-plane-workflows/)

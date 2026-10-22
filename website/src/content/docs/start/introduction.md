@@ -29,4 +29,4 @@ Flumic AI turns issue requirements into draft pull requests through explicit, ob
 
 The deployment is for a trusted local developer with Docker access. It does not provide multi-user roles, verified graceful drain, automatic rolling configuration migration or Kubernetes execution. Multiple workers must share execution state on one host. Humans review and merge PRs.
 
-[Start locally](/software-factory/start/quick-start/) or [explore the architecture](/software-factory/handbook/architecture/).
+[Start locally](/flumic-software-factory/start/quick-start/) or [explore the architecture](/flumic-software-factory/handbook/architecture/).

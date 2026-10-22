@@ -34,4 +34,4 @@ List APIs may return warnings and unknown state. Check Docker connectivity, the 
 
 In the target repository's GitHub CI. Configure required checks/branch protection there. Coding tools may run commands in their workspaces; the factory does not run project tests directly in its credential-bearing worker process. A human reviews, approves and merges.
 
-[Full operator guide](/software-factory/handbook/control-plane/) · [Security and privacy](/software-factory/operations/security/)
+[Full operator guide](/flumic-software-factory/handbook/control-plane/) · [Security and privacy](/flumic-software-factory/operations/security/)
