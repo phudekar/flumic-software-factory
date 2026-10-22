@@ -9,6 +9,7 @@ import time
 import uuid
 from contextlib import contextmanager
 
+from factory.workflows.redaction import redact
 from factory.domain.models import OperationBusy
 from factory.domain.safety import find_sensitive_categories
 
@@ -21,9 +22,10 @@ class CorrelationFilter(logging.Filter):
             key: "[redacted]"
             if isinstance(value, str) and find_sensitive_categories(value)
             else value
-            for key, value in _context.get().items()
+            for key, value in redact(_context.get()).items()
         }
-        message = record.getMessage()
+        message = redact(record.getMessage())
+        record.msg, record.args = message, ()
         if find_sensitive_categories(message):
             record.msg, record.args = "[redacted sensitive log message]", ()
         if record.exc_info:
@@ -35,7 +37,7 @@ class CorrelationFilter(logging.Filter):
 
 class JsonFormatter(logging.Formatter):
     def format(self, record):
-        message = record.getMessage()
+        message = redact(record.getMessage())
         if find_sensitive_categories(message):
             message = "[redacted sensitive log message]"
         payload = {
@@ -56,7 +58,7 @@ class JsonFormatter(logging.Formatter):
         # Do not export exception repr/tracebacks, which can carry provider content.
         if record.exc_info:
             payload["error_type"] = record.exc_info[0].__name__
-        return json.dumps(payload, default=str)
+        return json.dumps(redact(payload), default=str)
 
 
 class LoggingObserver:

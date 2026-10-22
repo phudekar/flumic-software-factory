@@ -83,7 +83,9 @@ def _ensure_codex_authenticated(env: dict[str, str]) -> str | None:
     global _CODEX_AUTHENTICATED_KEY_HASH
 
     api_key = env["OPENAI_API_KEY"]
-    key_hash = hashlib.sha256(api_key.encode("utf-8")).hexdigest()
+    key_hash = hashlib.sha256(
+        (env["HOME"] + "\0" + api_key).encode("utf-8")
+    ).hexdigest()
     with _CODEX_AUTH_LOCK:
         if key_hash == _CODEX_AUTHENTICATED_KEY_HASH:
             return None
@@ -122,6 +124,8 @@ def generate_patch(
     runner=None,
     max_iterations: int = MAX_PATCH_ITERATIONS,
     settings=None,
+    credentials=None,
+    agent_home=None,
 ) -> PatchPlan:
     agent = agent or selected_agent()
     task = current_task()
@@ -130,9 +134,15 @@ def generate_patch(
         if settings
         else (selected_codex_model() if agent == "codex" else "")
     )
+    home = Path(agent_home) if agent_home is not None else AGENT_HOME
     run_agent = runner or partial(
         _run_agent,
         model=model,
+        **(
+            {"credentials": credentials, "agent_home": home}
+            if credentials is not None
+            else {}
+        ),
         timeout_seconds=settings.cli_timeout_seconds if settings else 240,
     )
     if not 1 <= max_iterations <= 20:
@@ -142,17 +152,17 @@ def generate_patch(
     )
     max_file_bytes = settings.max_file_bytes if settings else MAX_SOURCE_FILE_BYTES
     max_files = max_iterations * max_files_per_iteration
-    if settings is None and not task.model:
+    if settings is None and not task.model and credentials is None:
         run_agent = runner or _run_agent
     feedback = review_feedback or []
     assert_safe_text(title, body, *comments, *feedback)
     with tempfile.TemporaryDirectory(
-        prefix="hatchet-agent-", dir=AGENT_HOME / "workspaces"
+        prefix="hatchet-agent-", dir=home / "workspaces"
     ) as temporary_directory:
         workspace = Path(temporary_directory)
         _extract_archive(archive, workspace)
         _scan_text_files(workspace)
-        _set_agent_ownership(workspace)
+        _set_agent_ownership(workspace, home)
         baseline = _snapshot(workspace)
         original_directories = {
             path.relative_to(workspace).as_posix()
@@ -307,12 +317,12 @@ def _scan_text_files(workspace: Path) -> None:
         assert_safe_text(relative, text)
 
 
-def _set_agent_ownership(workspace: Path) -> None:
+def _set_agent_ownership(workspace: Path, agent_home=None) -> None:
     for path in (workspace, *workspace.rglob("*")):
         if path.is_symlink():
             raise ModelError("Repository workspace contains a symbolic link")
         os.chown(path, AGENT_UID, AGENT_GID)
-    os.chown(AGENT_HOME, AGENT_UID, AGENT_GID)
+    os.chown(agent_home or AGENT_HOME, AGENT_UID, AGENT_GID)
 
 
 def _snapshot(
@@ -478,10 +488,18 @@ def _build_prompt(
 
 
 def _run_agent(
-    agent: str, workspace: Path, prompt: str, *, model=None, timeout_seconds=240
+    agent: str,
+    workspace: Path,
+    prompt: str,
+    *,
+    model=None,
+    timeout_seconds=240,
+    credentials=None,
+    agent_home=None,
 ) -> str:
+    home = Path(agent_home) if agent_home is not None else AGENT_HOME
     env = {
-        "HOME": str(AGENT_HOME),
+        "HOME": str(home),
         "PATH": "/usr/local/bin:/usr/bin:/bin",
         "TMPDIR": "/tmp",
         "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
@@ -490,30 +508,41 @@ def _run_agent(
     output_path: Path | None = None
     schema_path: Path | None = None
     if agent == "codex":
-        api_key = os.environ.get("OPENAI_API_KEY")
+        api_key = (
+            os.environ.get("OPENAI_API_KEY")
+            if credentials is None
+            else credentials.get("openai")
+        )
         if not api_key:
             raise ModelError("OPENAI_API_KEY is required for Codex")
         env["OPENAI_API_KEY"] = api_key
-        codex_home = AGENT_HOME / ".codex"
+        codex_home = home / ".codex"
+        env["CODEX_HOME"] = str(codex_home)
         codex_home.mkdir(parents=True, exist_ok=True)
-        (codex_home / "config.toml").write_text(
+        config_path = codex_home / "config.toml"
+        config_path.write_text(
             f'model = "{model or selected_codex_model()}"\n',
             encoding="utf-8",
         )
+        if credentials is not None and os.geteuid() == 0:
+            os.chown(codex_home, AGENT_UID, AGENT_GID)
+            os.chown(config_path, AGENT_UID, AGENT_GID)
         output_file = tempfile.NamedTemporaryFile(
             mode="w",
             prefix="codex-last-message-",
-            dir="/tmp",
+            dir=home if credentials is not None else "/tmp",
             delete=False,
         )
         output_path = Path(output_file.name)
         output_file.close()
-        output_path.chmod(0o666)
+        output_path.chmod(0o600 if credentials is not None else 0o666)
+        if credentials is not None and os.geteuid() == 0:
+            os.chown(output_path, AGENT_UID, AGENT_GID)
         schema_file = tempfile.NamedTemporaryFile(
             mode="w",
             prefix="codex-completion-schema-",
             suffix=".json",
-            dir="/tmp",
+            dir=home if credentials is not None else "/tmp",
             delete=False,
             encoding="utf-8",
         )
@@ -535,7 +564,11 @@ def _run_agent(
         if login_error := _ensure_codex_authenticated(env):
             raise ModelError(login_error)
     else:
-        api_key = os.environ.get("ANTHROPIC_API_KEY")
+        api_key = (
+            os.environ.get("ANTHROPIC_API_KEY")
+            if credentials is None
+            else credentials.get("anthropic")
+        )
         if not api_key:
             raise ModelError("ANTHROPIC_API_KEY is required for Claude Code")
         env["ANTHROPIC_API_KEY"] = api_key
@@ -575,6 +608,9 @@ def _run_agent(
             response = read_claude_result(result.stdout)
         if result.returncode != 0:
             details = _sanitize_cli_stderr(result.stderr, prompt=prompt)
+            for secret in (credentials or {}).values():
+                if secret:
+                    details = details.replace(secret, "[REDACTED]")
             message = f"{agent} CLI failed with exit code {result.returncode}"
             raise ModelError(f"{message}: {details}" if details else message)
         if agent == "codex":

@@ -31,11 +31,11 @@ class GitHubClient:
     max_file_bytes = MAX_SOURCE_FILE_BYTES
 
     def __init__(
-        self, repository: str, *, max_file_bytes: int = MAX_SOURCE_FILE_BYTES
+        self, repository: str, *, max_file_bytes: int = MAX_SOURCE_FILE_BYTES, token: str | None = None
     ) -> None:
         if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository):
             raise ValueError("GITHUB_REPOSITORY must be in owner/name form")
-        token = os.environ.get("GITHUB_TOKEN")
+        token = os.environ.get("GITHUB_TOKEN") if token is None else token
         if not token:
             raise GitHubError("GITHUB_TOKEN is required")
         self.max_file_bytes = max_file_bytes

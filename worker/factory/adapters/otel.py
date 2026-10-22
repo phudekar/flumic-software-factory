@@ -12,6 +12,7 @@ import uuid
 from contextlib import contextmanager
 from contextvars import ContextVar
 
+from factory.workflows.redaction import redact
 from factory.domain.models import OperationBusy
 from opentelemetry import metrics, trace
 from opentelemetry.propagators.textmap import DefaultGetter
@@ -62,7 +63,7 @@ class MetadataFilter(CorrelationFilter):
 
 def safe_attributes(values):
     result = {}
-    for key, value in values.items():
+    for key, value in redact(values).items():
         if value is None:
             continue
         if isinstance(value, str):

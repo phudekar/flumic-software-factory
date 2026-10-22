@@ -24,7 +24,18 @@ class APICodingAgent:
 class CLICodingAgent:
     capabilities = AgentCapabilities(context="repository-archive")
 
-    def __init__(self, agent: str, *, max_iterations=10, runner=None, settings=None):
+    def __init__(
+        self,
+        agent: str,
+        *,
+        max_iterations=10,
+        runner=None,
+        settings=None,
+        credentials=None,
+        agent_home=None,
+    ):
+        self.credentials = credentials
+        self.agent_home = agent_home
         self.agent = agent
         self.max_iterations = max_iterations
         self.runner = runner
@@ -37,6 +48,11 @@ class CLICodingAgent:
             raise ModelError("CLI execution requires a repository archive")
         return generate_patch(
             agent=self.agent,
+            **(
+                {"credentials": self.credentials, "agent_home": self.agent_home}
+                if self.credentials is not None
+                else {}
+            ),
             settings=self.settings,
             runner=self.runner,
             max_iterations=self.max_iterations,
@@ -49,25 +65,37 @@ class CLICodingAgent:
         )
 
 
-def openai_model(settings):
+def openai_model(settings, *, credentials=None, agent_home=None):
     from model_client import ModelClient
 
     return ModelClient(
-        max_patch_iterations=settings.max_patch_iterations, settings=settings
+        max_patch_iterations=settings.max_patch_iterations,
+        settings=settings,
+        **(
+            {"api_key": credentials.get("openai", "")}
+            if credentials is not None
+            else {}
+        ),
     )
 
 
-def api_coding(settings):
-    return APICodingAgent(lambda: openai_model(settings))
+def api_coding(settings, **kwargs):
+    return APICodingAgent(lambda: openai_model(settings, **kwargs))
 
 
-def codex_coding(settings):
+def codex_coding(settings, **kwargs):
     return CLICodingAgent(
-        "codex", max_iterations=settings.max_patch_iterations, settings=settings
+        "codex",
+        max_iterations=settings.max_patch_iterations,
+        settings=settings,
+        **kwargs,
     )
 
 
-def claude_coding(settings):
+def claude_coding(settings, **kwargs):
     return CLICodingAgent(
-        "claude", max_iterations=settings.max_patch_iterations, settings=settings
+        "claude",
+        max_iterations=settings.max_patch_iterations,
+        settings=settings,
+        **kwargs,
     )

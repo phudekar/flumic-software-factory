@@ -508,3 +508,58 @@ Existing unscoped configuration, profile and history URLs always refer to the st
 future worker pools remain deployment infrastructure. This API increment does not
 start shared workers or install the later dynamic workflow coordinator; legacy static
 workflow controls and managed-worker lifecycle remain on their compatibility path.
+
+### Project credential versions and action contexts
+
+Project credentials are managed through authenticated operator routes:
+
+| Route | Purpose |
+| --- | --- |
+| `GET /api/v1/projects/{project_id}/secrets` | List version references, scope, purpose and revocation metadata. Values and ciphertext are never returned. |
+| `POST /api/v1/projects/{project_id}/secrets` | Create an encrypted version. Use `parent_id` to rotate an existing version without changing its scope or purpose. |
+| `POST /api/v1/projects/{project_id}/secrets/{identifier}/revoke` | Revoke that exact version. Repeated requests retain the original revocation time. |
+
+Example request body for creating a project credential:
+
+```json
+{
+  "name": "github-development",
+  "purpose": "github",
+  "value": "<provide your token securely>"
+}
+```
+
+`purpose` accepts `github`, `openai` or `anthropic`. Add `repository_id` to restrict a
+credential version to one repository connection in the same project. Omit it for a
+project-level credential that can be explicitly granted to that project's repositories.
+For repository-specific credentials, first create the repository connection, then create
+the scoped secret and update the connection with its returned `id` as `credential_id`.
+A repository connection accepts only an active, correctly scoped `github` credential.
+A foreign reference returns 404; an owned revoked or wrong-purpose version returns 409.
+
+To rotate a credential, submit a new value with the previous version's `id` as
+`parent_id`, retaining its `name`, `purpose` and `repository_id`. Update the repository
+connection to use the new version for future actions. Rotation leaves old pins valid;
+revocation makes future resolution of the old pin fail. Neither operation silently
+switches an existing action to the newest credential. Revocation cannot retract a
+credential already delivered to an executing process; revoke it at the provider too
+when immediate invalidation is required.
+
+The action-context service stores an encrypted snapshot of effective settings plus
+exact factory, repository, workflow and credential-version references. Trusted runtime
+code pins this once per execution, with the required credential purposes. Replaying
+context resolution uses that snapshot rather than current configuration. GitHub grants
+come from the pinned repository revision; provider grants are explicit version IDs.
+Missing, excessive, foreign and wrong-purpose grants are rejected.
+
+Each action gets fresh GitHub/model clients and an isolated temporary CLI home and
+workspace. Credentials are explicit constructor arguments or child environment values;
+the worker process environment is never changed. Action-scoped filters remove resolved
+credentials from result content, history, structured logs and escaping error messages.
+Only `ActionInvocation` identifiers belong in engine payloads; full contexts and
+credential-bearing objects must stay inside the authorized action process.
+
+This increment provides internal context pinning/resolution and service composition.
+Worker-facing context delivery remains unavailable until assignment eligibility and
+lease authorization are implemented in the shared-worker/runtime milestones. Existing
+legacy workers continue using their existing bootstrap path.
