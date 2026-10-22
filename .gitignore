@@ -26,3 +26,5 @@ docs/superpowers
 
 # Generated website favicon; canonical SVG lives in the frontend assets.
 website/public/favicon.svg
+.playwright-cli/
+output/
