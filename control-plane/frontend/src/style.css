@@ -631,6 +631,7 @@ td small {
 }
 .search {
   display: flex;
+  flex-direction: row;
   align-items: center;
   gap: 8px;
   border: 1px solid #2a3548;
@@ -640,13 +641,35 @@ td small {
   color: #6f8099;
   min-width: 280px;
 }
+.search > svg {
+  flex-shrink: 0;
+}
 .search input {
   border: 0;
   background: none;
   box-shadow: none;
   font-size: 11px;
   width: 100%;
+  min-width: 0;
   padding: 10px 0;
+}
+.filter-toolbar {
+  align-items: flex-end;
+}
+.filter-toolbar select,
+.filter-toolbar button {
+  min-height: 38px;
+}
+.filter-toolbar > label {
+  min-width: 0;
+  max-width: 100%;
+}
+.filter-toolbar select {
+  max-width: 100%;
+}
+.panel > .filter-toolbar {
+  padding: 0 20px;
+  margin-top: 16px;
 }
 .notice {
   display: flex;
@@ -1100,7 +1123,10 @@ pre {
   }
   .search {
     min-width: 0;
-    flex: 1;
+    flex: 1 1 100%;
+  }
+  .toolbar > .inline-label {
+    flex-direction: row;
   }
   .toolbar > .muted {
     display: none;
