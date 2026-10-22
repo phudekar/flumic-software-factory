@@ -127,6 +127,8 @@ def create_app(settings=None, sessions=None, runtime=None, workflow=None):
     install_projects(app, sessions, config, row)
     from app.project_context import install as install_project_context
     install_project_context(app, sessions, settings)
+    from app.worker_pools import install as install_worker_pools
+    install_worker_pools(app, sessions, settings)
 
     def runtime_adapter():
         nonlocal runtime
@@ -166,7 +168,7 @@ def create_app(settings=None, sessions=None, runtime=None, workflow=None):
 
     @app.middleware("http")
     async def security(request, call_next):
-        if request.url.path.startswith("/api/") and request.url.path not in {
+        if request.url.path.startswith("/api/") and not request.url.path.startswith("/api/v1/shared-worker/") and request.url.path not in {
             "/api/v1/auth/login",
             "/api/v1/health",
             "/api/v1/ingest",
@@ -454,6 +456,8 @@ def create_app(settings=None, sessions=None, runtime=None, workflow=None):
             )
             if worker is None:
                 raise HTTPException(404, "Managed worker not found")
+            if worker.protocol == 'shared-v1' and (body.action == 'configure' or body.config_id or body.revision_id):
+                raise HTTPException(422, 'Shared workers use infrastructure pool profiles, not project behavior profiles')
             existing = db.scalar(
                 select(Operation).where(Operation.key == f"{identifier}:{key}")
             )
@@ -701,6 +705,9 @@ def create_app(settings=None, sessions=None, runtime=None, workflow=None):
                 )
             ):
                 raise HTTPException(401, "Invalid worker credentials")
+            if worker.protocol == 'shared-v1':
+                from app.worker_pools import pool_record, shared_profile
+                return shared_profile(worker, pool_record(db, worker.pool_id))
             # The container label identifies the installed image's configuration.
             # Desired DB state may already point at a replacement whose build failed.
             actual = next(
@@ -786,6 +793,8 @@ def create_app(settings=None, sessions=None, runtime=None, workflow=None):
                 )
             ):
                 raise HTTPException(401, "Invalid worker credentials")
+            if worker.protocol == 'shared-v1':
+                raise HTTPException(409, 'Shared workers require assignment-scoped history ingestion')
             if db.bind.dialect.name == "postgresql":
                 db.execute(
                     text("SELECT pg_advisory_xact_lock(:key)"),

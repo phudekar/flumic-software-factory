@@ -5,6 +5,7 @@ RUN apk add --no-cache python3 py3-pip ca-certificates \
 
 ENV PATH="/opt/venv/bin:$PATH"
 LABEL software-factory.control-protocol="3"
+LABEL software-factory.shared-protocol="1"
 WORKDIR /worker
 
 COPY worker/requirements.txt .

@@ -74,7 +74,11 @@ def reconcile_once(sessions, runtime, settings):
         operation.updated_at = time.time()
         identifier = operation.id
         worker = db.get(Worker, operation.worker_id)
-        revision = db.get(Revision, worker.revision_id)
+        if worker.protocol == 'shared-v1':
+            from app.worker_pools import pool_record, shared_profile
+            document = shared_profile(worker, pool_record(db, worker.pool_id))
+        else:
+            document = db.get(Revision, worker.revision_id).document
         action = operation.action
         token = worker_token(settings, worker.id)
     try:
@@ -82,12 +86,12 @@ def reconcile_once(sessions, runtime, settings):
             if action in {"restart", "configure_start"}:
                 if action == "restart":
                     runtime.action(worker.id, "stop")
-                runtime.configure(worker, revision.document, token)
+                runtime.configure(worker, document, token)
                 runtime.action(worker.id, "start")
             elif action == "configure":
-                runtime.configure(worker, revision.document, token)
+                runtime.configure(worker, document, token)
             elif action == "create":
-                runtime.create(worker, revision.document, token)
+                runtime.create(worker, document, token)
             else:
                 runtime.action(worker.id, action)
         status, error = "completed", None

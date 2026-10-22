@@ -28,6 +28,7 @@ RUN case "$DEVELOPER_AGENT" in \
 
 ENV PATH="/opt/venv/bin:$PATH"
 LABEL software-factory.control-protocol="3"
+LABEL software-factory.shared-protocol="1"
 WORKDIR /worker
 
 COPY worker/requirements.txt .
