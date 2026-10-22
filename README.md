@@ -310,6 +310,6 @@ for local preview commands and Pages setup. The expected deployment address is
 - [Issue lifecycle, GitHub webhooks, labels, and security boundaries](docs/issue-lifecycle.md)
 - [Control-plane operation and troubleshooting](docs/control-plane.md)
 - [Worker configuration reference](docs/worker-configuration.md)
-- [Architecture and extension points](docs/architecture.md)
+- [Architecture diagram, component responsibilities and extension points](docs/architecture.md#architecture-at-a-glance)
 - [Optional SigNoz observability](docs/observability.md)
 - [Architecture migration history](docs/architecture-migration.md)

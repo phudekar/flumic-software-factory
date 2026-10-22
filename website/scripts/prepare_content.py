@@ -108,7 +108,9 @@ shutil.copy2(ROOT / 'control-plane/frontend/src/assets/flumic.svg', SITE / 'publ
 
 images = SITE / 'public/images'
 images.mkdir(exist_ok=True, parents=True)
-for image in (ROOT / 'docs/images').glob('*.png'):
+for image in (ROOT / 'docs/images').iterdir():
+    if image.suffix.lower() not in {'.png', '.svg'}:
+        continue
     shutil.copy2(image, images / image.name)
 
 routes = []

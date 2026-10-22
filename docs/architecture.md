@@ -4,6 +4,95 @@ The [migration plan](architecture-migration.md) records the original analysis,
 sequence, and acceptance criteria. This document describes the implemented
 boundaries and operational limits.
 
+## Architecture at a glance
+
+![Flumic AI architecture: the Control Plane manages versioned configuration and Docker worker lifecycle; Hatchet routes stages to worker roles; application ports connect workers to GitHub, AI models, execution state and observation adapters](images/flumic-architecture.svg)
+
+[Open the full-size architecture diagram](images/flumic-architecture.svg).
+The diagram shows the implemented system. GitLab and Kubernetes are planned
+capabilities, not additional active adapters in this deployment.
+
+The **Control Plane** governs configuration, operator access, lifecycle commands
+and execution visibility. The **execution plane** runs the development workflow.
+They communicate through saved bootstrap configuration, scoped worker events and
+engine/runtime adapters; a browser session is not required to keep an already
+running worker executing its tasks. Managed workers do require the Control API
+when starting, and the current runtime does not provide graceful drain guarantees.
+
+## How a change moves through the system
+
+1. An operator saves shared factory settings and worker-local model/prompt
+   settings in the Control Plane. Profiles pin a factory revision; snapshots
+   identify what a worker should load. Running workers retain loaded settings
+   until restart.
+2. A lifecycle request produces a durable operation in PostgreSQL. The background
+   reconciler claims it and calls the runtime adapter to create/configure/start
+   the Docker worker. Slow image builds do not need to finish within the browser
+   request. A receipt records acceptance/status, not immediate execution success.
+3. The worker fetches its resolved saved configuration at startup and registers
+   its role, task options and workflow definitions with Hatchet. Hatchet handles
+   queues, configured retries, schedules and durable waits, routing each stage to
+   a compatible worker.
+4. A stage calls an application operation with typed inputs. The application
+   coordinates repository access, model calls, policy checks and execution state
+   through ports. Planning/review can run on simple workers while coding/feedback
+   uses developer workers, according to task routing.
+5. Repository and agent adapters translate between external APIs/tools and
+   application contracts. The service validates completed patch content before
+   publication, records recovery state and reconciles GitHub outcomes. Humans
+   retain approval and merge responsibility.
+6. Operation/model observation records the worker, loaded configuration, run,
+   stage and attempt context where available. Managed events feed Control Plane
+   investigation and accounting; the optional OTLP observer exports correlated
+   telemetry to SigNoz. Unknown usage/cost remains unknown.
+
+## Why each component makes the architecture adaptable
+
+| Component / boundary | What it owns | How that helps adaptation | Concrete example / current constraint |
+| --- | --- | --- | --- |
+| React Control UI | Operator navigation, forms and execution views | Presentation is separate from workflow execution and vendor SDKs; backend contracts can serve another operator client. | An API client can inspect a run or save a profile without automating the browser. Same-origin authentication/CSRF rules still apply. |
+| FastAPI Control API | Authentication, validated commands, versioned settings and bounded query responses | Browser code does not need Docker, Hatchet or model credentials; adapters normalize external responses. | Workflow examples and repository validation read the latest saved factory revision; worker adoption still follows the profile/restart path. |
+| Control Plane PostgreSQL | Saved profiles/revisions, sessions, events, audits and operation receipts | Desired configuration and command state survive API process restarts and remain distinct from a particular container. | Several worker instances can follow one profile family; an accepted lifecycle command remains inspectable if a request ends. PostgreSQL is not the worker claim store. |
+| Background reconciler | Applying durable worker lifecycle requests outside HTTP handlers | Long builds/restarts and interrupted operations can be handled through one execution path rather than embedded in UI requests. | The reconciler can reclaim an expired operation lease. This does not make every external side effect exactly once or provide zero-downtime rollout. |
+| Runtime adapter | Container creation, configuration, lifecycle and logs | Runtime-specific Docker operations sit behind a backend boundary rather than inside application stages. | A future Kubernetes runtime would implement lifecycle behavior here; worker state, credentials, networking and deployment semantics also need work. Docker is the current implementation. |
+| Hatchet orchestration adapter | Workflow/task registration, dependency graph, scheduling, routing, retry and wait semantics | Task operations are separate from the scheduler, so orchestration policy can be tuned without embedding engine calls in use-case logic. | Route coding to `developer` workers and adjust task timeouts/concurrency. Another production engine needs explicit adapter/bootstrap integration, not a configuration string alone. |
+| Worker roles and instances | Executing registered tasks with role-specific profiles | Capacity and tool choices can vary by workload while operations share the same application/domain code. | Add developer workers for coding capacity independently of simple workers. Task/workflow concurrency, provider quotas and shared-state constraints still apply. |
+| Application service and ports | Planning, triage, implementation, review, feedback and merge-verification operations | Business operations depend on interfaces and typed requests/results instead of Hatchet/OpenAI clients; fakes can exercise behavior without a live engine or paid model call. | The same operations support the Hatchet adapter and one-shot local runner. There is one cohesive service, not a microservice per stage. |
+| Domain models and patch policy | Change contracts, path/file limits, completeness and content validation | Shared checks remain consistent as coding backends change; model choice does not redefine what the application can publish. | API coding and CLI coding return the same completed-patch contract. Publication policy is not an OS/network sandbox, and trusted adapters must protect extra data they load. |
+| Agent adapters | Planner/reviewer/coder implementations and context capabilities | Planning, review and coding can be chosen independently; model and prompt overrides can vary by task. | Use direct API planning/review with Codex or Claude coding, or implement a trusted coding port for a remote service. Custom managed factories require registry approval and installed code. |
+| Repository adapter | Issues, source snapshots, commits, PRs, review/merge state | Source-host integration is kept at an application boundary rather than scattered throughout model/orchestration code. | GitHub is currently wired at composition. Planned GitLab support needs adapter, event/merge-request semantics and wiring; it is not a supported `repository_provider` switch today. |
+| Execution-state adapter | Prepared plans/patches, cursors, issue claims and recovery | The application can reconcile retries using recorded progress, with state operations behind a port. | The production adapter is shared SQLite plus local file locks on one host. Multi-host/Kubernetes execution requires equivalent transactional claims and recovery in a suitable shared store. |
+| Observation adapters | Operation/model context, logs, retained events and optional OTLP export | Instrumentation can change without rewriting development operations; execution policy stays separate from the monitoring vendor. | Use structured logging alone, managed Control Plane reporting, or optional SigNoz telemetry. Captured call content depends on policy; CLI accounting is not a complete internal transcript. |
+| Composition root + validated configuration | Constructing dependencies, selecting trusted implementations and resolving settings | Wiring stays explicit, and configuration changes can tune established behavior without editing the application service. | Change a task model/prompt through a saved profile, or load an approved installed factory. Configuration cannot create a new Python stage or make an unimplemented runtime available. |
+
+The corresponding contracts are in
+[worker application ports](../worker/factory/application/ports.py),
+[Control Plane runtime/engine ports](../control-plane/backend/app/ports.py) and
+[worker composition](../worker/factory/bootstrap.py). The repository factory is
+currently wired to `GitHubClient` there; the dynamic `*_factory` configuration
+fields cover the specific extension points listed below, not every integration.
+
+## Adapting the system: choose the smallest boundary
+
+- **Different behavior within an existing stage:** change its model, additional
+  prompt, retry/timeout or routing settings on the appropriate profile/factory
+  surface. See the [field-by-field configuration guides](configuration-workers.md)
+  and [task/label reference](configuration-workflows.md). Restart/adopt the
+  relevant revisions; saving settings does not hot-patch a running worker.
+- **Different AI implementation:** provide the relevant planner/reviewer/coding
+  port, declare the supported context capability and install/wire the trusted
+  factory. Keep output and confidentiality guarantees explicit. Managed profile
+  validation also enforces the approved factory registry.
+- **Different production scheduler:** implement dispatch and task registration
+  around existing operations, including retries, cancellation, routing and
+  durable waits. The local runner demonstrates separation; it does not provide
+  production scheduling or universal workflow-engine parity.
+- **Different source host or worker runtime:** GitLab-based workflows and
+  Kubernetes orchestration are coming soon. Their boundaries reduce the amount
+  of application code that needs to change, but host-specific collaboration,
+  persistence, claims, image/network setup and lifecycle behavior still need
+  implementation and validation.
+
 ## Code map
 
 | Location | Responsibility |
@@ -20,7 +109,7 @@ boundaries and operational limits.
 | `worker/factory/adapters/telemetry.py` | Correlated structured logging and default operation observation |
 | `worker/factory/adapters/token_budget.py` | OpenAI token estimation and context budgeting |
 | `worker/factory/bootstrap.py` | Explicit dependency construction and trusted custom adapter loading |
-| `worker/factory/settings.py` | Validated settings; environment reads only through `Settings.from_env()` |
+| `worker/factory/settings.py` | Validated worker settings; explicit standalone YAML or managed bootstrap loading |
 | `worker/worker.py` | Runtime entry point; imports create no clients or workflows |
 
 The existing `github_client.py`, `model_client.py`, and `cli_agent.py` remain
@@ -54,7 +143,9 @@ defaults:
 Each factory receives a `Settings` object and returns the corresponding port
 implementation. Planner/reviewer/coding factories are invoked lazily; unused
 roles do not require credentials or initialize model clients. Custom modules
-must be installed/copied into the container image. Factory paths are trusted
+must be installed/copied into the container image. Managed saves additionally
+require the callable to be in the approved bootstrap factory registry; installing
+a module alone does not authorize its selection. Factory paths are trusted
 operator configuration, never values from an issue or webhook. Custom factories
 can obtain their own credentials at this integration boundary.
 
@@ -106,7 +197,7 @@ the replacement-content change contract.
 
 ## State and recovery
 
-`FACTORY_STATE_PATH` defaults to `/data/factory.sqlite3`. All Compose workers
+`defaults.state_path` defaults to `/data/factory.sqlite3` in worker YAML. All Compose workers
 share the same host `data/` mount and therefore the same state and lock files.
 The adapter stores:
 
@@ -159,7 +250,8 @@ processing. Repository validation and operation recovery remain authoritative.
 
 Hatchet retains the original workflow/task names, concurrency limits, role
 labels, and cron triggers. Both clarification and merge waits now reconcile
-current GitHub state every 30 seconds through durable sleeps. Missed events,
+current GitHub state through durable sleeps using `discussion_poll_seconds`
+(default 30 seconds). Missed events,
 merge-before-wait, and approval/merge event ordering do not strand completion.
 GitHub branch protection remains responsible for required approval rules;
 completion independently verifies the merged commit and its checks. Closed,

@@ -15,7 +15,7 @@ export default defineConfig({
     social: [{ icon: 'github', label: 'GitHub', href: 'https://github.com/phudekar/flumic-software-factory' }],
     customCss: ['./src/styles/docs.css'],
     sidebar: [
-      { label: 'Start here', items: ['start/introduction', 'start/quick-start', 'start/concepts'] },
+      { label: 'Start here', items: ['start/introduction', 'start/quick-start', 'start/architecture', 'start/concepts'] },
       { label: 'Workflows & stages', items: [{ autogenerate: { directory: 'workflows' } }] },
       { label: 'Control plane', items: [{ autogenerate: { directory: 'control-plane' } }] },
       { label: 'Configuration', items: [{ autogenerate: { directory: 'configuration' } }] },
