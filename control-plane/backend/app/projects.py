@@ -113,9 +113,8 @@ def install(app, sessions, config, row):
         with sessions.begin() as db:
             scope = request_scope(request, db)
             if body.credential_id:
-                # Credential management is installed in issue #4. An arbitrary
-                # UUID must never be persisted as an unchecked grant.
-                raise HTTPException(404, "Credential not found")
+                from app.project_context import require_secret
+                require_secret(db, scope, body.credential_id, 'github')
             if db.scalar(select(RepositoryConnection.id).where(
                 RepositoryConnection.project_id == scope.project_id, RepositoryConnection.alias == body.alias)):
                 raise HTTPException(409, "Repository alias already exists")
@@ -147,7 +146,8 @@ def install(app, sessions, config, row):
             if body.alias != item.alias:
                 raise HTTPException(422, "Repository aliases are stable; create a new connection")
             if body.credential_id:
-                raise HTTPException(404, "Credential not found")
+                from app.project_context import require_secret
+                require_secret(db, scope, body.credential_id, 'github', item.id)
             validate_overrides(body.overrides)
             document = body.model_dump(exclude={"parent_id"})
             revision = RepositoryRevision(project_id=scope.project_id, repository_id=item.id,

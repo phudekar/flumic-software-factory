@@ -194,3 +194,31 @@ class RepositoryRevision(ProjectOwned, Base):
     parent_id: Mapped[str | None] = mapped_column(String(36))
     document: Mapped[dict] = mapped_column(JSON)
     created_at: Mapped[float] = mapped_column(Float, default=time.time)
+
+
+class SecretVersion(ProjectOwned, Base):
+    __tablename__ = 'secret_versions'
+    __table_args__ = (
+        UniqueConstraint('project_id', 'id', name='uq_secret_project_identity'),
+        ForeignKeyConstraint(['project_id', 'repository_id'],
+            ['repository_connections.project_id', 'repository_connections.id'], name='fk_secret_repository'),
+        ForeignKeyConstraint(['project_id', 'parent_id'],
+            ['secret_versions.project_id', 'secret_versions.id'], name='fk_secret_parent'),
+    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=identity)
+    repository_id: Mapped[str | None] = mapped_column(String(36))
+    name: Mapped[str] = mapped_column(String(100))
+    purpose: Mapped[str] = mapped_column(String(20))
+    parent_id: Mapped[str | None] = mapped_column(String(36))
+    ciphertext: Mapped[str] = mapped_column(Text)
+    revoked_at: Mapped[float | None] = mapped_column(Float)
+    created_at: Mapped[float] = mapped_column(Float, default=time.time)
+
+
+class ActionContextSnapshot(ProjectOwned, Base):
+    __tablename__ = 'action_context_snapshots'
+    __table_args__ = (UniqueConstraint('project_id', 'execution_id', name='uq_action_context_execution'),)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=identity)
+    execution_id: Mapped[str] = mapped_column(String(120))
+    ciphertext: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[float] = mapped_column(Float, default=time.time)

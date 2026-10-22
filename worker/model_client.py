@@ -45,7 +45,7 @@ class ModelClient:
     max_completion_tokens = MAX_COMPLETION_TOKENS
 
     def __init__(
-        self, *, max_patch_iterations: int = MAX_PATCH_ITERATIONS, settings=None
+        self, *, max_patch_iterations: int = MAX_PATCH_ITERATIONS, settings=None, api_key: str | None = None
     ) -> None:
         self.max_patch_iterations = _parse_max_patch_iterations(
             str(max_patch_iterations)
@@ -59,7 +59,7 @@ class ModelClient:
             settings.max_file_bytes if settings else MAX_SOURCE_FILE_BYTES
         )
         self.max_patch_files = self.max_patch_iterations * self.max_files_per_iteration
-        key = os.environ.get("OPENAI_API_KEY")
+        key = os.environ.get("OPENAI_API_KEY") if api_key is None else api_key
         if not key:
             raise ModelError("OPENAI_API_KEY is required")
         self.model = (

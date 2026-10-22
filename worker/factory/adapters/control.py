@@ -61,6 +61,8 @@ def engine_context(function):
 
 
 def redact(value):
+    from factory.workflows.redaction import redact as action_redact
+    value = action_redact(value)
     if isinstance(value, dict):
         return {str(k): redact(v) for k, v in value.items()}
     if isinstance(value, list):
