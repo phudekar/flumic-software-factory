@@ -18,6 +18,10 @@ The main registered DAG loads an issue, plans work and creates sub-issues, triag
 
 The [task inventory](/flumic-software-factory/reference/tasks/) lists all code defaults. The [workflow configuration](/flumic-software-factory/handbook/worker-configuration/) explains repository overrides.
 
+## Add a new workflow or stage
+
+To change the graph itself, use the [workflow development tutorial](/flumic-software-factory/workflows/development/). It covers application operations, task registration, dependency edges, cross-workflow dispatch, Control Plane integration and rollout. YAML settings below tune known stages rather than creating new executable tasks.
+
 ## Configure task behavior
 
 In repository YAML, `task_defaults` merge with a named template and the task override. Omitted models fall back to the backend's model; `tasks.<name>.model` takes precedence when set. Profile values supplement shared factory definitions.

@@ -25,6 +25,7 @@ GUIDES = {
     'docs/observability.md': 'Observability handbook',
     'docs/issue-lifecycle.md': 'Issue lifecycle and webhooks',
     'docs/architecture.md': 'Architecture and extensions',
+    'docs/workflow-development.md': 'Develop workflows and link stages',
     'docs/telemetry-error-audit.md': 'Error-path audit',
     'config/worker-profiles/README.md': 'Bootstrap profile handbook',
 }

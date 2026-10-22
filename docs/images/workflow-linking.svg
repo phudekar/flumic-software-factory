@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="690" viewBox="0 0 1280 690" role="img" aria-labelledby="title description">
+<title id="title">Linking stages and workflows in Flumic AI</title>
+<desc id="description">An illustrative workflow fans Stage A out into Stage B and Stage C, then joins both parents before Stage D. Parent dependencies determine scheduling and task_output retrieves their results. A separate illustration shows Workflow A submitting a typed command through dispatch to start a new run of Workflow B; this is not a same-run parent dependency.</desc>
+<defs><marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="m0 0 8 4-8 4Z" fill="#82e4bd"/></marker></defs>
+<style>text{font-family:Arial,Helvetica,sans-serif;fill:#e8f1f8}.title{font-size:31px;font-weight:700}.section{font-size:23px;font-weight:700;fill:#82e4bd}.name{font-size:23px;font-weight:600}.body{font-size:18px;fill:#b5cad9}.box{fill:#14293d;stroke:#355673;stroke-width:1.5}.edge{fill:none;stroke:#82e4bd;stroke-width:2.3;marker-end:url(#arrow)}</style>
+<rect width="1280" height="690" rx="18" fill="#0b1018"/>
+<text x="42" y="54" class="title">Link stages inside a DAG. Dispatch between workflow runs.</text>
+<text x="42" y="92" class="body">Illustrative extension patterns — these stage names are not built-in registrations.</text>
+<rect x="30" y="123" width="1220" height="260" rx="14" fill="#0e1c29" stroke="#29445e"/>
+<text x="52" y="163" class="section">1 / One workflow · dependency edges</text>
+<rect x="70" y="233" width="230" height="76" rx="10" class="box"/>
+<text x="185" y="280" text-anchor="middle" class="name">Stage A</text>
+<rect x="485" y="190" width="250" height="70" rx="10" class="box"/>
+<text x="610" y="234" text-anchor="middle" class="name">Stage B</text>
+<rect x="485" y="287" width="250" height="70" rx="10" class="box"/>
+<text x="610" y="331" text-anchor="middle" class="name">Stage C</text>
+<rect x="945" y="233" width="230" height="76" rx="10" class="box"/>
+<text x="1060" y="264" text-anchor="middle" class="name">Stage D · join</text>
+<text x="1060" y="291" text-anchor="middle" class="body">parents=[B, C]</text>
+<path d="M300 270h80v-45h105M380 270v52h105M735 225h100v45h110M735 322h100v-52" class="edge"/>
+<text x="325" y="210" class="body">fan out</text>
+<text x="775" y="208" class="body">fan in</text>
+<rect x="30" y="407" width="1220" height="204" rx="14" fill="#0e1c29" stroke="#29445e"/>
+<text x="52" y="450" class="section">2 / Separate workflows · explicit dispatch</text>
+<rect x="70" y="492" width="250" height="77" rx="10" class="box"/>
+<text x="195" y="538" text-anchor="middle" class="name">Workflow A</text>
+<rect x="470" y="492" width="330" height="77" rx="10" class="box"/>
+<text x="635" y="523" text-anchor="middle" class="name">Dispatch typed command</text>
+<text x="635" y="550" text-anchor="middle" class="body">run(..., wait_for_result=False)</text>
+<rect x="950" y="492" width="250" height="77" rx="10" class="box"/>
+<text x="1075" y="523" text-anchor="middle" class="name">Workflow B</text>
+<text x="1075" y="550" text-anchor="middle" class="body">a separate run</text>
+<path d="M320 530h150M800 530h150" class="edge"/>
+<text x="42" y="654" class="body">parents controls scheduling; ctx.task_output(parent) reads results. Dispatch does not create a same-run DAG edge.</text>
+</svg>
