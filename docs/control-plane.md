@@ -702,7 +702,10 @@ execution IDs rather than creating another attempt.
 All state transitions use a short database write fence before worker/assignment
 locks. Both SQLite and PostgreSQL enforce it; concurrency tests use separate
 PostgreSQL sessions and a file-backed SQLite database. Provider calls and container
-execution do not run inside this scheduler transaction. PostgreSQL is the shared
+execution do not run inside this scheduler transaction. Legacy lifecycle Docker
+observations also run outside the fence; worker revision, lifecycle-operation state
+and repository mode are rechecked inside it before accepting the command. A stale
+observation returns a conflict so the operator can retry. PostgreSQL is the shared
 production store for this runtime; legacy workers continue using their existing
 SQLite state and file locks.
 
@@ -728,6 +731,10 @@ assignment-authenticated transport; it never reads a legacy SQLite key as a
 fallback. Worker state/claim transport endpoints integrate in #11. Generic stage
 bindings retain encrypted repository-origin metadata across relays, and affine
 builtins reject foreign-origin data before client construction.
+Origin identities are deduplicated while collecting ancestry, with a separate
+256 KiB logical JSON budget per admitted action. Exceeding that budget rejects the
+stage before dispatch; repeated fan-in cannot amplify tiny outputs into unbounded
+lineage records.
 
 External claims use canonical lowercase GitHub host/owner/repository identity,
 independently of project or local alias. For example,

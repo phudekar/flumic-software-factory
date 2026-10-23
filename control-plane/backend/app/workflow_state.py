@@ -62,6 +62,33 @@ def hashed(value):
     return hashlib.sha256(encoded).hexdigest()
 
 
+def bounded_origins(values):
+    """Deduplicate ancestry before persistence; never let a DAG amplify metadata.
+
+    The canonical identity retains path and producing stage, not just repository,
+    so provenance remains useful to later consumers. Charge each unique record
+    while collecting it, rather than constructing an unbounded ancestry list.
+    """
+    unique = {}
+    remaining = 262144 - 2
+    for value in values:
+        json_bytes(value)
+        encoded = json.dumps(
+            value,
+            sort_keys=True,
+            ensure_ascii=False,
+            allow_nan=False,
+            separators=(",", ":"),
+        )
+        if encoded in unique:
+            continue
+        remaining -= len(encoded.encode()) + (1 if unique else 0)
+        if remaining < 0:
+            raise ValueError("Action provenance exceeds 256 KiB")
+        unique[encoded] = value
+    return list(unique.values())
+
+
 def transition_lock(db):
     """One durable mutex: row UPDATE locks on PostgreSQL and SQLite alike.
 
@@ -288,28 +315,32 @@ class WorkflowState:
                         continue
                     bound = resolve_bindings(stage, run_input, results, context)
                     # Preserve inherited origin metadata through generic stages.
-                    inherited = []
                     used_parents = {origin.stage_id for origin in bound.origins}
-                    for parent in parents:
-                        if (
-                            parent.stage_id in used_parents
-                            and parent.origins_ciphertext
-                        ):
-                            inherited.extend(
-                                decrypt(parent.origins_ciphertext, self.settings)
-                            )
+
+                    def origin_values():
+                        for origin in bound.origins:
+                            yield {**asdict(origin), "path": list(origin.path)}
+                        for parent in parents:
+                            if (
+                                parent.stage_id in used_parents
+                                and parent.origins_ciphertext
+                            ):
+                                yield from decrypt(
+                                    parent.origins_ciphertext, self.settings
+                                )
+
+                    origins = bounded_origins(origin_values())
                     if (
                         isinstance(stage, BuiltinStage)
                         and stage.action != "core.echo@1"
                         and any(
                             o["repository_id"] != metadata["repository_id"]
-                            for o in inherited
+                            for o in origins
                         )
                     ):
                         raise ValueError(
                             "Repository-affine input has another repository origin"
                         )
-                    origins = [asdict(origin) for origin in bound.origins] + inherited
                     ready.append(
                         (
                             stage,

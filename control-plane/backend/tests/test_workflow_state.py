@@ -881,3 +881,150 @@ class SQLiteAdmissionTests(unittest.TestCase):
         self.assertEqual(results[0].ready, results[1].ready)
         with self.sessions() as db:
             self.assertEqual(len(list(db.scalars(select(models.Assignment)))), 1)
+
+
+class ProvenanceBoundTests(unittest.TestCase):
+    setUp = fixtures.ControlPlaneTests.setUp
+    tearDown = fixtures.ControlPlaneTests.tearDown
+    setup_graph = WorkflowStateTests.setup_graph
+    publish = WorkflowStateTests.publish
+    worker = WorkflowStateTests.worker
+    arrange = WorkflowStateTests.arrange
+    start = WorkflowStateTests.start
+
+    def test_repeated_two_parent_relays_deduplicate_lineage_instead_of_exponential_growth(
+        self,
+    ):
+        from app.project_context import decrypt
+
+        scope, _, definition = self.arrange()
+        with self.sessions() as db:
+            document = decrypt(
+                db.get(
+                    models.WorkflowRevision, definition["revision_id"]
+                ).graph_ciphertext,
+                self.settings,
+            )
+        template = document["stages"][0]
+        count = 18
+        document["stages"] = []
+        for index in range(count):
+            parents = [
+                "stage-" + str(i).zfill(2) for i in range(max(0, index - 2), index)
+            ]
+            inputs = (
+                {"x": 1, "other": 1}
+                if not parents
+                else {
+                    "x": {"$ref": "stages." + parents[-1] + ".output.x"},
+                    "other": {"$ref": "stages." + parents[0] + ".output.x"},
+                }
+            )
+            document["stages"].append(
+                {
+                    **template,
+                    "id": "stage-" + str(index).zfill(2),
+                    "after": parents,
+                    "inputs": inputs,
+                }
+            )
+        definition = self.client.put(
+            f"/api/v1/projects/{scope.project_id}/workflow-definitions/{definition['id']}",
+            json={"parent_id": definition["revision_id"], "document": document},
+        ).json()
+        run = self.start(scope, definition)
+        for index in range(count):
+            execution = self.store.advance_run(scope, run.id).ready[0].execution_id
+            self.store.finish_execution(
+                scope, execution, output={"x": 1, "other": 1}, confirmed_terminal=True
+            )
+        with self.sessions() as db:
+            final = db.get(models.StageAttempt, execution)
+            origins = decrypt(final.origins_ciphertext, self.settings)
+            self.assertLessEqual(len(origins), 4 * count)
+
+    def test_unique_provenance_metadata_has_an_explicit_budget(self):
+        from app.workflow_state import bounded_origins
+
+        values = (
+            {
+                "path": ["x" * 100] * 60,
+                "stage_id": "source-" + str(index),
+                "project_id": "p",
+                "repository_id": "r",
+            }
+            for index in range(100)
+        )
+        with self.assertRaisesRegex(ValueError, "provenance"):
+            bounded_origins(values)
+
+
+class LifecycleFenceTests(unittest.TestCase):
+    setUp = SQLiteAdmissionTests.setUp
+    tearDown = SQLiteAdmissionTests.tearDown
+    setup_graph = WorkflowStateTests.setup_graph
+    publish = WorkflowStateTests.publish
+    worker = WorkflowStateTests.worker
+    arrange = WorkflowStateTests.arrange
+    start = WorkflowStateTests.start
+
+    def test_blocked_docker_observation_does_not_block_another_project_transition(self):
+        from threading import Event
+
+        legacy = fixtures.ControlPlaneTests.create_worker(self)
+        self.assertTrue(
+            fixtures.reconcile_once(self.sessions, self.runtime, self.settings)
+        )
+        scope, _, definition = self.arrange()
+        run = self.start(scope, definition)
+        entered, release, advanced = Event(), Event(), Event()
+
+        def observe():
+            entered.set()
+            release.wait(timeout=10)
+            return []
+
+        self.runtime.list.side_effect = observe
+
+        def advance():
+            result = self.store.advance_run(scope, run.id)
+            advanced.set()
+            return result
+
+        with ThreadPoolExecutor(max_workers=2) as threads:
+            lifecycle = threads.submit(
+                self.client.post,
+                f"/api/v1/workers/{legacy.id}/actions",
+                json={"action": "start"},
+                headers={"Idempotency-Key": "slow-observation"},
+            )
+            self.assertTrue(entered.wait(timeout=3))
+            other = threads.submit(advance)
+            try:
+                independent = advanced.wait(timeout=2)
+            finally:
+                release.set()
+            self.assertTrue(
+                independent, "Docker observation holds the deployment transition lock"
+            )
+            self.assertEqual(lifecycle.result(timeout=5).status_code, 202)
+            self.assertEqual(len(other.result(timeout=5).ready), 1)
+
+    def test_lifecycle_revalidates_worker_state_after_docker_observation(self):
+        legacy = fixtures.ControlPlaneTests.create_worker(self)
+        self.assertTrue(
+            fixtures.reconcile_once(self.sessions, self.runtime, self.settings)
+        )
+
+        def changed():
+            with self.sessions.begin() as db:
+                db.get(models.Worker, legacy.id).desired_state = "stopped"
+            return []
+
+        self.runtime.list.side_effect = changed
+        response = self.client.post(
+            f"/api/v1/workers/{legacy.id}/actions",
+            json={"action": "start"},
+            headers={"Idempotency-Key": "changed-observation"},
+        )
+        self.assertEqual(response.status_code, 409, response.text)

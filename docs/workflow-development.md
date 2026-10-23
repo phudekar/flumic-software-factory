@@ -153,6 +153,7 @@ neither resolves credential values nor launches actions.
 | Stages | 1–64 | Publication |
 | Run input | 64 KiB | Binding resolution |
 | Resolved action input / parent output | 1 MiB each | Binding resolution / output envelope |
+| Origin metadata | 256 KiB after deduplication | Runtime admission |
 | JSON nesting | 64 | JSON and binding validation |
 
 Known literal action fields are checked at publication even beside dynamic values.
