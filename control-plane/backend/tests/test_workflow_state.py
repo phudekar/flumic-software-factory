@@ -1028,3 +1028,49 @@ class LifecycleFenceTests(unittest.TestCase):
             headers={"Idempotency-Key": "changed-observation"},
         )
         self.assertEqual(response.status_code, 409, response.text)
+
+    def test_cancel_blocks_new_admission_and_waits_for_claimed_action(self):
+        scope, _, definition = self.arrange(count=3, retries=1)
+        run = self.start(scope, definition)
+        first = self.store.advance_run(scope, run.id)
+        execution = first.ready[0].execution_id
+        with self.sessions.begin() as db:
+            attempt = db.get(models.StageAttempt, execution)
+            assignment = db.get(models.Assignment, attempt.assignment_id)
+            assignment.status = "running"
+            attempt.state = "running"
+        receipt = self.store.cancel_run(scope, run.id)
+        self.assertEqual(receipt.state, "cancelling")
+        self.assertEqual(receipt.ready, [])
+        self.assertEqual(self.store.advance_run(scope, run.id).ready, [])
+        self.store.finish_execution(
+            scope, execution, failed=True, confirmed_terminal=True
+        )
+        self.assertEqual(self.store.advance_run(scope, run.id).state, "cancelled")
+        with self.sessions() as db:
+            self.assertEqual(
+                len(
+                    list(
+                        db.scalars(
+                            select(models.StageAttempt).where(
+                                models.StageAttempt.run_id == run.id
+                            )
+                        )
+                    )
+                ),
+                3,
+            )
+
+    def test_advance_provides_exact_pinned_assignment_routes(self):
+        scope, _, definition = self.arrange()
+        run = self.start(scope, definition)
+        advance = self.store.advance_run(scope, run.id)
+        route = advance.routes[advance.ready[0].execution_id]
+        self.assertEqual(route.stage_id, "echo-0")
+        self.assertEqual(route.attempt, 1)
+        self.assertEqual(route.role, "simple")
+        with self.sessions() as db:
+            item = db.get(models.StageAttempt, advance.ready[0].execution_id)
+            self.assertEqual(
+                route.pool_id, db.get(models.Assignment, item.assignment_id).pool_id
+            )

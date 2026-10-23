@@ -9,4 +9,4 @@ cryptography>=44,<47
 argon2-cffi>=23,<26
 PyYAML>=6,<7
 pydantic>=2.6,<3
-hatchet-sdk
+hatchet-sdk==1.42.1

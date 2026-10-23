@@ -9,8 +9,10 @@ For tuning existing stages, see [workflow configuration](configuration-workflows
 The project API now validates and publishes immutable workflow documents. Publishing
 stores a graph; it does not start a run. The internal run-state service now
 provides pinned execution identities and transactional admission. The durable
-engine coordinator, complete builtin catalog, Docker broker, public run API and
-graph editor follow in issues #8–#11 and #14. See [run state and admission](control-plane.md#durable-run-state-and-admission). Shared workers currently install only `core.echo@1`. The Python tutorials
+engine coordinator adapter is implemented and echo-tested against a real Hatchet
+engine (see [coordinator runtime](#data-defined-coordinator-runtime)). The complete
+builtin catalog, Docker broker, public run API and graph editor follow in issues
+#9–#11 and #14. See [run state and admission](control-plane.md#durable-run-state-and-admission). Shared workers currently install only `core.echo@1`. The Python tutorials
 below remain the guide for the existing deployed workflows.
 
 ### Create and link stages
@@ -519,3 +521,62 @@ These checks establish local application/configuration/SDK serialization behavio
 | History lacks engine IDs or linked attempts | Preserve `@engine_context`, correlation scope, `@operation`, and command trace/correlation fields. |
 | Duplicate external effects on retry | Check recovery markers/state and partial-failure tests; neither a lock nor progress logging is an exactly-once guarantee. |
 | Saved settings appear unchanged | Confirm whether the worker uses standalone YAML or managed bootstrap and whether the linked saved profile was updated and loaded on restart. |
+
+## Data-defined coordinator runtime
+
+The dynamic runtime has a fixed durable coordinator and short control tasks, separate from the legacy Python graph above. The database evaluates the pinned graph, conditions, direct-parent bindings and admission limits. The coordinator only schedules children and performs durable sleeps. Worker and backend dependencies pin `hatchet-sdk==1.42.1`; upgrade them together and rerun the live contracts before relying on a different engine/SDK combination.
+
+```mermaid
+sequenceDiagram
+    participant Coordinator as Durable coordinator
+    participant Control as Advance control task
+    participant DB as Workflow state
+    participant Action as Pool action worker
+    Coordinator->>Control: project ID + run ID, stable round key
+    Control->>DB: Evaluate pinned revision and admit frontier
+    DB-->>Coordinator: Execution IDs + pinned pool/role routes
+    Coordinator->>Action: Execution ID, stable child key, required labels
+    Action->>DB: Claim lease; fetch scoped input/context
+    Action->>DB: Authenticated terminal receipt + bounded result
+    Action-->>Coordinator: Execution ID + state
+    Coordinator->>Coordinator: Durable sleep; next control round
+```
+
+`register_coordinator` in `worker/factory/adapters/orchestration/dynamic.py` registers `<namespace>-coordinate` and `<namespace>-advance` (default namespace `flumic-dynamic-v1`). `build_control_worker` runs these with required `factory_protocol=shared-v1` and `factory_role=control` labels. Its trusted handler calls `WorkflowState.advance_run(ProjectScope(command.project_id), command.run_id)`. Do not accept executable handlers, namespaces or worker labels from a workflow definition or an untrusted request.
+
+Action workers retain their fixed `flumic-shared-action-v1-<pool-id>-<role>` task names. The coordinator uses public Hatchet task stubs and `aio_run` with required protocol, pool and role labels. A matching workflow name alone cannot route an action to another pool. Only IDs and bounded routing/receipt metadata enter Hatchet payloads; full graph data, stage inputs/results and project credentials stay behind the scoped state/assignment boundary.
+
+| Setting or identity | Default / example | Effect |
+| --- | --- | --- |
+| Coordinator `parallelism` | `8`, allowed `1..8` | Maximum children awaited in one batch; database project/deployment admission limits still apply. |
+| Advance control retries | `3`, exponential backoff capped at 10 seconds | Retries transient control/database failures with the same child identity. Invalid protocol receipts are sanitized non-retryable failures. This does not allocate another action attempt. |
+| `poll_seconds` | `2`, allowed `1..60` | Durable delay between control rounds, including queued or uncertain executions. Lower values increase control traffic. |
+| Control worker `slots` | `2`, allowed `1..8` | Capacity for short database control tasks; these do not consume action-pool slots. |
+| Control worker `durable_slots` | `16`, allowed `1..16` | Coordinator capacity. Durable waiting can be evicted and replayed according to engine policy. |
+| Eviction policy | 15-minute waiting TTL, capacity eviction enabled | Allows idle coordinators to release worker memory; the echo fixture uses a 1-second TTL and one durable slot to exercise replay. |
+| Advance key | `advance/<run-id>/<round>` | Replays the same control result at the same point in a durable parent. |
+| Action child key | `action/<run-id>/<stage-id>/<attempt>/<execution-id>` | Reattaches the same logical execution. A configured retry receives a new execution ID only after known terminal failure. |
+
+An action child transport error never proves that an external operation stopped. The coordinator polls persisted state without creating a replacement attempt. An expired or uncertain assignment keeps its capacity and claims until trusted reconciliation. Malformed or cross-execution receipts fail closed. Arbitrary external effects are not exactly-once transactions.
+
+### Cancellation and integration boundaries
+
+The trusted `WorkflowState.cancel_run` transition changes a run to `cancelling`, cancels pending/unclaimed work under the assignment-claim fence, and prevents new stage admissions and retry generations. Already claimed actions keep their leases, capacity and external-resource fences. The run becomes `cancelled` after those actions provide terminal receipts. Cancellation is idempotent and does not rewrite an already completed/failed run.
+
+For echo children, the coordinator waits for active children to settle before observing cancellation. Cancelling only the Hatchet parent is **not** proof that an external action or Docker job stopped. The authenticated cancellation/launch API is tracked in [#11](https://github.com/phudekar/flumic-software-factory/issues/11), job stop/reconciliation in [#10](https://github.com/phudekar/flumic-software-factory/issues/10), and installed business action handlers in [#9](https://github.com/phudekar/flumic-software-factory/issues/9). This increment provides the coordinator adapter and trusted state transition; it does not enable dynamic launches from the current control-pane UI.
+
+### Run the live engine contract
+
+Unit tests exercise scheduling, bounded concurrency, scope rejection, non-retryable protocol errors and uncertain receipts. Backend tests exercise real graph conditions, skip propagation, cancellation, pinned routes and database admission/retry rules. The opt-in fixture checks actual Hatchet child identity, parent restart, capacity eviction, pool affinity, normal slots, failure, transient control recovery and cooperative cancellation using deterministic echo actions.
+
+With Hatchet environment variables exported for a development/test tenant:
+
+```sh
+FLUMIC_LIVE_HATCHET=1 \
+FLUMIC_LIVE_EVIDENCE_DIR=output/hatchet-contract \
+python -m unittest discover -s tests/integration -p test_hatchet_dynamic_contract.py -v
+```
+
+The fixture registers uniquely named test workflows/workers and stops its worker processes afterward. Test run metadata remains in the selected Hatchet tenant. It does not call models, mutate GitHub, launch containers or use project secrets. Evidence includes worker logs, coordinator reentry records and echo execution intervals; skipped live tests are not replay evidence.
+
+On 2026-10-23, the echo contracts were exercised against Hatchet Cloud engine `v0.113.4` with Python SDK `1.42.1`. This is a tested compatibility pair, not a pin on the hosted engine: Cloud can upgrade independently. Self-hosted deployments should run the same fixture against their chosen engine version. Preserve active assignment/job records when cancelling a parent; cancelling a Python task cannot forcibly terminate an already-running synchronous child or an external job.

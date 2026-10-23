@@ -590,7 +590,7 @@ Create a pool with `POST /api/v1/worker-pools`:
 | `name` | Unique infrastructure name, such as `shared-simple` or `shared-developer`. |
 | `role` | `simple` or `developer`; selects the standard worker image and required engine routing label. |
 | `normal_slots` | Concurrent action slots **per worker**, from 1 to 8; default 2. This does not replace project/deployment admission limits. |
-| `durable_slots` | Durable engine slots per worker, from 1 to 16; default 16. The durable coordinator is delivered in its separate milestone. |
+| `durable_slots` | Durable engine slots per worker, from 1 to 16; default 16. The coordinator adapter uses these slots; public launch/API integration remains a separate milestone. |
 | `executors` | Explicit versions allowed by policy, such as `builtin@1`. A worker advertises only locally installed capabilities. |
 | `actions` | Explicit action versions allowed by policy. This increment installs the deterministic `core.echo@1` smoke action; the full builtin catalog and Docker executor follow in their tracked milestones. |
 | `hatchet_tls_strategy` | `tls` (default), `mtls`, or `none` for a deliberately unsecured development engine. |
@@ -672,7 +672,7 @@ for field defaults, examples, limits and the execution integration status.
 
 The internal `WorkflowState` service persists runs, logical stage attempts,
 encrypted inputs/results, business state and canonical external-resource claims.
-It is the run repository for the upcoming durable coordinator (#8) and scoped run
+It is the run repository for the durable coordinator adapter (#8) and upcoming scoped run
 APIs (#11). Saving a definition in the current UI still does not trigger this runtime.
 Only the deterministic shared echo action is installed at this milestone; the
 full builtin catalog and Docker broker follow in #9/#10.

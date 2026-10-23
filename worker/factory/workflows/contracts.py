@@ -2,6 +2,7 @@
 
 import json
 from types import MappingProxyType
+from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, model_validator
 
 
@@ -14,19 +15,34 @@ class Contract(BaseModel):
 
 
 class ActionInvocation(Contract):
-    project_id: str
-    run_id: str
-    execution_id: str
+    project_id: str = Field(min_length=1, max_length=120)
+    run_id: str = Field(min_length=1, max_length=120)
+    execution_id: str = Field(min_length=1, max_length=120)
 
 
 class StageReceipt(Contract):
-    execution_id: str
-    state: str
+    execution_id: str = Field(min_length=1, max_length=120)
+    state: Literal["waiting", "completed", "failed", "cancelled"]
+
+
+class RunInvocation(Contract):
+    project_id: str = Field(min_length=1, max_length=120)
+    run_id: str = Field(min_length=1, max_length=120)
+
+
+class ActionRoute(Contract):
+    stage_id: str = Field(min_length=1, max_length=120)
+    attempt: int = Field(ge=1)
+    pool_id: str = Field(min_length=1, max_length=120)
+    role: Literal["simple", "developer"]
 
 
 class RunAdvance(Contract):
-    state: str
-    ready: list[ActionInvocation] = Field(default_factory=list)
+    state: Literal[
+        "queued", "running", "cancelling", "completed", "failed", "cancelled"
+    ]
+    ready: list[ActionInvocation] = Field(default_factory=list, max_length=256)
+    routes: dict[str, ActionRoute] = Field(default_factory=dict, max_length=256)
 
 
 class UsageRecord(Contract):
