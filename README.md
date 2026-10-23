@@ -314,7 +314,10 @@ date is committed.
 
 The [project and dynamic-workflow implementation roadmap](docs/project-workflow-roadmap.md)
 tracks multi-repository projects, shared worker pools, and built-in/Docker actions
-as GitHub issues. These are planned capabilities.
+as GitHub issues. Project/repository APIs, shared pool foundations, immutable
+definition publication and the internal run-state/admission service are implemented.
+The durable coordinator, full action execution, Docker broker and project/workflow
+UI remain in progress; see [runtime status and limits](docs/control-plane.md#durable-run-state-and-admission).
 
 ## Website and documentation
 

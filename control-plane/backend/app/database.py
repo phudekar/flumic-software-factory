@@ -246,6 +246,7 @@ class Assignment(ProjectOwned, Base):
     __tablename__ = 'execution_assignments'
     __table_args__ = (
         UniqueConstraint('project_id','execution_id', name='uq_assignment_execution'),
+        UniqueConstraint('project_id','id', name='uq_assignment_owner'),
         ForeignKeyConstraint(['project_id','repository_id'], ['repository_connections.project_id','repository_connections.id'], name='fk_assignment_repository'),
     )
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=identity)
@@ -302,9 +303,81 @@ class WorkflowRevision(ProjectOwned, Base):
 
 class WorkflowLaunchSnapshot(ProjectOwned, Base):
     __tablename__ = 'workflow_launch_snapshots'
-    __table_args__ = (ForeignKeyConstraint(['project_id','workflow_revision_id'],
+    __table_args__ = (UniqueConstraint('project_id', 'id', name='uq_workflow_launch_owner'), ForeignKeyConstraint(['project_id','workflow_revision_id'],
         ['workflow_definition_revisions.project_id','workflow_definition_revisions.id'],name='fk_workflow_launch_revision'),)
     id: Mapped[str] = mapped_column(String(36),primary_key=True,default=identity)
     workflow_revision_id: Mapped[str] = mapped_column(String(36))
     ciphertext: Mapped[str] = mapped_column(Text)
     created_at: Mapped[float] = mapped_column(Float,default=time.time)
+
+
+class WorkflowAdmission(Base):
+    __tablename__ = "workflow_admission"
+    id: Mapped[str] = mapped_column(String(20), primary_key=True)
+    last_project: Mapped[str] = mapped_column(String(36), default="")
+    tick: Mapped[int] = mapped_column(default=0)
+
+
+class WorkflowRun(ProjectOwned, Base):
+    __tablename__ = "workflow_runs"
+    __table_args__ = (
+        UniqueConstraint("project_id", "id", name="uq_workflow_run_owner"),
+        UniqueConstraint("project_id", "request_key", name="uq_workflow_run_request"),
+        ForeignKeyConstraint(["project_id", "snapshot_id"],
+            ["workflow_launch_snapshots.project_id", "workflow_launch_snapshots.id"], name="fk_run_snapshot"),
+    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=identity)
+    snapshot_id: Mapped[str] = mapped_column(String(36))
+    sequence: Mapped[int] = mapped_column()
+    request_key: Mapped[str] = mapped_column(String(120))
+    request_digest: Mapped[str] = mapped_column(String(64))
+    input_ciphertext: Mapped[str] = mapped_column(Text)
+    state: Mapped[str] = mapped_column(String(20), default="queued")
+    created_at: Mapped[float] = mapped_column(Float, default=time.time)
+
+
+class StageAttempt(ProjectOwned, Base):
+    __tablename__ = "workflow_stage_attempts"
+    __table_args__ = (
+        ForeignKeyConstraint(["project_id", "run_id"], ["workflow_runs.project_id", "workflow_runs.id"], name="fk_attempt_run"),
+        UniqueConstraint("project_id", "run_id", "stage_id", "generation", name="uq_stage_generation"),
+        UniqueConstraint("project_id", "id", name="uq_attempt_owner"),
+        ForeignKeyConstraint(["project_id", "assignment_id"], ["execution_assignments.project_id", "execution_assignments.id"], name="fk_attempt_assignment"),
+    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=identity)
+    run_id: Mapped[str] = mapped_column(String(36), index=True)
+    stage_id: Mapped[str] = mapped_column(String(100))
+    generation: Mapped[int] = mapped_column(default=1)
+    state: Mapped[str] = mapped_column(String(20), default="pending")
+    assignment_id: Mapped[str | None] = mapped_column(String(36))
+    spec_digest: Mapped[str | None] = mapped_column(String(64))
+    input_digest: Mapped[str | None] = mapped_column(String(64))
+    origins_ciphertext: Mapped[str | None] = mapped_column(Text)
+    result_digest: Mapped[str | None] = mapped_column(String(64))
+    result_ciphertext: Mapped[str | None] = mapped_column(Text)
+    available_at: Mapped[float] = mapped_column(Float, default=0)
+    created_at: Mapped[float] = mapped_column(Float, default=time.time)
+
+
+class ProjectBusinessState(ProjectOwned, Base):
+    __tablename__ = "project_business_state"
+    __table_args__ = (ForeignKeyConstraint(["project_id", "repository_id"],
+        ["repository_connections.project_id", "repository_connections.id"], name="fk_business_state_repository"),)
+    repository_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    key: Mapped[str] = mapped_column(String(512), primary_key=True)
+    ciphertext: Mapped[str] = mapped_column(Text)
+
+
+class ExternalResourceClaim(Base):
+    __tablename__ = "external_resource_claims"
+    __table_args__ = (ForeignKeyConstraint(["project_id", "execution_id"], ["workflow_stage_attempts.project_id", "workflow_stage_attempts.id"], name="fk_resource_execution"),)
+    resource: Mapped[str] = mapped_column(String(512), primary_key=True)
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"))
+    execution_id: Mapped[str] = mapped_column(String(36))
+    expires_at: Mapped[float] = mapped_column(Float)
+
+
+class RepositoryExecutionMode(Base):
+    __tablename__ = "repository_execution_modes"
+    repository: Mapped[str] = mapped_column(String(300), primary_key=True)
+    mode: Mapped[str] = mapped_column(String(20))

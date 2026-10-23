@@ -15,7 +15,7 @@ from fastapi.responses import FileResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.exceptions import RequestValidationError
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import select, desc, or_, text
+from sqlalchemy import select, desc, or_, text, func
 from app.database import (
     database,
     Project, DEFAULT_PROJECT_ID,
@@ -77,6 +77,11 @@ def row(value):
     return {
         column.name: getattr(value, column.name) for column in value.__table__.columns
     }
+
+
+def _lifecycle_marker(db, worker):
+    operations = db.execute(select(func.count(Operation.id), func.max(Operation.updated_at)).where(Operation.worker_id == worker.id)).one()
+    return (worker.revision_id, worker.config_id, worker.desired_state, *operations)
 
 
 def create_app(settings=None, sessions=None, runtime=None, workflow=None):
@@ -383,6 +388,8 @@ def create_app(settings=None, sessions=None, runtime=None, workflow=None):
         if body.target_id != "local-docker":
             raise HTTPException(422, "Unsupported deployment target")
         with sessions.begin() as db:
+            from app.workflow_state import transition_lock, legacy_guard
+            transition_lock(db)
             for field, model in (("config_id", WorkerConfiguration), ("revision_id", Revision)):
                 value = getattr(body, field)
                 if value is not None:
@@ -408,6 +415,7 @@ def create_app(settings=None, sessions=None, runtime=None, workflow=None):
             profiles = config.validate(revision.document)
             if profile not in profiles:
                 raise HTTPException(422, "Unknown worker profile")
+            legacy_guard(db, config, revision.document, profile)
             worker = Worker(
                 id=str(uuid.uuid4()),
                 name=body.name,
@@ -448,7 +456,22 @@ def create_app(settings=None, sessions=None, runtime=None, workflow=None):
         key = request.headers.get("idempotency-key")
         if not key or len(key) > 100:
             raise HTTPException(422, "Idempotency-Key is required")
+        # Docker can be slow. Observe it without holding any deployment/worker
+        # transaction fence, then reject a stale observation under that fence.
+        observed_runtime, observation_marker = [], None
+        if body.action in {"configure", "start", "restart"}:
+            with sessions() as observation_db:
+                candidate = observation_db.get(Worker, identifier)
+                if candidate is not None:
+                    observation_marker = _lifecycle_marker(observation_db, candidate)
+                    needs_observation = candidate.protocol == "legacy" and (body.action == "configure" or candidate.config_id is not None)
+                else:
+                    needs_observation = False
+            if needs_observation:
+                observed_runtime = runtime_adapter().list()
         with sessions.begin() as db:
+            from app.workflow_state import transition_lock, legacy_guard
+            transition_lock(db)
             for field, model in (("config_id", WorkerConfiguration), ("revision_id", Revision)):
                 value = getattr(body, field)
                 if value is not None:
@@ -465,6 +488,8 @@ def create_app(settings=None, sessions=None, runtime=None, workflow=None):
             )
             if existing:
                 return row(existing)
+            if observation_marker is not None and _lifecycle_marker(db, worker) != observation_marker:
+                raise HTTPException(409, "Worker changed during runtime observation; retry the action")
             if db.scalar(
                 select(Operation.id).where(
                     Operation.worker_id == identifier,
@@ -495,7 +520,7 @@ def create_app(settings=None, sessions=None, runtime=None, workflow=None):
                 actual = next(
                     (
                         item
-                        for item in runtime_adapter().list()
+                        for item in observed_runtime
                         if item.get("instance_id") == identifier
                     ),
                     None,
@@ -522,7 +547,7 @@ def create_app(settings=None, sessions=None, runtime=None, workflow=None):
                 actual = next(
                     (
                         item
-                        for item in runtime_adapter().list()
+                        for item in observed_runtime
                         if item.get("instance_id") == identifier
                     ),
                     None,
@@ -550,6 +575,9 @@ def create_app(settings=None, sessions=None, runtime=None, workflow=None):
                         if body.action == "restart" and actual
                         else "configure_start"
                     )
+            if worker.protocol == "legacy" and body.action in {"start", "restart", "configure"}:
+                selected = db.get(Revision, worker.revision_id)
+                legacy_guard(db, config, selected.document, worker.profile)
             operation = Operation(
                 id=str(uuid.uuid4()),
                 worker_id=identifier,

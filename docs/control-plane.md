@@ -667,3 +667,101 @@ container options. There is no public snapshot/credential-resolution endpoint he
 The trusted run service will use the internal launch pin API in the run-state milestone.
 See [creating data-defined workflows](workflow-development.md#data-defined-workflow-revisions)
 for field defaults, examples, limits and the execution integration status.
+
+## Durable run state and admission
+
+The internal `WorkflowState` service persists runs, logical stage attempts,
+encrypted inputs/results, business state and canonical external-resource claims.
+It is the run repository for the upcoming durable coordinator (#8) and scoped run
+APIs (#11). Saving a definition in the current UI still does not trigger this runtime.
+Only the deterministic shared echo action is installed at this milestone; the
+full builtin catalog and Docker broker follow in #9/#10.
+
+A launch validates the chosen definition revision once and stores its exact graph,
+repository/configuration revisions, effective stage settings and secret-version
+references. Repeating the same project request key with identical input/revision
+returns the same run; different input or revision returns a conflict. JSON object
+key order does not affect identity. Advancing or replaying a run reads its stored
+snapshot, including when an operator has since changed a repository connection.
+
+| Policy | Default | Effect |
+| --- | --- | --- |
+| Active runs per project | `2` | Additional runs remain queued in persisted launch order. |
+| Admitted actions per project | `4` | Bounds a project's ready/running actions across its active runs. |
+| Admitted actions per deployment | `8` | Bounds all ready/running assignments, including reserved capacity. |
+| Shared worker slots | Pool's configured slots, default `2` | Admission also requires registered role/action/executor capacity in that pool. |
+| Assignment/resource lease | `120` seconds | A valid owner can renew; shared workers renew every `20` seconds. |
+
+Trusted deployment code may inject `AdmissionLimits`, bounded to 1–32 runs/project,
+1–64 actions/project and 1–256 actions/deployment. These are service configuration,
+not new browser form fields. Ready projects rotate after each admitted action;
+one project's parallel branches cannot drain the deployment queue ahead of every
+other ready project. Frontiers sort by stage ID, and replay returns existing
+execution IDs rather than creating another attempt.
+
+All state transitions use a short database write fence before worker/assignment
+locks. Both SQLite and PostgreSQL enforce it; concurrency tests use separate
+PostgreSQL sessions and a file-backed SQLite database. Provider calls and container
+execution do not run inside this scheduler transaction. Legacy lifecycle Docker
+observations also run outside the fence; worker revision, lifecycle-operation state
+and repository mode are rechecked inside it before accepting the command. A stale
+observation returns a conflict so the operator can retry. PostgreSQL is the shared
+production store for this runtime; legacy workers continue using their existing
+SQLite state and file locks.
+
+A transport retry reattaches the same execution identity. Only a confirmed terminal
+failure may allocate the next configured retry generation, after the stage's retry
+delay. A worker timeout or expired lease alone does **not** prove external effects
+stopped: its slot and resource claims remain held for reconciliation. Terminal
+completion is idempotent by execution/result digest; a changed result conflicts.
+Never retry arbitrary external effects solely because a response was lost.
+
+A false condition skips its stage and dependent branches. Failed prerequisites
+block their descendants. Invalid resolved inputs or revoked/missing required
+grants fail admission before an executable assignment survives the transaction.
+Revoking one project's pool membership prevents new admission there without
+rolling back other projects' progress. Disabling membership after admission does
+not release an uncertain in-flight assignment; it still requires reconciliation.
+
+### Business state and external-resource ownership
+
+Business state is encrypted and scoped by project and repository connection.
+The new `ExecutionStateStore` takes an explicit delivered action context and an
+assignment-authenticated transport; it never reads a legacy SQLite key as a
+fallback. Worker state/claim transport endpoints integrate in #11. Generic stage
+bindings retain encrypted repository-origin metadata across relays, and affine
+builtins reject foreign-origin data before client construction.
+Origin identities are deduplicated while collecting ancestry, with a separate
+256 KiB logical JSON budget per admitted action. Exceeding that budget rejects the
+stage before dispatch; repeated fan-in cannot amplify tiny outputs into unbounded
+lineage records.
+
+External claims use canonical lowercase GitHub host/owner/repository identity,
+independently of project or local alias. For example,
+`github.com/acme/service/issue/42` serializes two projects acting on the same
+external item. GitHub pull requests and issues share this numeric claim namespace.
+A repository-wide claim conflicts with all its item claims. Another project cannot
+claim an external repository absent from that execution's pinned repository context.
+Claims remain through exceptions and lease expiry until a trusted terminal receipt
+or reconciler confirms effects stopped. This does not provide exactly-once writes
+to GitHub or arbitrary Docker programs.
+
+### Transition from legacy workers
+
+Dynamic mutating actions require an explicit canonical repository mode transition.
+The trusted `enable_dynamic_repository` operation refuses it while managed legacy
+workers for that repository are not stopped/removed or have lifecycle operations
+in progress. Once enabled, legacy create/configure/start/restart requests for that
+repository are rejected; the reconciler enforces the same fence. Other repositories
+and deterministic echo validation are unaffected. The current public API does not
+expose this internal transition yet.
+
+Drain standalone workers outside this Control Plane separately before enabling the
+new mode. Their old file locks cannot coordinate with database claims. Existing
+SQLite files, keys, worker identities and snapshots are preserved; nothing silently
+migrates their business state or restarts containers.
+
+Migration `e201f1000006` adds the run/state/claim tables and ownership constraints.
+Downgrade removes new run/state/claim/mode data while retaining older project,
+workflow revision and snapshot data. Drain new executions and back up these tables
+before a downgrade; removing a mode fence during live execution is unsafe.

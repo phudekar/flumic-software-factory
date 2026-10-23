@@ -7,9 +7,10 @@ For tuning existing stages, see [workflow configuration](configuration-workflows
 ## Data-defined workflow revisions
 
 The project API now validates and publishes immutable workflow documents. Publishing
-stores a graph; it does not start a run. Durable scheduling, the complete executable
-builtin catalog, Docker job execution and the graph editor follow in issues #7–#11
-and #14. Shared workers currently install only `core.echo@1`. The Python tutorials
+stores a graph; it does not start a run. The internal run-state service now
+provides pinned execution identities and transactional admission. The durable
+engine coordinator, complete builtin catalog, Docker broker, public run API and
+graph editor follow in issues #8–#11 and #14. See [run state and admission](control-plane.md#durable-run-state-and-admission). Shared workers currently install only `core.echo@1`. The Python tutorials
 below remain the guide for the existing deployed workflows.
 
 ### Create and link stages
@@ -152,6 +153,7 @@ neither resolves credential values nor launches actions.
 | Stages | 1–64 | Publication |
 | Run input | 64 KiB | Binding resolution |
 | Resolved action input / parent output | 1 MiB each | Binding resolution / output envelope |
+| Origin metadata | 256 KiB after deduplication | Runtime admission |
 | JSON nesting | 64 | JSON and binding validation |
 
 Known literal action fields are checked at publication even beside dynamic values.
