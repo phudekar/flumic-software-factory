@@ -215,7 +215,7 @@ class DockerJobRuntime:
                 raise ValueError("Invalid job result envelope")
             json_bytes(value)
             capture = JobCapture.model_validate(value)
-        except (OSError, ValueError):
+        except (OSError, ValueError, RecursionError):
             raise ValueError(
                 "Missing, malformed, unsafe or oversized job result"
             ) from None

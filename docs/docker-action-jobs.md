@@ -63,7 +63,7 @@ Path('/flumic/output/result.json').write_text(json.dumps(result))
 
 The envelope contains an `output` JSON object and optional `usage` array (at most 256 records). Input and the entire result file are each limited to 1 MiB. Nonfinite JSON, missing/malformed files, symlinks, nonregular files and oversized results fail explicitly. Usage values are supplied by the program; they are not inferred from container CPU/memory. Accounting ingestion and reporting belong to the project telemetry milestone.
 
-Stdout and stderr are captured separately, retaining at most 256 KiB each with truncation flags. Failure logs are retained too. Docker's own log rotation is bounded separately to two 1 MiB files. Resolved grant values are redacted before encrypted result persistence; operators must still avoid logging sensitive derived values.
+Stdout and stderr are captured separately, retaining at most 256 KiB each with truncation flags. Failure logs are retained too. Docker's own log rotation is bounded separately to two 1 MiB files. Resolved grant values are redacted before encrypted result persistence, with protocol keys/failure status preserved. Log limits are reapplied after redaction and truncation flags reflect any additional clipping. A redacted output/usage envelope exceeding 1 MiB fails explicitly with a bounded diagnostic. Operators must still avoid logging sensitive derived values.
 
 ## Durability and cancellation
 
@@ -73,7 +73,7 @@ The broker commits launch intent before contacting Docker. A container whose lau
 
 Cancellation and deadlines are broker-owned and work after a worker/coordinator exits. Reconciliation requests stop with a five-second grace, escalates to kill if necessary, and verifies terminality before recording a terminal receipt. Cancellation wins if persisted before the result's terminal commit. Deadlines are checked again at that commit. Completed remote effects are not undone.
 
-The reconciler runs the job loop independently of persistent-worker image builds. It polls every two seconds; enforcement includes polling, queue and Docker response latency, so this is not a hard real-time deadline. It persists the terminal output/status before a later cleanup tick removes the container and its job directory. Durable terminal records remain as identity tombstones, with periodic cleanup reconciliation.
+The reconciler runs the job loop independently of persistent-worker image builds. Each two-second tick reserves a budget of up to eight active jobs plus one historical cleanup; completed tombstones cannot consume active launch/stop service capacity. Enforcement includes polling, queue and Docker response latency, so this is not a hard real-time deadline. It persists the terminal output/status before a later cleanup tick removes the container and its job directory. Durable terminal records remain as identity tombstones, with periodic cleanup reconciliation.
 
 ## Deployment and isolation
 

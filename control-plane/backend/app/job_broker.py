@@ -10,7 +10,7 @@ import hashlib
 from pathlib import Path
 import time
 from fastapi import HTTPException
-from sqlalchemy import select, or_
+from sqlalchemy import select
 from app.database import (
     RuntimeJob,
     Assignment,
@@ -24,7 +24,8 @@ from app.workflow_state import transition_lock, hashed
 from app.workflow_definitions import read_definition_pin
 from app.job_contracts import JobLaunch, JobReceipt, RuntimeJobRef
 from factory.workflows.definitions import WorkflowDefinition, DockerStage
-from factory.workflows.redaction import secret_scope, redact
+from factory.workflows.redaction import secret_scope
+from app.job_contracts import sanitize_capture
 
 TERMINAL = {"completed", "failed", "timed-out", "cancelled"}
 
@@ -169,18 +170,28 @@ class JobBroker:
         # OS locks span I/O without a long database transaction/expiring lease.
         # All broker replicas for this local Docker target must share this directory.
         with self.sessions() as db:
+            # Reserve an independent budget for active effects; historical cleanup
+            # must never consume their launch/cancel/deadline service capacity.
             candidates = list(
                 db.scalars(
                     select(RuntimeJob.id)
-                    .where(
-                        or_(
-                            RuntimeJob.state.not_in(TERMINAL),
-                            RuntimeJob.next_cleanup_at <= self.clock(),
-                        )
-                    )
+                    .where(RuntimeJob.state.not_in(TERMINAL))
                     .order_by(RuntimeJob.updated_at, RuntimeJob.id)
+                    .limit(8)
                 )
             )
+            candidates += list(
+                db.scalars(
+                    select(RuntimeJob.id)
+                    .where(
+                        RuntimeJob.state.in_(TERMINAL),
+                        RuntimeJob.next_cleanup_at <= self.clock(),
+                    )
+                    .order_by(RuntimeJob.updated_at, RuntimeJob.id)
+                    .limit(1)
+                )
+            )
+        progressed = False
         for job_id in candidates:
             with (self.root / ".locks" / job_id).open("a") as lock:
                 try:
@@ -198,8 +209,8 @@ class JobBroker:
                             "Job reconciliation unavailable; retrying inspection"
                         )
                         row.updated_at = self.clock()
-                return True
-        return False
+                progressed = True
+        return progressed
 
     def _unknown(self, job_id):
         with self.sessions.begin() as db:
@@ -267,7 +278,7 @@ class JobBroker:
                 if state.state not in {"missing", "exited", "dead"}:
                     return
                 result = (
-                    redact(runtime.collect(ref).model_dump(mode="json"))
+                    sanitize_capture(runtime.collect(ref), credentials.values())[0]
                     if state.state in {"exited", "dead"}
                     else {}
                 )
@@ -291,8 +302,10 @@ class JobBroker:
                         row = db.get(RuntimeJob, job_id)
                         row.state, row.error = "running", None
                     return
-                result = redact(runtime.collect(ref).model_dump(mode="json"))
-                final = "failed" if result.get("error") else "completed"
+                result, failed = sanitize_capture(
+                    runtime.collect(ref), credentials.values()
+                )
+                final = "failed" if failed else "completed"
             with self.sessions.begin() as db:
                 transition_lock(db)
                 row = db.get(RuntimeJob, job_id)

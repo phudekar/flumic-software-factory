@@ -86,3 +86,62 @@ class JobReceipt(Contract):
     execution_id: str
     deadline: float
     result: dict | None = None
+
+
+def sanitize_capture(capture, secrets):
+    """Keep protocol authority separate from bounded, filtered program content.
+
+    One replacement pass cannot repeatedly expand its own redaction marker.
+    Logs and the result envelope are charged again after replacing grants.
+    """
+    import re
+
+    values = sorted(set(filter(None, secrets)), key=len, reverse=True)
+    pattern = (
+        re.compile("|".join(re.escape(value) for value in values)) if values else None
+    )
+
+    def text(value):
+        return pattern.sub(lambda match: "[REDACTED]", value) if pattern else value
+
+    def content(value):
+        if isinstance(value, str):
+            return text(value)
+        if isinstance(value, dict):
+            return {text(key): content(item) for key, item in value.items()}
+        if isinstance(value, list):
+            return [content(item) for item in value]
+        return value
+
+    # Determine failure before processing program-controlled strings or keys.
+    failed = (
+        capture.error is not None or capture.oom or capture.exit_code not in (None, 0)
+    )
+    result = capture.model_dump(mode="json")
+    result["error"] = (
+        text(capture.error).encode()[:200].decode("utf-8", errors="ignore")
+        if capture.error is not None
+        else None
+    )
+    if failed and result["error"] is None:
+        result["error"] = "Job exited nonzero or was killed for memory usage"
+    try:
+        raw = {"output": capture.output, "usage": capture.usage}
+        if len(json_bytes(raw)) > 1048576:
+            raise ValueError("Job result exceeds 1 MiB")
+        envelope = {"output": content(capture.output), "usage": content(capture.usage)}
+        if len(json_bytes(envelope)) > 1048576:
+            raise ValueError("Redacted job result exceeds 1 MiB")
+        result.update(envelope)
+    except (ValueError, RecursionError):
+        result.update(
+            output={}, usage=[], error="Job result exceeds bounded JSON contract"
+        )
+        failed = True
+    for stream in ("stdout", "stderr"):
+        encoded = text(getattr(capture, stream)).encode()
+        result[stream] = encoded[:262144].decode("utf-8", errors="ignore")
+        result[stream + "_truncated"] = (
+            getattr(capture, stream + "_truncated") or len(encoded) > 262144
+        )
+    return result, failed

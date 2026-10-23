@@ -127,6 +127,36 @@ class DockerJobRuntimeTests(unittest.TestCase):
             self.runtime.collect(self.runtime.reference(self.launch)).error
         )
 
+    def test_all_capture_protocol_keys_survive_secret_collisions(self):
+        from app.job_contracts import JobCapture, sanitize_capture
+
+        for secret in ("error", "output", "usage", "stdout", "exit_code"):
+            with self.subTest(secret=secret):
+                result, failed = sanitize_capture(
+                    JobCapture(output={"value": secret}), [secret]
+                )
+                self.assertFalse(failed)
+                self.assertEqual(result["output"], {"value": "[REDACTED]"})
+                self.assertEqual(set(result), set(JobCapture.model_fields))
+
+    def test_parser_recursion_is_a_failed_capture_with_logs(self):
+        from unittest.mock import patch
+
+        with patch(
+            "app.adapters.docker_jobs.json.loads",
+            side_effect=RecursionError("deep JSON"),
+        ):
+            capture = self.capture(b'{"output":{}}')
+        self.assertIsNotNone(capture.error)
+        self.assertTrue(capture.stdout_truncated)
+
+    def test_deep_json_is_a_failed_capture_on_deployment_python(self):
+        capture = self.capture(
+            b'{"output":{"nested":' + b"[" * 2000 + b"0" + b"]" * 2000 + b"}}"
+        )
+        self.assertIsNotNone(capture.error)
+        self.assertTrue(capture.stdout_truncated)
+
     def test_nonzero_and_oom_are_not_success(self):
         self.capture(b'{"output":{"ok":true}}')
         for values in ({"ExitCode": 1}, {"OOMKilled": True}):
@@ -321,6 +351,158 @@ class JobBrokerTests(unittest.TestCase):
                 release.set()
             self.assertTrue(future.result(timeout=5))
         self.assertEqual(len(self.jobs.launches), 1)
+
+    def set_grant_value(self, value):
+        from app.database import SecretVersion
+        from app.project_context import encrypt
+
+        with self.sessions.begin() as db:
+            secret = db.scalar(
+                fixtures.select(SecretVersion).where(
+                    SecretVersion.project_id == self.scope.project_id
+                )
+            )
+            secret.ciphertext = encrypt(value, self.settings)
+
+    def test_redaction_preserves_failure_protocol_keys(self):
+        self.arrange()
+        from app.job_contracts import JobCapture
+
+        self.set_grant_value("error")
+        receipt = self.submit()
+        self.broker.reconcile_once(self.jobs)
+        self.jobs.jobs[receipt.job_id] = "exited"
+        self.jobs.collect = lambda ref: JobCapture(
+            output={}, error="Nonzero exit", exit_code=1
+        )
+        self.broker.reconcile_once(self.jobs)
+        result = self.submit()
+        self.assertEqual(result.state, "failed")
+        self.assertEqual(result.result["exit_code"], 1)
+        self.assertIsNotNone(result.result["error"])
+
+    def test_redaction_rebounds_logs_and_reports_truncation(self):
+        self.arrange()
+        from app.job_contracts import JobCapture
+
+        self.set_grant_value("z")
+        receipt = self.submit()
+        self.broker.reconcile_once(self.jobs)
+        self.jobs.jobs[receipt.job_id] = "exited"
+        self.jobs.collect = lambda ref: JobCapture(
+            output={"ok": True}, stdout="z" * 262144, stderr="z" * 262144
+        )
+        self.broker.reconcile_once(self.jobs)
+        result = self.submit()
+        self.assertEqual(result.state, "completed")
+        for stream in ("stdout", "stderr"):
+            self.assertLessEqual(len(result.result[stream].encode()), 262144)
+            self.assertTrue(result.result[stream + "_truncated"])
+
+    def test_oversized_redacted_output_is_bounded_failure(self):
+        self.arrange()
+        from app.job_contracts import JobCapture
+
+        self.set_grant_value("z")
+        receipt = self.submit()
+        self.broker.reconcile_once(self.jobs)
+        self.jobs.jobs[receipt.job_id] = "exited"
+        self.jobs.collect = lambda ref: JobCapture(output={"blob": "z" * 1000000})
+        self.broker.reconcile_once(self.jobs)
+        result = self.submit()
+        self.assertEqual(result.state, "failed")
+        self.assertEqual(result.result["output"], {})
+        self.assertLessEqual(len(json.dumps(result.result).encode()), 1048576)
+
+    def test_due_history_cannot_delay_launch_or_running_deadline(self):
+        self.arrange()
+        import uuid
+        from app import database as models
+        from app.project_context import decrypt, encrypt
+
+        first = self.submit()
+        with self.sessions.begin() as db:
+            original = db.get(models.RuntimeJob, first.job_id)
+            template = decrypt(original.launch_ciphertext, self.settings)
+            authority = db.get(models.Assignment, self.assignment)
+            for i in range(151):
+                run_id, execution_id, assignment_id = [
+                    str(uuid.uuid4()) for _ in range(3)
+                ]
+                job_id = "%064x" % (i + 1)
+                run = models.WorkflowRun(
+                    id=run_id,
+                    project_id=self.scope.project_id,
+                    snapshot_id=self.run.snapshot_id,
+                    sequence=i + 10,
+                    request_key="history-" + str(i),
+                    request_digest="a" * 64,
+                    input_ciphertext=self.run.input_ciphertext,
+                    state="completed",
+                )
+                assignment = models.Assignment(
+                    id=assignment_id,
+                    project_id=self.scope.project_id,
+                    repository_id=authority.repository_id,
+                    pool_id=authority.pool_id,
+                    run_id=run_id,
+                    stage_id="job",
+                    execution_id=execution_id,
+                    role="simple",
+                    executor="docker@1",
+                    action="docker.run@1",
+                    status="completed",
+                    input_ciphertext=authority.input_ciphertext,
+                )
+                db.add_all([run, assignment])
+                db.flush()
+                db.add(
+                    models.StageAttempt(
+                        id=execution_id,
+                        project_id=self.scope.project_id,
+                        run_id=run_id,
+                        stage_id="job",
+                        generation=1,
+                        state="completed",
+                        assignment_id=assignment_id,
+                        spec_digest=self.digest,
+                    )
+                )
+                db.flush()
+                document = {
+                    **template,
+                    "launch": {
+                        **template["launch"],
+                        "job_id": job_id,
+                        "execution_id": execution_id,
+                    },
+                }
+                db.add(
+                    models.RuntimeJob(
+                        id=job_id,
+                        project_id=self.scope.project_id,
+                        execution_id=execution_id,
+                        assignment_id=assignment_id,
+                        spec_digest=self.digest,
+                        launch_ciphertext=encrypt(document, self.settings),
+                        state="completed",
+                        launch_started=True,
+                        runtime_observed=True,
+                        cancel_requested=False,
+                        deadline=self.now - 1000,
+                        result_ciphertext=encrypt({}, self.settings),
+                        updated_at=self.now - 1000,
+                        next_cleanup_at=0,
+                    )
+                )
+        self.broker.reconcile_once(self.jobs)
+        self.assertEqual(
+            [launch.job_id for launch in self.jobs.launches], [first.job_id]
+        )
+        self.now = first.deadline + 1
+        self.broker.reconcile_once(self.jobs)
+        self.assertEqual(self.submit().state, "timed-out")
+        self.assertIn(first.job_id, self.jobs.terminated)
 
     def test_same_key_durable_reattach_and_digest_conflict(self):
         self.arrange()
