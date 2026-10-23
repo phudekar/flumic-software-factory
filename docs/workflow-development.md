@@ -549,6 +549,7 @@ Action workers retain their fixed `flumic-shared-action-v1-<pool-id>-<role>` tas
 | Setting or identity | Default / example | Effect |
 | --- | --- | --- |
 | Coordinator `parallelism` | `8`, allowed `1..8` | Maximum children awaited in one batch; database project/deployment admission limits still apply. |
+| Advance control retries | `3`, exponential backoff capped at 10 seconds | Retries transient control/database failures with the same child identity. Invalid protocol receipts are sanitized non-retryable failures. This does not allocate another action attempt. |
 | `poll_seconds` | `2`, allowed `1..60` | Durable delay between control rounds, including queued or uncertain executions. Lower values increase control traffic. |
 | Control worker `slots` | `2`, allowed `1..8` | Capacity for short database control tasks; these do not consume action-pool slots. |
 | Control worker `durable_slots` | `16`, allowed `1..16` | Coordinator capacity. Durable waiting can be evicted and replayed according to engine policy. |
@@ -566,7 +567,7 @@ For echo children, the coordinator waits for active children to settle before ob
 
 ### Run the live engine contract
 
-Unit tests exercise scheduling, bounded concurrency, scope rejection, protocol errors and uncertain receipts. Backend tests exercise real graph conditions, skip propagation, cancellation, pinned routes and database admission/retry rules. The opt-in fixture checks actual Hatchet child identity, parent restart, capacity eviction, pool affinity, normal slots, failure and cooperative cancellation using deterministic echo actions.
+Unit tests exercise scheduling, bounded concurrency, scope rejection, non-retryable protocol errors and uncertain receipts. Backend tests exercise real graph conditions, skip propagation, cancellation, pinned routes and database admission/retry rules. The opt-in fixture checks actual Hatchet child identity, parent restart, capacity eviction, pool affinity, normal slots, failure, transient control recovery and cooperative cancellation using deterministic echo actions.
 
 With Hatchet environment variables exported for a development/test tenant:
 

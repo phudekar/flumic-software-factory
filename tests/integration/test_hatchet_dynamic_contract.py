@@ -204,3 +204,22 @@ class LiveHatchetContract(unittest.IsolatedAsyncioTestCase):
                 self.fail("Engine parent cancellation did not settle")
             await asyncio.sleep(0.2)
         self.assertFalse((folder / "start-2").exists())
+
+    async def test_transient_control_failure_recovers_without_new_execution(self):
+        folder, ref = await self.launch("control-retry", markers=("control-flaky",))
+        result = await asyncio.wait_for(ref.aio_result(), 120)
+        from factory.workflows.contracts import RunAdvance
+
+        self.assertEqual(RunAdvance.model_validate(result).state, "completed")
+        executions = [
+            json.loads(line)["execution"]
+            for line in (folder / "effects.jsonl").read_text().splitlines()
+        ]
+        self.assertEqual(
+            executions, ["control-retry-0", "control-retry-1", "control-retry-2"]
+        )
+        frontiers = [
+            json.loads(line)["execution"]
+            for line in (folder / "frontiers.jsonl").read_text().splitlines()
+        ]
+        self.assertEqual(frontiers, ["control-retry-1", "control-retry-1"])

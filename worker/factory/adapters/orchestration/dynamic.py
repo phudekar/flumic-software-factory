@@ -8,7 +8,12 @@ from project action workers. Public authenticated launch/state APIs arrive in #1
 from datetime import timedelta
 from types import SimpleNamespace
 from hatchet_sdk.runnables.eviction import EvictionPolicy
-from hatchet_sdk import Context, DurableContext, DesiredWorkerLabel
+from hatchet_sdk import (
+    Context,
+    DurableContext,
+    DesiredWorkerLabel,
+    NonRetryableException,
+)
 from factory.workflows.contracts import (
     ActionInvocation,
     RunInvocation,
@@ -64,10 +69,17 @@ def register_coordinator(
         input_validator=RunInvocation,
         desired_worker_labels=affinity,
         execution_timeout=timedelta(seconds=30),
-        retries=0,
+        retries=3,
+        backoff_factor=2.0,
+        backoff_max_seconds=10,
     )
     def advance(input: RunInvocation, ctx: Context) -> RunAdvance:
-        return RunAdvance.model_validate(advance_run(input))
+        try:
+            return RunAdvance.model_validate(advance_run(input))
+        except ValueError:
+            # Malformed protocol/configuration is terminal, not a temporary DB
+            # outage. Never put the invalid payload in the engine exception.
+            raise NonRetryableException("Invalid control protocol receipt") from None
 
     @hatchet.durable_task(
         name=namespace + "-coordinate",

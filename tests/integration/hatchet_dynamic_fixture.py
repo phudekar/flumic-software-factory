@@ -43,6 +43,12 @@ def register(client, root, namespace):
                     if retry
                     else f"{command.run_id}-{index}"
                 )
+                if index == 1 and (folder / "control-flaky").exists():
+                    with (folder / "frontiers.jsonl").open("a") as out:
+                        out.write(json.dumps({"execution": key}) + "\n")
+                    if not (folder / "control-failed").exists():
+                        (folder / "control-failed").touch()
+                        raise RuntimeError("Transient control database disconnect")
                 return RunAdvance(
                     state="running",
                     ready=[

@@ -278,3 +278,34 @@ class CoordinatorTests(unittest.IsolatedAsyncioTestCase):
             StageReceipt(execution_id="e", state="private output" * 1000)
         with self.assertRaises(ValidationError):
             StageReceipt(execution_id="e" * 121, state="completed")
+
+    async def test_control_protocol_error_is_non_retryable_and_sanitized(self):
+        import base64
+        import json
+        from hatchet_sdk import Hatchet, NonRetryableException
+        from hatchet_sdk.config import ClientConfig
+        from factory.adapters.orchestration.dynamic import register_coordinator
+        from factory.workflows.contracts import RunInvocation
+
+        claims = (
+            base64.urlsafe_b64encode(
+                json.dumps(
+                    {
+                        "sub": "test",
+                        "server_url": "http://localhost:8080",
+                        "grpc_broadcast_address": "localhost:7070",
+                    }
+                ).encode()
+            )
+            .decode()
+            .rstrip("=")
+        )
+        engine = Hatchet(
+            config=ClientConfig(token="eyJhbGciOiJub25lIn0." + claims + ".test")
+        )
+        tasks = register_coordinator(
+            engine, lambda command: {"state": "invalid-private-data"}
+        )
+        with self.assertRaises(NonRetryableException) as error:
+            tasks.advance.mock_run(RunInvocation(project_id="p", run_id="r"))
+        self.assertNotIn("invalid-private-data", str(error.exception))
