@@ -40,6 +40,7 @@ from factory.workflows.resources import (
 )
 from factory.workflows.contracts import (
     ActionInvocation,
+    RunMetadata,
     ActionRoute,
     ActionContext,
     RunAdvance,
@@ -165,23 +166,29 @@ class WorkflowState:
 
     @staticmethod
     def _purposes(stage, settings):
-        if not isinstance(stage, BuiltinStage) or stage.action == "core.echo@1":
-            return ()
-        raise ValueError("Executable action catalog is not installed")
+        from factory.workflows.actions import stage_purposes
+
+        return stage_purposes(stage, settings)
 
     def _snapshot(self, db, run):
         return read_definition_pin(
             db, ProjectScope(run.project_id), run.snapshot_id, self.settings
         )
 
-    def start_run(self, scope, revision_id, run_input, *, key):
+    def start_run(self, scope, revision_id, run_input, *, key, bindings=None):
         if not isinstance(run_input, dict) or len(json_bytes(run_input)) > 65536:
             raise HTTPException(
                 422, "Run input must be a JSON object of at most 64 KiB"
             )
         if not isinstance(key, str) or not 1 <= len(key) <= 120:
             raise HTTPException(422, "A bounded run request key is required")
-        digest = hashed({"revision": revision_id, "input": run_input})
+        digest = hashed(
+            {
+                "revision": revision_id,
+                "input": run_input,
+                **({"bindings": bindings} if bindings is not None else {}),
+            }
+        )
         with self.sessions.begin() as db:
             cursor = transition_lock(db)
             existing = db.scalar(
@@ -196,47 +203,95 @@ class WorkflowState:
                         409, "Run request key has another definition or input"
                     )
                 return existing
-            pin = pin_definition(db, scope, revision_id, self.config, self.settings)
-            snapshot = read_definition_pin(db, scope, pin.id, self.settings)
-            graph = WorkflowDefinition.model_validate(snapshot["definition"])
-            for stage in graph.stages:
-                if isinstance(stage, BuiltinStage) and stage.action == "core.echo@1":
-                    continue
-                key_repo = repository_key(
-                    snapshot["repositories"][
-                        stage.repository or graph.default_repository
-                    ]["document"]
+            if bindings is None:
+                pin = pin_definition(db, scope, revision_id, self.config, self.settings)
+            else:
+                from app.builtin_workflows import pin_project_bundle
+
+                pin = pin_project_bundle(
+                    db, scope, revision_id, bindings, self.config, self.settings
                 )
-                mode = db.get(RepositoryExecutionMode, key_repo)
-                if mode is None or mode.mode != "dynamic":
+            return self._create_run(db, scope, pin, run_input, key, digest, cursor)
+
+    def start_pinned_run(self, scope, snapshot_id, run_input, *, key):
+        if (
+            not isinstance(run_input, dict)
+            or len(json_bytes(run_input)) > 65536
+            or not isinstance(key, str)
+            or not 1 <= len(key) <= 120
+        ):
+            raise HTTPException(422, "Invalid pinned run request")
+        digest = hashed({"snapshot": snapshot_id, "input": run_input})
+        with self.sessions.begin() as db:
+            cursor = transition_lock(db)
+            from app.database import WorkflowLaunchSnapshot
+
+            pin = require_owned(db, scope, WorkflowLaunchSnapshot, snapshot_id)
+            existing = db.scalar(
+                select(WorkflowRun).where(
+                    WorkflowRun.project_id == scope.project_id,
+                    WorkflowRun.request_key == key,
+                )
+            )
+            if existing:
+                if existing.request_digest != digest:
                     raise HTTPException(
-                        409,
-                        "Enable dynamic repository mode after draining legacy workers",
+                        409, "Run key has another pinned context or input"
                     )
-            run = WorkflowRun(
+                return existing
+            return self._create_run(db, scope, pin, run_input, key, digest, cursor)
+
+    def _create_run(self, db, scope, pin, run_input, key, digest, cursor):
+        try:
+            RunMetadata.model_validate(
+                {
+                    key: run_input[key]
+                    for key in ("factory_run_id", "trace_context")
+                    if key in run_input
+                }
+            )
+        except ValueError:
+            raise HTTPException(422, "Invalid run correlation metadata") from None
+        snapshot = read_definition_pin(db, scope, pin.id, self.settings)
+        graph = WorkflowDefinition.model_validate(snapshot["definition"])
+        for stage in graph.stages:
+            if isinstance(stage, BuiltinStage) and stage.action == "core.echo@1":
+                continue
+            key_repo = repository_key(
+                snapshot["repositories"][stage.repository or graph.default_repository][
+                    "document"
+                ]
+            )
+            mode = db.get(RepositoryExecutionMode, key_repo)
+            if mode is None or mode.mode != "dynamic":
+                raise HTTPException(
+                    409,
+                    "Enable dynamic repository mode after draining legacy workers",
+                )
+        run = WorkflowRun(
+            project_id=scope.project_id,
+            snapshot_id=pin.id,
+            sequence=cursor.tick,
+            request_key=key,
+            request_digest=digest,
+            input_ciphertext=encrypt(run_input, self.settings),
+            created_at=self.clock(),
+        )
+        db.add(run)
+        db.flush()
+        db.add_all(
+            StageAttempt(
                 project_id=scope.project_id,
-                snapshot_id=pin.id,
-                sequence=cursor.tick,
-                request_key=key,
-                request_digest=digest,
-                input_ciphertext=encrypt(run_input, self.settings),
+                run_id=run.id,
+                stage_id=stage.id,
+                generation=1,
+                available_at=self.clock(),
                 created_at=self.clock(),
             )
-            db.add(run)
-            db.flush()
-            db.add_all(
-                StageAttempt(
-                    project_id=scope.project_id,
-                    run_id=run.id,
-                    stage_id=stage.id,
-                    generation=1,
-                    available_at=self.clock(),
-                    created_at=self.clock(),
-                )
-                for stage in graph.stages
-            )
-            db.flush()
-            return run
+            for stage in graph.stages
+        )
+        db.flush()
+        return run
 
     def _latest(self, db, run):
         attempts = list(
@@ -254,6 +309,19 @@ class WorkflowState:
     def _context(
         self, run, stage, attempt, metadata, revision, assignment_id="pending"
     ):
+        raw_input = decrypt(run.input_ciphertext, self.settings)
+        try:
+            correlation = RunMetadata.model_validate(
+                {
+                    key: raw_input[key]
+                    for key in ("factory_run_id", "trace_context")
+                    if key in raw_input
+                }
+            )
+        except ValueError:
+            # Older echo runs accepted arbitrary business keys with these names.
+            # Do not let their metadata poison other projects' admission rounds.
+            correlation = RunMetadata()
         return ActionContext(
             project_id=run.project_id,
             repository_id=metadata["repository_id"],
@@ -267,6 +335,9 @@ class WorkflowState:
             assignment_id=assignment_id,
             namespace=f"{run.project_id}/{metadata['repository_id']}",
             settings_json=metadata["settings_json"],
+            factory_run_id=correlation.factory_run_id or run.id,
+            trace_context=correlation.trace_context,
+            followup_bindings_json=metadata.get("followup_bindings_json", "{}"),
         )
 
     def _ready(self, db, run):
@@ -416,6 +487,17 @@ class WorkflowState:
         )
         run = db.get(WorkflowRun, item.run_id)
         context = self._context(run, stage, item, metadata, revision, row.id)
+        if isinstance(stage, BuiltinStage) and stage.action != "core.echo@1":
+            from factory.workflows.project_dispatch import ProjectBindings
+
+            bindings = ProjectBindings.model_validate_json(
+                context.followup_bindings_json
+            )
+            if (bindings.project_id, bindings.repository_id) != (
+                scope.project_id,
+                context.repository_id,
+            ):
+                raise ValueError("Pinned follow-up bindings cross repository scope")
         purposes = set(self.purposes(stage, context.settings))
         grants = {
             purpose: metadata["secret_versions"].get(purpose) for purpose in purposes
@@ -434,6 +516,7 @@ class WorkflowState:
                     "context": {
                         **context.model_dump(mode="json"),
                         "settings_json": context.settings_json,
+                        "followup_bindings_json": context.followup_bindings_json,
                         "secret_versions": list(grants.values()),
                     },
                     "grants": grants,

@@ -592,7 +592,7 @@ Create a pool with `POST /api/v1/worker-pools`:
 | `normal_slots` | Concurrent action slots **per worker**, from 1 to 8; default 2. This does not replace project/deployment admission limits. |
 | `durable_slots` | Durable engine slots per worker, from 1 to 16; default 16. The coordinator adapter uses these slots; public launch/API integration remains a separate milestone. |
 | `executors` | Explicit versions allowed by policy, such as `builtin@1`. A worker advertises only locally installed capabilities. |
-| `actions` | Explicit action versions allowed by policy. This increment installs the deterministic `core.echo@1` smoke action; the full builtin catalog and Docker executor follow in their tracked milestones. |
+| `actions` | Explicit action versions allowed by policy. Shared startup currently installs only `core.echo@1`; the nine-action catalog/composition is implemented in source, while authenticated business-action transport activation and the Docker executor remain tracked milestones. |
 | `hatchet_tls_strategy` | `tls` (default), `mtls`, or `none` for a deliberately unsecured development engine. |
 
 Pool profiles are immutable in this increment. Create a replacement pool and new
@@ -674,8 +674,10 @@ The internal `WorkflowState` service persists runs, logical stage attempts,
 encrypted inputs/results, business state and canonical external-resource claims.
 It is the run repository for the durable coordinator adapter (#8) and upcoming scoped run
 APIs (#11). Saving a definition in the current UI still does not trigger this runtime.
-Only the deterministic shared echo action is installed at this milestone; the
-full builtin catalog and Docker broker follow in #9/#10.
+Only the deterministic echo action is enabled by shared startup at this milestone.
+The executable builtin catalog and pinned follow-up helpers are implemented; their
+runtime transport activation remains #11, and the Docker broker remains #10.
+See [builtin action contracts](workflow-development.md#builtin-actions-and-pinned-project-follow-ups).
 
 A launch validates the chosen definition revision once and stores its exact graph,
 repository/configuration revisions, effective stage settings and secret-version

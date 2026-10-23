@@ -53,22 +53,41 @@ def parse_definition(document):
         ) from None
 
 
-def prepare_definition(db, scope, config, document, *, allow_bridge=False):
+def prepare_definition(db, scope, config, document, *, allow_bridge=False, frozen=None):
     graph = parse_definition(document)
-    factory = db.scalar(
-        select(Revision)
-        .where(Revision.project_id == scope.project_id, Revision.scope == "factory")
-        .order_by(desc(Revision.created_at))
-        .limit(1)
+    factory = (
+        require_owned(db, scope, Revision, frozen["factory_revision_id"])
+        if frozen
+        else db.scalar(
+            select(Revision)
+            .where(Revision.project_id == scope.project_id, Revision.scope == "factory")
+            .order_by(desc(Revision.created_at))
+            .limit(1)
+        )
     )
     if factory is None:
         raise HTTPException(404, "Configuration not found")
     repositories = {}
     for alias in graph.repositories:
-        connection = select_repository(db, scope, alias)
-        from app.database import RepositoryRevision
+        from app.database import RepositoryRevision, RepositoryConnection
 
-        revision = require_owned(db, scope, RepositoryRevision, connection.revision_id)
+        if frozen is not None:
+            entry = frozen["repositories"].get(alias)
+            if entry is None:
+                raise HTTPException(
+                    422, "Follow-up repository was not declared by the launch"
+                )
+            connection = require_owned(db, scope, RepositoryConnection, entry["id"])
+            revision = require_owned(
+                db, scope, RepositoryRevision, entry["revision_id"]
+            )
+            if revision.repository_id != connection.id:
+                raise HTTPException(404, "Resource not found")
+        else:
+            connection = select_repository(db, scope, alias)
+            revision = require_owned(
+                db, scope, RepositoryRevision, connection.revision_id
+            )
         repositories[alias] = {
             "id": connection.id,
             "revision_id": revision.id,
@@ -167,7 +186,7 @@ def graph_digest(document):
     ).hexdigest()
 
 
-def pin_definition(db, scope, revision_id, config, settings):
+def pin_definition(db, scope, revision_id, config, settings, *, frozen=None):
     """Trusted run-launch transaction calls this once, then persists its pin ID.
 
     No latest revisions are resolved on read/replay. Stage grant references are
@@ -175,7 +194,7 @@ def pin_definition(db, scope, revision_id, config, settings):
     """
     revision = require_owned(db, scope, WorkflowRevision, revision_id)
     graph, metadata = prepare_definition(
-        db, scope, config, decrypt(revision.graph_ciphertext, settings)
+        db, scope, config, decrypt(revision.graph_ciphertext, settings), frozen=frozen
     )
     value = {
         "workflow_revision_id": revision.id,

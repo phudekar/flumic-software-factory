@@ -128,3 +128,76 @@ def build_control_worker(hatchet, name, advance_run, *, slots=2, durable_slots=1
         labels={"factory_protocol": "shared-v1", "factory_role": "control"},
         workflows=[tasks.coordinator, tasks.advance],
     )
+
+
+def register_project_waits(
+    hatchet, check_wait, resume_wait, *, namespace="flumic-project-waits-v1"
+):
+    """Trusted infrastructure handlers load authenticated, stored request bindings.
+
+    Neither callback may resolve latest definitions or accept tenant-supplied
+    context as authority. Public transport/engine outbox wiring is in #11.
+    """
+    from factory.workflows.project_waits import (
+        WaitInvocation,
+        WaitCheck,
+        coordinate_wait,
+    )
+
+    affinity = labels(factory_protocol="shared-v1", factory_role="control")
+
+    @hatchet.task(
+        name=namespace + "-check",
+        input_validator=WaitInvocation,
+        desired_worker_labels=affinity,
+        retries=3,
+        backoff_factor=2.0,
+        backoff_max_seconds=10,
+        execution_timeout=timedelta(seconds=30),
+    )
+    def check(input: WaitInvocation, ctx: Context) -> WaitCheck:
+        try:
+            return WaitCheck.model_validate(check_wait(input.wait_id))
+        except ValueError:
+            raise NonRetryableException("Invalid project wait receipt") from None
+
+    @hatchet.task(
+        name=namespace + "-resume",
+        input_validator=WaitInvocation,
+        desired_worker_labels=affinity,
+        retries=3,
+        backoff_factor=2.0,
+        backoff_max_seconds=10,
+        execution_timeout=timedelta(seconds=30),
+    )
+    def resume(input: WaitInvocation, ctx: Context) -> bool:
+        try:
+            result = resume_wait(input.wait_id)
+            if type(result) is not bool:
+                raise ValueError("Expected durable acceptance")
+            return result
+        except ValueError:
+            raise NonRetryableException(
+                "Invalid project wait resumption receipt"
+            ) from None
+
+    @hatchet.durable_task(
+        name=namespace + "-wait",
+        input_validator=WaitInvocation,
+        desired_worker_labels=affinity,
+        retries=0,
+        execution_timeout=timedelta(days=7),
+    )
+    async def wait(input: WaitInvocation, ctx: DurableContext) -> dict[str, str]:
+        async def check_child(wait_id, key):
+            return await check.aio_run(WaitInvocation(wait_id=wait_id), child_key=key)
+
+        async def resume_child(wait_id, key):
+            return await resume.aio_run(WaitInvocation(wait_id=wait_id), child_key=key)
+
+        async def sleep(seconds):
+            await ctx.aio_sleep_for(timedelta(seconds=seconds))
+
+        return await coordinate_wait(input.wait_id, check_child, resume_child, sleep)
+
+    return SimpleNamespace(wait=wait, check=check, resume=resume)

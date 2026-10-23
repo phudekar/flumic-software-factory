@@ -514,6 +514,7 @@ def install(app, sessions, settings):
                 "context": {
                     **value.model_dump(mode="json"),
                     "settings_json": value.settings_json,
+                    "followup_bindings_json": value.followup_bindings_json,
                 },
                 "credentials": dict(value.credentials),
             }
