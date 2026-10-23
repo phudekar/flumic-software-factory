@@ -1,4 +1,4 @@
-hatchet-sdk
+hatchet-sdk==1.42.1
 openai
 tiktoken
 pydantic>=2.6,<3

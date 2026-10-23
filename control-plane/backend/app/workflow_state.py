@@ -40,6 +40,7 @@ from factory.workflows.resources import (
 )
 from factory.workflows.contracts import (
     ActionInvocation,
+    ActionRoute,
     ActionContext,
     RunAdvance,
     StageReceipt,
@@ -454,13 +455,13 @@ class WorkflowState:
         runs = list(
             db.scalars(
                 select(WorkflowRun)
-                .where(WorkflowRun.state.in_(["queued", "running"]))
+                .where(WorkflowRun.state.in_(["queued", "running", "cancelling"]))
                 .order_by(WorkflowRun.sequence, WorkflowRun.id)
             )
         )
         active = {}
         for run in runs:
-            if run.state == "running":
+            if run.state in {"running", "cancelling"}:
                 active[run.project_id] = active.get(run.project_id, 0) + 1
         for run in runs:
             if (
@@ -552,7 +553,54 @@ class WorkflowState:
                 )
                 if item.state in ACTIVE
             ]
-            return RunAdvance(state=run.state, ready=ready)
+            routes = {}
+            for invocation in ready:
+                item = db.get(StageAttempt, invocation.execution_id)
+                assignment = db.get(Assignment, item.assignment_id)
+                routes[item.id] = ActionRoute(
+                    stage_id=item.stage_id,
+                    attempt=item.generation,
+                    pool_id=assignment.pool_id,
+                    role=assignment.role,
+                )
+            if run.state == "cancelling":
+                ready, routes = [], {}
+            return RunAdvance(state=run.state, ready=ready, routes=routes)
+
+    def cancel_run(self, scope, run_id):
+        """Trusted cancellation request. Claimed actions retain fences until settled.
+
+        Runtime/API cancellation signaling comes through the authenticated adapter;
+        cancelling a Hatchet parent alone is never proof external jobs stopped.
+        """
+        with self.sessions.begin() as db:
+            transition_lock(db)
+            run = require_owned(db, scope, WorkflowRun, run_id)
+            if run.state in {"completed", "failed", "cancelled"}:
+                return RunAdvance(state=run.state)
+            run.state = "cancelling"
+            for item in self._latest(db, run).values():
+                if item.state in TERMINAL:
+                    continue
+                row = (
+                    db.get(Assignment, item.assignment_id)
+                    if item.assignment_id
+                    else None
+                )
+                if row is not None and row.status == "running":
+                    continue
+                item.state = "cancelled"
+                if row is not None:
+                    row.status = "cancelled"
+                    db.execute(
+                        delete(ExternalResourceClaim).where(
+                            ExternalResourceClaim.execution_id == item.id
+                        )
+                    )
+            db.flush()
+            if all(item.state in TERMINAL for item in self._latest(db, run).values()):
+                run.state = "cancelled"
+            return RunAdvance(state=run.state)
 
     def assert_execution(self, scope, execution_id, *, spec_digest, input_digest):
         with self.sessions() as db:
@@ -626,7 +674,7 @@ class WorkflowState:
             for s in WorkflowDefinition.model_validate(snapshot["definition"]).stages
             if s.id == item.stage_id
         )
-        if failed and item.generation <= stage.retries:
+        if failed and run.state != "cancelling" and item.generation <= stage.retries:
             # Allocate once, only after a known terminal previous attempt.
             db.add(
                 StageAttempt(
@@ -642,7 +690,9 @@ class WorkflowState:
         latest = self._latest(db, run)
         if all(attempt.state in TERMINAL for attempt in latest.values()):
             run.state = (
-                "failed"
+                "cancelled"
+                if run.state == "cancelling"
+                else "failed"
                 if any(
                     attempt.state in {"failed", "blocked", "cancelled"}
                     for attempt in latest.values()

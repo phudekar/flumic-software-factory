@@ -7,9 +7,8 @@ import os
 import uuid
 import urllib.request
 from typing import Literal
-from datetime import timedelta
 from pydantic import BaseModel, ConfigDict, Field
-from factory.workflows.contracts import ActionInvocation, ActionResult, StageReceipt
+from factory.workflows.contracts import ActionResult, StageReceipt
 
 RENEW_SECONDS = 20
 
@@ -134,25 +133,15 @@ class SharedControl:
 
 
 def build_shared_worker(hatchet, settings, control):
-    from hatchet_sdk import DesiredWorkerLabel
-
     labels = {
         "factory_protocol": "shared-v1",
         "factory_pool": settings.pool_id,
         "factory_role": settings.role,
     }
 
-    @hatchet.task(
-        name=f"flumic-shared-action-v1-{settings.pool_id}-{settings.role}",
-        input_validator=ActionInvocation,
-        desired_worker_labels=[
-            DesiredWorkerLabel(key=k, value=v, required=True) for k, v in labels.items()
-        ],
-        execution_timeout=timedelta(seconds=90),
-        retries=0,
-    )
-    def action(input, ctx):
-        return control.execute(input)
+    from factory.adapters.orchestration.dynamic import register_action
+
+    action = register_action(hatchet, settings.pool_id, settings.role, control.execute)
 
     return hatchet.worker(
         settings.worker_name,
