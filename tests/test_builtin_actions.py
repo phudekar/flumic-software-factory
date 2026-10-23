@@ -487,10 +487,64 @@ class BuiltinActionTests(unittest.TestCase):
         )
         self.assertEqual(len(accepted), 2)
         self.assertEqual(self.fixture.repository.create_issue.call_count, 2)
-        self.assertNotIn("followups:v1:owner/repo:2:plan", self.fixture.state.values)
+        self.assertTrue(
+            self.fixture.state.values["followups:v1:owner/repo:2:plan"]["accepted"]
+        )
 
     def test_validation_errors_cannot_echo_an_injected_grant(self):
         with self.assertRaises(Exception) as error:
             self.execute("issue.load@1", {"command": {"issue_number": "test-gh"}})
         self.assertNotIn("test-gh", str(error.exception))
         self.assertEqual(self.opened, [])
+
+    def test_custom_planner_policy_covers_review_and_api_feedback(self):
+        from factory.settings import Settings
+        from factory.workflows.actions import minimum_purposes
+
+        for action in ("change.review@1", "pull.feedback@1"):
+            with (
+                self.subTest(action=action),
+                self.assertRaisesRegex(ValueError, "planner"),
+            ):
+                minimum_purposes(action, Settings(planner_factory="installed:custom"))
+        self.assertEqual(
+            minimum_purposes(
+                "pull.feedback@1",
+                Settings(developer_agent="claude", planner_factory="installed:custom"),
+            ),
+            ("anthropic", "github"),
+        )
+
+    def test_initial_intent_write_failure_recovers_progress_without_redispatch(self):
+        from unittest.mock import patch
+
+        key = "followups:v1:owner/repo:2:plan"
+        progress = "progress:owner/repo:issue:2:plan_issue"
+        self.fixture.state.put(
+            progress, {"status": "sub-issues-created", "sub_issue_numbers": [7, 8]}
+        )
+        self.fixture.repository.get_issue.return_value["labels"] = [
+            {"name": self.fixture.service.labels.plan_created}
+        ]
+        args = {
+            "command": {"issue_number": 2},
+            "state": {"issue_number": 2, "state": "open", "labels": []},
+        }
+        original_put = self.fixture.state.put
+
+        def fail_intent(name, value):
+            if name == key:
+                raise RuntimeError("State unavailable")
+            original_put(name, value)
+
+        with patch.object(self.fixture.state, "put", side_effect=fail_intent):
+            with self.assertRaisesRegex(RuntimeError, "State unavailable"):
+                self.execute("issue.plan@1", args)
+        self.assertEqual(self.fixture.state.get(progress)["sub_issue_numbers"], [7, 8])
+        self.execute("issue.plan@1", args)
+        self.assertEqual(
+            [command.issue_number for _, command in self.fixture.dispatch.requests],
+            [7, 8],
+        )
+        self.execute("issue.plan@1", args)
+        self.assertEqual(len(self.fixture.dispatch.requests), 2)

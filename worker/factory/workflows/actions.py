@@ -17,7 +17,17 @@ def minimum_purposes(action, settings):
     if action in {"core.echo@1", "workflow.record@1"}:
         return ()
     purposes = {"github"}
-    if action in {"issue.plan@1", "issue.triage@1"}:
+    planner_needed = action in {"issue.plan@1", "issue.triage@1", "change.review@1"}
+    if action == "pull.feedback@1":
+        planner_needed = (
+            settings.coding_factory
+            or {
+                "api": "factory.adapters.agents:api_coding",
+                "codex": "factory.adapters.agents:codex_coding",
+                "claude": "factory.adapters.agents:claude_coding",
+            }[settings.developer_agent]
+        ) == "factory.adapters.agents:api_coding"
+    if planner_needed:
         if settings.planner_factory != "factory.adapters.agents:openai_model":
             raise ValueError(
                 "Install a trusted credential policy for the custom planner"
@@ -64,16 +74,28 @@ def _plan(service, command, args):
     # after planning must not lose the remaining sub-issues on the retry path.
     key = f"followups:v1:{command.repository}:{command.issue_number}:plan"
     pending = service.state.get(key)
+    if pending is None:
+        progress = service.state.get(
+            f"progress:{command.repository}:issue:{command.issue_number}:plan_issue"
+        )
+        if progress and progress.get("status") == "sub-issues-created":
+            pending = {"numbers": progress["sub_issue_numbers"], "accepted": False}
+            # Preserve recoverable operation progress if the intent store is unavailable.
+            service.state.put(key, pending)
     result = service.plan_issue(command, args.state)
-    if result.status == "sub-issues-created":
-        pending = {"numbers": result.sub_issue_numbers}
+    if result.status == "sub-issues-created" and pending is None:
+        pending = {"numbers": result.sub_issue_numbers, "accepted": False}
         service.state.put(key, pending)
-    if pending and result.status in {"sub-issues-created", "already-planned"}:
+    if (
+        pending
+        and not pending.get("accepted", False)
+        and result.status in {"sub-issues-created", "already-planned"}
+    ):
         for number in pending["numbers"]:
             service.dispatch.enqueue_issue(
                 command.model_copy(update={"issue_number": number})
             )
-        service.state.delete(key)
+        service.state.put(key, {**pending, "accepted": True})
     return result
 
 
