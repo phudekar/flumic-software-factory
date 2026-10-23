@@ -1,45 +1,164 @@
 # Developing workflows and stages
 
-This guide describes code changes for a **new stage** or a **new workflow**. The examples are illustrative additions, not features shipped in this repository. They make no model calls. Editing YAML or a control-plane form cannot create a Python task or change the dependency graph.
+This guide covers data-defined workflow revisions and code changes for a **new stage** or **new Python workflow**. The Python tutorials are illustrative additions and make no model calls. Editing legacy YAML cannot create a Python task or change its dependency graph.
 
 For tuning existing stages, see [workflow configuration](configuration-workflows.md). For operating registered definitions, see [control-plane workflows](control-plane-workflows.md). The control UI offers configuration and workflow controls; it has no visual workflow designer.
 
-## Can workflows be defined dynamically from data?
+## Data-defined workflow revisions
 
-Yes, as an architectural extension; Flumic AI does not implement this mode yet.
-A workflow document could name registered, versioned actions and describe their
-inputs, dependencies, conditions and worker roles. New graph definitions could
-then be saved as immutable database revisions. Adding a graph would not need a
-new worker image if all its referenced actions were already installed and
-supported by the participating workers. Installing a genuinely new executable
-action would still require a code/image deployment.
+The project API now validates and publishes immutable workflow documents. Publishing
+stores a graph; it does not start a run. Durable scheduling, the complete executable
+builtin catalog, Docker job execution and the graph editor follow in issues #7–#11
+and #14. Shared workers currently install only `core.echo@1`. The Python tutorials
+below remain the guide for the existing deployed workflows.
 
-There are two relevant execution designs:
+### Create and link stages
 
-| Design | How it works | Tradeoff |
+First create a project repository connection with alias `app`, and enable a
+`simple` worker pool for the project that allows `builtin@1` and `core.echo@1`.
+Replace `POOL_ID` with its actual ID. This document passes values through two stages:
+
+```json
+{
+  "schema_version": 1,
+  "name": "echo-pipeline",
+  "repositories": ["app"],
+  "default_repository": "app",
+  "stages": [
+    {
+      "id": "capture",
+      "executor": "builtin",
+      "action": "core.echo@1",
+      "role": "simple",
+      "pool_id": "POOL_ID",
+      "inputs": {"message": {"$ref": "input.message"}}
+    },
+    {
+      "id": "report",
+      "executor": "builtin",
+      "action": "core.echo@1",
+      "role": "simple",
+      "pool_id": "POOL_ID",
+      "after": ["capture"],
+      "inputs": {"message": {"$ref": "stages.capture.output.message"}},
+      "when": {"ref": "input.enabled", "equals": true}
+    }
+  ]
+}
+```
+
+An eventual run input would be `{"message":"Hello Flumic","enabled":true}`.
+`after` creates dependency edges; each output producer referenced in `inputs` or
+`when` must be a **direct** parent. A transitive dependency alone is insufficient.
+Stages may have several parents. Duplicate IDs, duplicate edges, missing parents,
+self-dependencies and cycles are rejected.
+
+### Definition and stage configuration
+
+Unknown fields and unsupported versions are rejected rather than ignored.
+
+| Field | Values / default | Effect |
 | --- | --- | --- |
-| Compile data into a registered DAG | Validate the document, resolve registered actions, construct task definitions and register that version before triggering it. | Preserves a native engine graph, but needs registration/version synchronization; it does not modify a DAG already in flight. |
-| Durable coordinator + action tasks | A stable durable coordinator reads a pinned graph revision and dispatches registered child tasks as dependencies become ready. | Supports data-driven branching/fan-out at runtime, but requires explicit validation, output binding, versioning, cancellation and stage correlation. |
+| `schema_version` | Integer `1` | Selects the document contract. |
+| `name`, stage `id`, repository alias | Lowercase letter followed by lowercase letters, digits or hyphens; at most 100 characters | Stable document, dependency and binding names. |
+| `repositories` | 1–64 distinct project repository aliases | Bounds the graph's repository scope. Foreign or unknown aliases fail validation. |
+| `default_repository` | One declared alias | Used by stages without a `repository`. |
+| `defaults` | Behavior overrides, e.g. `{"openai_model":"gpt-4.1"}` | Applies workflow behavior over saved project/repository/profile configuration. Identity, credentials and infrastructure settings cannot be overridden here. See [configuration precedence](configuration-workflows.md). |
+| `secrets` | Purpose to immutable secret-version ID | Project-wide grants inherited by stages; values are references, never plaintext credentials. |
+| `stages` | 1–64 stages | Defines the DAG. |
+| `executor` | `builtin` or `docker` | Selects the versioned execution contract. |
+| `action` | Builtin only, e.g. `core.echo@1` | Selects a known typed action version. Publication metadata also recognizes issue/change/pull actions; their executable catalog is a later milestone. |
+| `role` | Required `simple` or `developer` | Must match the pool and the action's required role. |
+| `pool_id` | Required enabled project pool ID | Pool must permit the exact executor/action versions. Publication does not guarantee a worker is currently online. |
+| `profile` | Saved behavior profile; defaults to the role | Selects project behavior; its effective worker type must match `role`. |
+| `repository` | Declared alias; defaults to `default_repository` | Selects repository settings and credential scope for this stage. |
+| `after` | Stage IDs; defaults to `[]` | Declares immediate prerequisites. |
+| `inputs` | JSON mapping; defaults to `{}` | Typed action arguments, with optional bindings. |
+| `when` | `{"ref":"input.enabled","equals":true}` | Scalar equality gate; no expression evaluation. Boolean `true` differs from number `1`; numeric `1` equals `1.0`. |
+| `timeout_seconds` | 1–3600; default `300` | Execution timeout policy for the runtime scheduler. |
+| `retries` | 0–3; default `0` | Additional attempts permitted after a failure. |
+| `retry_delay_seconds` | 0–3600; default `0` | Delay between retry attempts. |
+| `overrides` | Behavior-only settings | Applies stage-specific model, prompt and recognized behavior settings after workflow defaults. |
+| Stage `secrets` | `github`, `openai`, `anthropic` to version IDs | Overrides inherited grants; repository-scoped grants must match this stage. GitHub grants must match the repository connection's pinned credential reference. |
 
-Hatchet documents runtime child-workflow composition through
-[durable execution](https://docs.hatchet.run/v1/durable-execution).
-Its [declared DAG model](https://docs.hatchet.run/v1/directed-acyclic-graphs)
-fixes task/dependency structure before a run; conditional execution is distinct
-from adding new stage definitions while it runs.
+The typed builtin commands omit repository, trace and assignment identity fields.
+The runtime supplies those values from its trusted context. Workflow input cannot
+impersonate another repository or execution. Model/prompt overrides affect only
+operations that actually invoke those adapters; echo remains deterministic.
 
-For Flumic AI, a durable coordinator with a closed registry of typed actions is
-a plausible direction. Validate action availability/version, input/output
-bindings, dependency cycles, repository scope and routing before accepting a
-graph. Pin the graph and action versions for each run; later edits should create
-a new revision rather than silently rewriting an active run. Keep model calls
-and external mutations in child action tasks, with recovery/idempotency,
-per-stage policy and existing observation/context propagation. Do not execute
-Python source or arbitrary imports supplied by workflow data.
+### Bindings and repository provenance
 
-The tutorials below describe the **current Python-defined implementation**.
-They do not provide a runtime action registry, data-defined graph schema or
-Control Plane graph editor. Multi-host execution would still require the
-[shared-state changes described in the architecture](architecture.md#state-and-recovery).
+Only an object containing **exactly** `{"$ref":"path"}` is a binding. Other JSON
+stays literal, including strings containing `$ref` and mappings with additional
+keys. Values fetched from input or parent output remain inert data: they are not
+interpreted a second time.
+
+Supported paths are `input.<key>[.<key>...]`,
+`stages.<stage-id>.output[.<key>...]`, and `context.<field>`. Public context fields
+are `project_id`, `repository_id`, `repository`, `run_id`, `stage_id`, `execution_id`
+and `attempt`. Settings and secrets are not available through context bindings.
+Traversal uses mapping keys only: array indexing, attributes, dunder names,
+imports and evaluated expressions are unsupported. Missing values fail resolution.
+
+Builtin inputs other than echo are repository-affine: a stage for repository B
+cannot consume repository A's output as its command/state. Generic echo and Docker
+stages may consume several repositories' outputs within the same project. The
+resolver returns `ResolvedInputs(data, origins)` so later execution layers retain
+provenance instead of trusting an unlabelled JSON value.
+
+### Docker stage schema
+
+A Docker stage uses `image` pinned to `@sha256:` plus 64 lowercase hexadecimal
+characters, and `command` as an argv array (1–128 strings, each at most 4096
+characters). For example, an image-specific command might be
+`["/app/run", "--format", "json"]`; the image must supply that executable.
+No implicit shell is added. Tags alone, empty executables and NUL bytes are rejected.
+
+| Setting | Default | Allowed range / effect |
+| --- | --- | --- |
+| `network` | `none` | `bridge` requires trusted deployment policy; the publication API currently denies it. |
+| `limits.cpu` | `1.0` | 0.1–8 CPUs |
+| `limits.memory_mib` | `512` | 64–4096 MiB |
+| `limits.pids` | `128` | 16–512 processes |
+| `limits.tmpfs_mib` | `64` | 16–256 MiB |
+
+These are the contract for the upcoming broker, not evidence of container execution
+today. Arbitrary Docker options, host mounts, privileged mode and socket access
+cannot be supplied in the document.
+
+### Publish, revise and pin
+
+Send `{"document": <workflow>}` to the project's validation endpoint, then POST
+it to the definitions collection. Save the returned definition ID and `revision_id`.
+For an edit, PUT `{"document": <updated workflow>, "parent_id": "CURRENT_REVISION_ID"}`
+to that definition. Stale parents return `409`; foreign definitions/revisions return
+`404`. A successful edit appends a revision and preserves earlier documents.
+See the [definition API routes](control-plane.md#workflow-definition-api).
+
+Graph documents and launch snapshots are encrypted at rest because literal inputs
+and prompts may contain private data. List responses contain metadata; the scoped
+revision endpoint returns the document to authenticated operators.
+
+The internal launch service revalidates a selected graph revision and pins exact
+repository revisions, configuration, effective per-stage settings and secret-version
+references in one persisted snapshot. Replays read that snapshot rather than latest
+configuration. Rotation does not silently substitute a newer secret into an old
+snapshot; revocation is checked when credentials are delivered. Publishing alone
+neither resolves credential values nor launches actions.
+
+| Bound | Limit | Validation boundary |
+| --- | --- | --- |
+| Workflow document | 256 KiB, including normalized defaults | Publication and launch |
+| Stages | 1–64 | Publication |
+| Run input | 64 KiB | Binding resolution |
+| Resolved action input / parent output | 1 MiB each | Binding resolution / output envelope |
+| JSON nesting | 64 | JSON and binding validation |
+
+Known literal action fields are checked at publication even beside dynamic values.
+Values supplied by references are checked against the full typed action schema at
+resolution. A valid published graph therefore can still reject invalid run input;
+it does not bypass runtime bounds or argument validation.
+
 
 ## Where the definition lives
 
