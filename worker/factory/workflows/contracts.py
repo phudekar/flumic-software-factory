@@ -2,7 +2,7 @@
 
 import json
 from types import MappingProxyType
-from typing import Literal
+from typing import Literal, Annotated
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, model_validator
 
 
@@ -12,6 +12,13 @@ class ActionExecutionError(RuntimeError):
 
 class Contract(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+
+
+class RunMetadata(Contract):
+    factory_run_id: str = Field(default="", max_length=120)
+    trace_context: dict[
+        Annotated[str, Field(max_length=100)], Annotated[str, Field(max_length=2048)]
+    ] = Field(default_factory=dict, max_length=32)
 
 
 class ActionInvocation(Contract):
@@ -89,7 +96,10 @@ class ActionContext(Contract):
     attempt: int = Field(ge=1)
     assignment_id: str
     namespace: str
+    factory_run_id: str = ""
+    trace_context: dict[str, str] = Field(default_factory=dict)
     settings_json: str = Field(repr=False, exclude=True)
+    followup_bindings_json: str = Field(default="{}", repr=False, exclude=True)
     secret_versions: tuple[str, ...] = ()
     _credentials: dict = PrivateAttr(default_factory=dict)
 

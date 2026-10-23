@@ -10,9 +10,11 @@ The project API now validates and publishes immutable workflow documents. Publis
 stores a graph; it does not start a run. The internal run-state service now
 provides pinned execution identities and transactional admission. The durable
 engine coordinator adapter is implemented and echo-tested against a real Hatchet
-engine (see [coordinator runtime](#data-defined-coordinator-runtime)). The complete
-builtin catalog, Docker broker, public run API and graph editor follow in issues
-#9–#11 and #14. See [run state and admission](control-plane.md#durable-run-state-and-admission). Shared workers currently install only `core.echo@1`. The Python tutorials
+engine (see [coordinator runtime](#data-defined-coordinator-runtime)). The executable
+builtin catalog, pinned follow-up composition and project recipe helpers are also
+implemented in source (see [builtin actions](#builtin-actions-and-pinned-project-follow-ups)).
+Runtime transport activation, Docker, the public run API and graph editor remain
+in #10–#11 and #14. See [run state and admission](control-plane.md#durable-run-state-and-admission). Shared workers currently install only `core.echo@1`. The Python tutorials
 below remain the guide for the existing deployed workflows.
 
 ### Create and link stages
@@ -563,7 +565,7 @@ An action child transport error never proves that an external operation stopped.
 
 The trusted `WorkflowState.cancel_run` transition changes a run to `cancelling`, cancels pending/unclaimed work under the assignment-claim fence, and prevents new stage admissions and retry generations. Already claimed actions keep their leases, capacity and external-resource fences. The run becomes `cancelled` after those actions provide terminal receipts. Cancellation is idempotent and does not rewrite an already completed/failed run.
 
-For echo children, the coordinator waits for active children to settle before observing cancellation. Cancelling only the Hatchet parent is **not** proof that an external action or Docker job stopped. The authenticated cancellation/launch API is tracked in [#11](https://github.com/phudekar/flumic-software-factory/issues/11), job stop/reconciliation in [#10](https://github.com/phudekar/flumic-software-factory/issues/10), and installed business action handlers in [#9](https://github.com/phudekar/flumic-software-factory/issues/9). This increment provides the coordinator adapter and trusted state transition; it does not enable dynamic launches from the current control-pane UI.
+For echo children, the coordinator waits for active children to settle before observing cancellation. Cancelling only the Hatchet parent is **not** proof that an external action or Docker job stopped. The authenticated cancellation/launch API is tracked in [#11](https://github.com/phudekar/flumic-software-factory/issues/11), job stop/reconciliation in [#10](https://github.com/phudekar/flumic-software-factory/issues/10), and business action transport activation in #11 (the [catalog wrappers](#builtin-actions-and-pinned-project-follow-ups) are implemented). This increment provides the coordinator adapter and trusted state transition; it does not enable dynamic launches from the current control-pane UI.
 
 ### Run the live engine contract
 
@@ -580,3 +582,87 @@ python -m unittest discover -s tests/integration -p test_hatchet_dynamic_contrac
 The fixture registers uniquely named test workflows/workers and stops its worker processes afterward. Test run metadata remains in the selected Hatchet tenant. It does not call models, mutate GitHub, launch containers or use project secrets. Evidence includes worker logs, coordinator reentry records and echo execution intervals; skipped live tests are not replay evidence.
 
 On 2026-10-23, the echo contracts were exercised against Hatchet Cloud engine `v0.113.4` with Python SDK `1.42.1`. This is a tested compatibility pair, not a pin on the hosted engine: Cloud can upgrade independently. Self-hosted deployments should run the same fixture against their chosen engine version. Preserve active assignment/job records when cancelling a parent; cancelling a Python task cannot forcibly terminate an already-running synchronous child or an external job.
+
+## Builtin actions and pinned project follow-ups
+
+The executable catalog, scoped composition helpers, project recipes and durable wait adapters are implemented in source. The current shared-worker startup still advertises only `core.echo@1`: activating business actions requires the authenticated state/claim/follow-up transport and durable engine-launch wiring tracked in [#11](https://github.com/phudekar/flumic-software-factory/issues/11). The current UI does not launch these dynamic recipes. Docker actions remain [#10](https://github.com/phudekar/flumic-software-factory/issues/10).
+
+`ActionCatalog` selects from a fixed implementation map. An action ID cannot name an arbitrary Python method, module or import. Each wrapper calls the existing decorated `FactoryService` operation, retaining its observation, work-item claims, patch policy, stored plans, prepared patches, GitHub markers and feedback cursors.
+
+| Action | Arguments | Output | Minimum credential purposes |
+| --- | --- | --- | --- |
+| `core.echo@1` | A finite JSON object, at most 1 MiB | The same object, with credential values redacted | None |
+| `issue.load@1` | `command` | `IssueState` | `github` |
+| `issue.plan@1` | `command`, `state` | `IssuePlanState` | `github`, `openai` |
+| `issue.triage@1` | `command`, `state`, `plan` | `TriageState` | `github`, `openai` |
+| `change.implement@1` | `command`, `triage` | `PublishState` | `github` and the coding provider |
+| `change.review@1` | `command`, `publish` | `EventResult` | `github`, `openai` |
+| `workflow.record@1` | `command`, `result` | `EventResult` | None |
+| `pull.feedback@1` | Pull `command` | `EventResult` | `github` and the coding provider |
+| `pull.verify@1` | Pull `command` | `EventResult` | `github` |
+
+Issue `command` is `{"issue_number": 42}`. Pull `command` also requires positive `pull_number`, a canonical `https://github.com/OWNER/REPO/pull/NUMBER` URL and a branch (at most 240 characters). The repository comes from `ActionContext`; including a repository override in these argument objects is rejected. Whole upstream objects retain their binding provenance. A foreign project/repository origin, mismatched upstream issue number, wrong role or mismatched pull URL is rejected before service/client creation. Use the resolver's trusted `ResolvedInputs`; never reconstruct provenance from caller-supplied labels.
+
+API and Codex coding use the `openai` purpose; Claude coding uses `anthropic`. The policy follows an explicitly selected built-in coding factory as well as `developer_agent`. Unknown custom planner/reviewer/coder factories fail closed: installed composition code must inject a trusted minimum-purpose policy into both `ActionCatalog` and `WorkflowState`. Workflow data cannot supply that callable. Declaring a grant on a graph does not deliver it to every action: admission pins only the action's required versions, and authorized context delivery rechecks revocation.
+
+`run_builtin` in `factory.bootstrap` creates `ExecutionStateStore`, `ProjectDispatch` and a fresh per-context service. It uses explicit project credentials and an isolated temporary agent home; it does not open legacy SQLite or fall back to process-wide GitHub/model credentials. `ActionCatalog.execute` accepts explicit ports for trusted embedding and fake-integration tests. Full results stay behind the state boundary and are redacted while the credential scope is active.
+
+### Seed compatible recipes
+
+`project_templates(repository_alias, simple_pool_id, developer_pool_id, secrets=...)` produces three validated graph documents:
+
+```text
+issue:    load → plan → triage → implement → review → record
+                    ↑ load ─┘
+feedback: pull.feedback
+verify:   pull.verify
+```
+
+Triage declares both load and plan as direct parents. The issue graph deliberately passes non-ready business outcomes through the existing wrappers so the final record still runs. For example, a discussion-blocked issue produces `waiting-for-discussion`, skips coding/review work, and records `review-skipped-waiting-for-discussion`. Closed and already-planned issues are normal results rather than engine failures. Explicit `when` conditions in custom graphs still use the normal skip-propagation rules.
+
+The trusted backend helper `seed_project_templates` persists these documents in the project's existing encrypted definition/revision tables. It creates missing recipe families and returns their current revision IDs; it never overwrites an operator's existing edits. A repeated installation with different pool arguments does not silently replace a saved recipe. Publish an explicit new revision to change that recipe, then select the desired revision in the next bundle.
+
+An internal composition example, with configured `sessions`, `config`, `settings` and owned IDs:
+
+```python
+from app.projects import ProjectScope
+from app.builtin_workflows import seed_project_templates
+from app.workflow_state import WorkflowState
+
+scope = ProjectScope(project_id)
+revisions = seed_project_templates(
+    sessions, scope, config, settings,
+    repository="app",
+    simple_pool=simple_pool_id,
+    developer_pool=developer_pool_id,
+    secrets={"openai": model_secret_version_id},
+)
+store = WorkflowState(sessions, settings, config)
+# Only after managed legacy workers for this canonical repository are drained:
+store.enable_dynamic_repository(scope, repository_connection_id)
+run = store.start_run(
+    scope, revisions["issue"], {"issue_number": 42},
+    key="issue-42-request-1",
+    bindings={repository_connection_id: revisions},
+)
+```
+
+Configure the GitHub credential version on the repository connection and grant both pools to the project first. These are internal service helpers, not new public endpoints or a replacement for operator authentication. Pool capabilities and profiles must support every selected stage. Use `anthropic` grants as appropriate for Claude. The minimum-purpose checks happen before clients are constructed; missing/invalid grants do not fall back to environment credentials.
+
+### Freeze the follow-up bundle
+
+A bundle maps each participating repository connection ID to three explicit workflow **revision IDs**: `issue`, `feedback` and `verify`. Root and follow-up launch snapshots are created atomically using the same factory and repository revisions. Every builtin repository must have bindings; each target's default repository must match its binding. A target can use only repositories declared in the root launch, and cannot cross into another project.
+
+The resulting per-stage `ProjectBindings` contain immutable snapshot/revision IDs. Subsequent launches use `start_pinned_run`, which reads the existing snapshot without resolving latest definitions, repository settings, models, prompts or credentials. Later connection edits cannot redirect an already-pinned sub-issue, feedback run or wait resumption. Secret revocation and dynamic-repository takeover policy still apply. Snapshot bindings are kept in encrypted launch/context data, excluded from generic context dumps and delivered only through the explicit authorized context endpoint.
+
+`factory_run_id` and `trace_context` in a run input are reserved correlation metadata. The ID is a string of at most 120 characters. Trace context is a mapping of at most 32 string keys (100 characters each) to string values (2,048 characters each); the whole run input remains capped at 64 KiB. Absent correlation uses the persisted run ID, so action retries do not invent new correlation IDs. Follow-up commands preserve correlation and trace context, with a 64 KiB command limit.
+
+### Dispatch, waits and recovery
+
+`ProjectDispatch` implements all five application requests: issue enqueue, discussion wait, review wait, feedback enqueue and merge verification. It verifies project/repository bindings and the command repository before calling its transport. There is no static/global dispatcher fallback. The durable acceptance key includes the originating logical run/stage, target snapshot and command, excluding changing trace-span IDs and transport attempts. The receiver must authenticate the source assignment and compare the request against its **stored** pinned bindings; caller-provided IDs are not authorization.
+
+The planning wrapper persists sub-issue dispatch intent before submission. If acceptance fails after some children were submitted, a later logical retry can resume that intent even when the issue is already labelled planned. The receiving transport must durably deduplicate the same acceptance key. Existing GitHub marker/state recovery still governs external mutations; the database and a remote API are not an exactly-once transaction.
+
+Durable wait coordinators carry only a stored wait-request ID. Short control children load the pinned request/context, check status with only the GitHub grant, and return a bounded receipt. A discussion resumes its pinned issue workflow when ready; an already-active issue run causes another durable wait. A merged pull queues its pinned verification workflow; a closed unmerged pull finishes without verification. Parent bodies use engine sleep rather than holding a service, client, transaction or local timer across the wait. Control checks/resumption have bounded transient retries; resumption must be durably idempotent.
+
+Register these helpers through `register_project_waits` only with trusted infrastructure callbacks that load stored request authority. Persistence/authorization of wait requests, engine submission recovery and worker transport activation remain part of #11. The fake-integration and SDK serialization tests here establish the library contracts; complete mixed-project/live wait transport evidence remains the [release gate](project-workflow-roadmap.md).

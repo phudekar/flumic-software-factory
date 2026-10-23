@@ -137,3 +137,28 @@ def action_service(context, *, dispatch, state, observer=None, workspace_root=No
 
                 raise ActionExecutionError(safe[:4000]) from None
             raise
+
+
+def run_builtin(
+    action, context, inputs, transport, *, observer=None, service_factory=action_service
+):
+    """Compose one installed action from authenticated pinned state/dispatch ports.
+
+    This does not turn worker request labels into authority. The transport must
+    authenticate the assignment lease, use stored provenance, and durably accept
+    follow-up intents (#11). Never fall back to legacy SQLite/static dispatch.
+    """
+    from factory.workflows.actions import ActionCatalog
+    from factory.workflows.project_dispatch import ProjectDispatch, ProjectBindings
+    from factory.adapters.state import ExecutionStateStore
+
+    if action == "core.echo@1":
+        return ActionCatalog(service_factory=service_factory).execute(
+            action, context, inputs, dispatch=None, state=None, observer=observer
+        )
+    bindings = ProjectBindings.model_validate_json(context.followup_bindings_json)
+    dispatch = ProjectDispatch(context, bindings, transport)
+    state = ExecutionStateStore(context, transport)
+    return ActionCatalog(service_factory=service_factory).execute(
+        action, context, inputs, dispatch=dispatch, state=state, observer=observer
+    )

@@ -317,8 +317,8 @@ tracks multi-repository projects, shared worker pools, and built-in/Docker actio
 as GitHub issues. Project/repository APIs, shared pool foundations, immutable
 definition publication and the internal run-state/admission service are implemented.
 The durable coordinator adapter is implemented with live echo replay/cancellation tests.
-Full action execution, Docker broker and project/workflow
-UI remain in progress; see [runtime status and limits](docs/control-plane.md#durable-run-state-and-admission).
+The executable builtin catalog, pinned project follow-ups and recipe helpers are also implemented.
+Runtime transport activation, Docker broker and project/workflow UI remain in progress; see [runtime status and limits](docs/control-plane.md#durable-run-state-and-admission).
 
 ## Website and documentation
 
