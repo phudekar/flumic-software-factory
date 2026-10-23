@@ -133,3 +133,39 @@ class MemoryStateStore:
 
 def sqlite_state(settings):
     return SQLiteStateStore(settings.state_path)
+
+
+class ExecutionStateStore:
+    """FactoryStateStore over an assignment-authenticated transport.
+
+    Transport methods receive the delivered immutable context, never global
+    defaults. Its server must authenticate a live assignment before state access.
+    No legacy SQLite lookup or fallback is permitted. Claims live through action
+    completion, including exceptions; only a terminal receipt/reconciliation can
+    release them. Holding no local DB transaction across the action is essential.
+    """
+
+    def __init__(self, context, transport):
+        self.context, self.transport = context, transport
+
+    def get(self, key):
+        return self.transport.get_state(self.context, key)
+
+    def put(self, key, value):
+        return self.transport.put_state(self.context, key, value)
+
+    def delete(self, key):
+        return self.transport.delete_state(self.context, key)
+
+    @contextmanager
+    def claim(self, resource, operation):
+        from factory.workflows.resources import canonical_resource
+        pieces = resource.split(":")
+        if len(pieces) != 3 or pieces[1] not in {"issue", "pull"} or not pieces[2].isdigit():
+            raise ValueError("Expected a canonical work-item resource")
+        if pieces[0].lower() != self.context.settings.repository.lower():
+            raise ValueError("Resource belongs to another repository")
+        owner, name = pieces[0].split("/", 1)
+        canonical = canonical_resource("github.com", owner, name, pieces[1], int(pieces[2]))
+        self.transport.claim_resource(self.context, canonical)
+        yield

@@ -383,6 +383,8 @@ def create_app(settings=None, sessions=None, runtime=None, workflow=None):
         if body.target_id != "local-docker":
             raise HTTPException(422, "Unsupported deployment target")
         with sessions.begin() as db:
+            from app.workflow_state import transition_lock, legacy_guard
+            transition_lock(db)
             for field, model in (("config_id", WorkerConfiguration), ("revision_id", Revision)):
                 value = getattr(body, field)
                 if value is not None:
@@ -408,6 +410,7 @@ def create_app(settings=None, sessions=None, runtime=None, workflow=None):
             profiles = config.validate(revision.document)
             if profile not in profiles:
                 raise HTTPException(422, "Unknown worker profile")
+            legacy_guard(db, config, revision.document, profile)
             worker = Worker(
                 id=str(uuid.uuid4()),
                 name=body.name,
@@ -449,6 +452,8 @@ def create_app(settings=None, sessions=None, runtime=None, workflow=None):
         if not key or len(key) > 100:
             raise HTTPException(422, "Idempotency-Key is required")
         with sessions.begin() as db:
+            from app.workflow_state import transition_lock, legacy_guard
+            transition_lock(db)
             for field, model in (("config_id", WorkerConfiguration), ("revision_id", Revision)):
                 value = getattr(body, field)
                 if value is not None:
@@ -550,6 +555,9 @@ def create_app(settings=None, sessions=None, runtime=None, workflow=None):
                         if body.action == "restart" and actual
                         else "configure_start"
                     )
+            if worker.protocol == "legacy" and body.action in {"start", "restart", "configure"}:
+                selected = db.get(Revision, worker.revision_id)
+                legacy_guard(db, config, selected.document, worker.profile)
             operation = Operation(
                 id=str(uuid.uuid4()),
                 worker_id=identifier,

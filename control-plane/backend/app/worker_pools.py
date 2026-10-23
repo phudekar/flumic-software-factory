@@ -147,7 +147,8 @@ def authorize_execution(
         or action not in pool.profile["actions"]
     ):
         raise HTTPException(409, "Pool does not support execution requirements")
-    if len(json.dumps(input, allow_nan=False).encode()) > 1048576:
+    from factory.workflows.references import json_bytes
+    if len(json_bytes(input)) > 1048576:
         raise HTTPException(422, "Action input exceeds 1 MiB")
     row = Assignment(
         project_id=scope.project_id,
@@ -195,6 +196,8 @@ def lease_token(settings, row):
 
 
 def claim_execution(db, invocation, worker_id, settings, *, claim_key, now=None):
+    from app.workflow_state import transition_lock
+    transition_lock(db)
     now = time.time() if now is None else now
     row = db.scalar(
         select(Assignment).where(
@@ -243,6 +246,12 @@ def claim_execution(db, invocation, worker_id, settings, *, claim_key, now=None)
     row.claim_hash = proof
     row.status = "running"
     row.expires_at = now + LEASE_SECONDS
+    from app.database import StageAttempt
+    attempt = db.get(StageAttempt, row.execution_id)
+    if attempt is not None:
+        if (attempt.project_id, attempt.assignment_id) != (row.project_id, row.id):
+            raise HTTPException(409, "Assignment does not match logical execution")
+        attempt.state = "running"
     db.flush()
     return row, False
 
@@ -264,6 +273,19 @@ def require_lease(db, worker, identifier, proof, settings, *, now=None, terminal
         raise HTTPException(
             409, "Assignment lease is not active; reconcile before retry"
         )
+    return row
+
+
+def renew_execution(db, worker, identifier, proof, settings, *, now=None):
+    from app.workflow_state import transition_lock
+    from app.database import ExternalResourceClaim
+    transition_lock(db)
+    now = time.time() if now is None else now
+    row = require_lease(db, worker, identifier, proof, settings, now=now)
+    row.expires_at = now + LEASE_SECONDS
+    for resource in db.scalars(select(ExternalResourceClaim).where(ExternalResourceClaim.execution_id == row.execution_id)):
+        resource.expires_at = row.expires_at
+    db.flush()
     return row
 
 
@@ -432,15 +454,17 @@ def install(app, sessions, settings):
     @app.post("/api/v1/shared-worker/assignments/{identifier}/renew")
     def renew(identifier: str, body: LeaseProof, request: Request):
         with sessions.begin() as db:
-            row = require_lease(
+            row = renew_execution(
                 db, authenticate(db, request), identifier, body.lease_token, settings
             )
-            row.expires_at = time.time() + LEASE_SECONDS
             return {"assignment_id": row.id, "expires_at": row.expires_at}
 
     @app.post("/api/v1/shared-worker/assignments/{identifier}/complete")
     def complete(identifier: str, body: Completion, request: Request):
         with sessions.begin() as db:
+            from app.workflow_state import transition_lock, WorkflowState
+            from app.database import StageAttempt
+            transition_lock(db)
             row = require_lease(
                 db,
                 authenticate(db, request),
@@ -449,6 +473,14 @@ def install(app, sessions, settings):
                 settings,
                 terminal=True,
             )
+            attempt = db.get(StageAttempt, row.execution_id)
+            if attempt is not None:
+                if (attempt.project_id, attempt.assignment_id) != (row.project_id, row.id):
+                    raise HTTPException(409, "Assignment does not match logical execution")
+                return WorkflowState(sessions, settings, None).finish_execution(
+                    ProjectScope(row.project_id), row.execution_id,
+                    result=body.result, confirmed_terminal=True, db=db,
+                ).model_dump()
             value = body.result.model_dump(mode="json")
             encoded = json.dumps(
                 value, sort_keys=True, allow_nan=False, separators=(",", ":")

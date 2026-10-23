@@ -83,6 +83,11 @@ def reconcile_once(sessions, runtime, settings):
         token = worker_token(settings, worker.id)
     try:
         with operation_heartbeat(sessions, identifier):
+            if worker.protocol == "legacy" and action in {"create", "configure", "configure_start", "start", "restart"}:
+                from app.workflow_state import legacy_guard
+                from app.services import Configurations
+                with sessions() as db:
+                    legacy_guard(db, Configurations(settings.root), document, worker.profile)
             if action in {"restart", "configure_start"}:
                 if action == "restart":
                     runtime.action(worker.id, "stop")
