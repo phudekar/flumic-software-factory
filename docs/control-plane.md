@@ -645,3 +645,25 @@ slot until reconciled; it is never silently handed to another worker while exter
 effects may still be running. Durable recovery, fair project/deployment admission and
 the coordinator integrate in the run-state milestone (#7/#8). Legacy history ingestion
 is rejected for shared workers; assignment-derived history follows in #12.
+
+## Workflow definition API
+
+These authenticated project-scoped routes publish graphs without starting runs.
+Write requests use the existing operator session and CSRF protections.
+
+| Route | Behavior |
+| --- | --- |
+| `POST /api/v1/projects/{project_id}/workflow-definitions/validate` | Validate `{"document": {...}}`; returns normalized digest and stage count without writing. |
+| `GET /api/v1/projects/{project_id}/workflow-definitions` | List definition metadata. |
+| `POST /api/v1/projects/{project_id}/workflow-definitions` | Publish the first immutable revision; returns definition ID and revision ID. |
+| `GET /api/v1/projects/{project_id}/workflow-definitions/{identifier}` | Read definition metadata and current revision ID. |
+| `PUT /api/v1/projects/{project_id}/workflow-definitions/{identifier}` | Append with `document` and current `parent_id`; stale parent returns `409`. |
+| `GET /api/v1/projects/{project_id}/workflow-definitions/{identifier}/revisions` | List revision metadata and parent chain. |
+| `GET /api/v1/projects/{project_id}/workflow-definition-revisions/{identifier}` | Read the decrypted document for an owned revision. |
+
+Foreign project IDs/revisions return `404`. Validation rejects unknown action versions,
+invalid graphs and bindings, incompatible pools, unscoped secret grants and unsupported
+container options. There is no public snapshot/credential-resolution endpoint here.
+The trusted run service will use the internal launch pin API in the run-state milestone.
+See [creating data-defined workflows](workflow-development.md#data-defined-workflow-revisions)
+for field defaults, examples, limits and the execution integration status.

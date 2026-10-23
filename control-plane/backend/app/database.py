@@ -266,3 +266,45 @@ class Assignment(ProjectOwned, Base):
     result_ciphertext: Mapped[str | None] = mapped_column(Text)
     result_digest: Mapped[str | None] = mapped_column(String(64))
     created_at: Mapped[float] = mapped_column(Float, default=time.time)
+
+
+class WorkflowDefinitionRecord(ProjectOwned, Base):
+    __tablename__ = 'workflow_definitions'
+    __table_args__ = (
+        UniqueConstraint('project_id','name',name='uq_workflow_definition_name'),
+        UniqueConstraint('project_id','id',name='uq_workflow_definition_identity'),
+        ForeignKeyConstraint(['project_id','id','revision_id'],
+            ['workflow_definition_revisions.project_id','workflow_definition_revisions.definition_id','workflow_definition_revisions.id'],
+            name='fk_workflow_definition_head',use_alter=True),
+    )
+    id: Mapped[str] = mapped_column(String(36),primary_key=True,default=identity)
+    name: Mapped[str] = mapped_column(String(100))
+    revision_id: Mapped[str | None] = mapped_column(String(36))
+    created_at: Mapped[float] = mapped_column(Float,default=time.time)
+
+
+class WorkflowRevision(ProjectOwned, Base):
+    __tablename__ = 'workflow_definition_revisions'
+    __table_args__ = (
+        UniqueConstraint('project_id','id',name='uq_workflow_revision_identity'),
+        UniqueConstraint('project_id','definition_id','id',name='uq_workflow_revision_family'),
+        ForeignKeyConstraint(['project_id','definition_id'],['workflow_definitions.project_id','workflow_definitions.id'],name='fk_workflow_revision_definition'),
+        ForeignKeyConstraint(['project_id','definition_id','parent_id'],
+            ['workflow_definition_revisions.project_id','workflow_definition_revisions.definition_id','workflow_definition_revisions.id'],name='fk_workflow_revision_parent'),
+    )
+    id: Mapped[str] = mapped_column(String(36),primary_key=True,default=identity)
+    definition_id: Mapped[str] = mapped_column(String(36),index=True)
+    parent_id: Mapped[str | None] = mapped_column(String(36))
+    digest: Mapped[str] = mapped_column(String(64))
+    graph_ciphertext: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[float] = mapped_column(Float,default=time.time)
+
+
+class WorkflowLaunchSnapshot(ProjectOwned, Base):
+    __tablename__ = 'workflow_launch_snapshots'
+    __table_args__ = (ForeignKeyConstraint(['project_id','workflow_revision_id'],
+        ['workflow_definition_revisions.project_id','workflow_definition_revisions.id'],name='fk_workflow_launch_revision'),)
+    id: Mapped[str] = mapped_column(String(36),primary_key=True,default=identity)
+    workflow_revision_id: Mapped[str] = mapped_column(String(36))
+    ciphertext: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[float] = mapped_column(Float,default=time.time)

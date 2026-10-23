@@ -129,6 +129,8 @@ def create_app(settings=None, sessions=None, runtime=None, workflow=None):
     install_project_context(app, sessions, settings)
     from app.worker_pools import install as install_worker_pools
     install_worker_pools(app, sessions, settings)
+    from app.workflow_definitions import install as install_workflow_definitions
+    install_workflow_definitions(app, sessions, config, settings)
 
     def runtime_adapter():
         nonlocal runtime

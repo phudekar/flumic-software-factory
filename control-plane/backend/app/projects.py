@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from copy import deepcopy
 from fastapi import HTTPException, Request, Depends, Path
 from pydantic import BaseModel, ConfigDict, Field
+from factory.workflows.policy import BEHAVIOR_FIELDS as BEHAVIOR_FIELDS, validate_behavior_overrides
 from sqlalchemy import select
 from app.database import Project, RepositoryConnection, RepositoryRevision, Revision, DEFAULT_PROJECT_ID
 
@@ -176,23 +177,11 @@ def install(app, sessions, config, row):
 
 # Identity/credential/adapter selection is not a behavior override. Task schemas
 # and all remaining Settings fields are validated through Configurations.resolve.
-BEHAVIOR_FIELDS = frozenset({"developer_agent", "max_patch_iterations", "path_policy",
-    "openai_model", "codex_model", "claude_model", "max_files_per_iteration", "max_file_bytes",
-    "max_context_tokens", "max_completion_tokens", "api_max_retries", "api_timeout_seconds",
-    "cli_timeout_seconds", "discussion_poll_seconds", "labels", "tasks", "conversation_capture"})
-
-
 def validate_overrides(value):
-    allowed = BEHAVIOR_FIELDS
-    if not isinstance(value, dict) or set(value) - allowed or any(k.endswith("factory") for k in value):
-        raise HTTPException(422, "Unsupported behavior override")
-    tasks = value.get("tasks", {})
-    if not isinstance(tasks, dict) or any(not isinstance(task, dict) or "worker_type" in task for task in tasks.values()):
-        raise HTTPException(422, "Task role is not a behavior override")
-    from factory.domain.safety import find_sensitive_categories
-    import json
-    if find_sensitive_categories(json.dumps(value)):
-        raise HTTPException(422, "Use credential references instead of inline secrets")
+    try:
+        return validate_behavior_overrides(value)
+    except ValueError as error:
+        raise HTTPException(422,str(error)) from None
 
 
 def select_repository(db, scope, run_alias, stage_alias=None):
