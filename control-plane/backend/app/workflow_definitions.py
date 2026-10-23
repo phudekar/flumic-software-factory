@@ -5,7 +5,7 @@ import json
 from fastapi import Depends, HTTPException, Request
 from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel, ConfigDict, ValidationError
-from sqlalchemy import select, desc
+from sqlalchemy import select, desc, update as sql_update
 from app.database import (
     WorkflowDefinitionRecord,
     WorkflowRevision,
@@ -338,8 +338,22 @@ def install(app, sessions, config, settings):
             )
             db.add(revision)
             db.flush()
-            item.revision_id = revision.id
-            item.name = graph.name
+            # PostgreSQL locks serialize readers; SQLite ignores FOR UPDATE.
+            # Compare-and-swap the head on every backend so a stale writer rolls
+            # back its inserted revision rather than creating a second branch.
+            changed = db.execute(
+                sql_update(WorkflowDefinitionRecord)
+                .where(
+                    WorkflowDefinitionRecord.id == item.id,
+                    WorkflowDefinitionRecord.project_id == scope.project_id,
+                    WorkflowDefinitionRecord.revision_id == parent.id,
+                )
+                .values(revision_id=revision.id, name=graph.name)
+                .execution_options(synchronize_session=False)
+            )
+            if changed.rowcount != 1:
+                raise HTTPException(409, "Definition changed; reload before saving")
+            db.refresh(item)
             return public(item)
 
     @app.get(

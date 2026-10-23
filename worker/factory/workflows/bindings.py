@@ -127,6 +127,8 @@ def resolve_bindings(stage, run_input, parent_results, context):
     if resolver.context.get("stage_id", stage.id) != stage.id:
         raise ValueError("Action context belongs to another stage")
     value = resolver.resolve(stage.inputs)
+    # Subtrees can be valid individually yet exceed the depth bound once nested.
+    json_bytes(value)
     if not isinstance(value, dict):
         raise ValueError("Action inputs must resolve to an object")
     if isinstance(stage, BuiltinStage):

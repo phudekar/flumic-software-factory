@@ -383,3 +383,58 @@ class WorkflowDefinitionTests(unittest.TestCase):
                     with admin.begin() as connection:
                         connection.execute(text('DROP SCHEMA "' + schema + '" CASCADE'))
                     admin.dispose()
+
+
+class SQLitePublicationRaceTests(unittest.TestCase):
+    setup_graph = WorkflowDefinitionTests.setup_graph
+    publish = WorkflowDefinitionTests.publish
+
+    def setUp(self):
+        import os
+        import tempfile
+        from unittest.mock import patch
+
+        self.sqlite_dir = tempfile.TemporaryDirectory()
+        with patch.dict(os.environ, {
+            "CONTROL_TEST_DATABASE_URL": "sqlite:///" + self.sqlite_dir.name + "/race.db"
+        }):
+            fixtures.ControlPlaneTests.setUp(self)
+
+    def tearDown(self):
+        fixtures.ControlPlaneTests.tearDown(self)
+        self.sqlite_dir.cleanup()
+
+    def test_same_parent_concurrent_edits_have_one_winner(self):
+        from concurrent.futures import ThreadPoolExecutor
+        from threading import Barrier
+        from unittest.mock import patch
+        from sqlalchemy import select
+        from app import workflow_definitions as service
+
+        _, base, _, _, document = self.setup_graph()
+        published = self.publish(base, document)
+        ready = Barrier(2)
+        prepare = service.prepare_definition
+
+        def synchronized(*args, **kwargs):
+            result = prepare(*args, **kwargs)
+            ready.wait(timeout=10)
+            return result
+
+        def update(message):
+            changed = copy.deepcopy(document)
+            changed["stages"][0]["inputs"]["message"] = message
+            return self.client.put(
+                base + "/workflow-definitions/" + published["id"],
+                json={"parent_id": published["revision_id"], "document": changed},
+            ).status_code
+
+        with patch.object(service, "prepare_definition", synchronized):
+            with ThreadPoolExecutor(max_workers=2) as threads:
+                codes = list(threads.map(update, ["one", "two"]))
+        self.assertEqual(sorted(codes), [200, 409])
+        with self.sessions() as db:
+            revisions = list(db.scalars(select(models.WorkflowRevision).where(
+                models.WorkflowRevision.definition_id == published["id"]
+            )))
+            self.assertEqual(len(revisions), 2)

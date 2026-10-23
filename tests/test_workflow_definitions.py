@@ -405,3 +405,17 @@ class DefinitionEdgeTests(unittest.TestCase):
                         ]
                     )
                 )
+
+    def test_assembled_reference_obeys_total_json_depth_bound(self):
+        from factory.workflows.definitions import WorkflowDefinition
+        from factory.workflows.bindings import resolve_bindings
+
+        inputs = {"$ref": "input.value"}
+        value = "leaf"
+        for _ in range(30):
+            inputs = {"nested": inputs}
+        for _ in range(40):
+            value = {"nested": value}
+        stage = WorkflowDefinition.model_validate(graph([echo(inputs=inputs)])).stages[0]
+        with self.assertRaisesRegex(ValueError, "nesting"):
+            resolve_bindings(stage, {"value": value}, {}, {"stage_id": "echo"})
