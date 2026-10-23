@@ -28,6 +28,10 @@ Standalone workers use `Settings.load`, which reads the selected YAML file/profi
 | `compose_project_name` / no loader environment input | Dataclass default `hatchet-test`. | Discovers preexisting Compose containers whose project label matches and whose service is `worker` or `developer-worker`; also scopes access to their logs. Example programmatic override: `AppSettings(..., compose_project_name="my-factory")`. No `CONTROL_PROJECT` or `FACTORY_PROJECT` variable is read. Managed containers use separate factory labels. |
 | `cookie_secure` / `CONTROL_COOKIE_SECURE` | `False`; loader enables only exact lowercase string `true`. Compose does not forward it. | Sets the login cookie's Secure flag. Example direct-process value: `true` for an HTTPS deployment. Setting it in the host env file alone has no effect with the checked-in Compose manifest: add it to API environment via an override. `True`, `1` and `yes` remain false. |
 
+### `CONTROL_JOB_BRIDGE`
+
+Configures optional `job_bridge` (default `None`): the fixed, pre-created dedicated Docker network used by internal one-time job stages declaring `network: bridge`. Example: `CONTROL_JOB_BRIDGE=flumic-action-network`. Reserved `host`, `bridge` and `none` names are rejected. Jobs default to no network; this is not a host/metadata egress firewall. Recreate the reconciler after changing it and forward it explicitly through a Compose environment override; the base manifest does not forward it automatically. Public graph policy activation remains #11. See the [job contract](docker-action-jobs.md).
+
 ### `CONTROL_DATABASE_URL`
 
 Configures `database_url`; required for direct server startup. Under Compose the URL is assembled from `CONTROL_DB_PASSWORD`, so use a service environment override for a different database.

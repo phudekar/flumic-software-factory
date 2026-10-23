@@ -48,3 +48,7 @@ Open **Workflow runs**, select a run and a stage, then use **View logs**. Inspec
 **Trigger, Pause and Resume** act on a workflow definition. They are not per-stage pause or replay actions. Configuration changes affect future loaded settings; they do not rewrite an in-flight stage. Stopping a worker can interrupt work, which Hatchet may retry.
 
 Read [workflow controls](/flumic-software-factory/workflows/controls/) and the [full lifecycle](/flumic-software-factory/handbook/issue-lifecycle/).
+
+## One-time Docker stages
+
+The dynamic runtime now includes an internal durable job broker with digest-pinned images, explicit argv, bounded JSON inputs/results, scoped credentials and recovery across broker restarts. Read the [Docker action contract](/flumic-software-factory/handbook/docker-action-jobs/) for configuration examples and isolation limits. Public submission/worker integration remains the next API milestone; this does not change the currently running static workflow.
