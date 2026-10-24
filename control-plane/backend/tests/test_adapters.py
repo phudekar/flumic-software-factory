@@ -303,6 +303,8 @@ class AdapterTests(unittest.TestCase):
                 "FACTORY_WORKER_PROTOCOL",
                 "FACTORY_WORKER_POOL_ID",
                 "FACTORY_SHARED_HISTORY_ROOT",
+                "FACTORY_SHARED_TELEMETRY_ENDPOINT",
+                "FACTORY_SHARED_DEPLOYMENT_ENVIRONMENT",
             },
         )
         self.assertEqual(

@@ -25,7 +25,7 @@ from app.worker_pools import authenticate, lease_token, LeaseProof
 from factory.application.telemetry import ModelUsage
 from factory.workflows.redaction import secret_scope
 from factory.workflows.references import json_bytes
-from factory.adapters.shared_history import event_payload
+from factory.adapters.shared_history import event_payload, history_identity
 
 MAX_BATCH = 524288
 
@@ -225,7 +225,7 @@ def install(app, sessions, settings):
                     409, "History requires a started builtin assignment"
                 )
             metadata = attribution(db, assignment, settings)
-            secrets = []
+            secrets = [body.lease_token, request.headers.get("authorization", "")[7:]]
             document, mode = pinned_context(db, assignment, settings)
             for version in document["grants"].values():
                 from app.database import SecretVersion
@@ -285,7 +285,13 @@ def install(app, sessions, settings):
                     if event.kind == "model.completed" and mode == "disabled":
                         continue
                     with secret_scope(secrets):
-                        payload = event_payload(event.payload)
+                        payload = event_payload(
+                            event.payload,
+                            authority=protected,
+                            identity=lambda value: history_identity(
+                                value, settings.encryption_key, assignment.id
+                            ),
+                        )
                     if mode != "redacted":
                         payload.pop("conversation", None)
                         payload["capture_status"] = mode
@@ -294,7 +300,23 @@ def install(app, sessions, settings):
                     )
                     if budget < 0:
                         raise HTTPException(413, "Redacted history exceeds limit")
-                    insert_event(db, settings, worker.id, metadata, event, payload)
+                    import uuid
+
+                    public_id = str(
+                        uuid.UUID(
+                            hex=history_identity(
+                                event.id,
+                                settings.encryption_key,
+                                assignment.id,
+                                domain="event",
+                            )[:32],
+                            version=4,
+                        )
+                    )
+                    canonical_event = event.model_copy(update={"id": public_id})
+                    insert_event(
+                        db, settings, worker.id, metadata, canonical_event, payload
+                    )
                 except ValueError:
                     raise HTTPException(
                         422, "Invalid bounded history payload"

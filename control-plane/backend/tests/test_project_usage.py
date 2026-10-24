@@ -91,14 +91,14 @@ class ProjectUsageTests(unittest.TestCase):
             self.client.get(base + "/usage?repository_id=foreign").json()["calls"], 0
         )
         conversation = self.client.get(
-            base + "/model-calls/" + event["id"] + "/conversation"
+            base + "/model-calls/" + events[0]["id"] + "/conversation"
         )
         self.assertEqual(conversation.status_code, 200, conversation.text)
         self.assertNotIn("private-github", conversation.text)
         foreign, _, _ = self.arrange("foreign")
         self.assertEqual(
             self.client.get(
-                f"/api/v1/projects/{foreign.project_id}/model-calls/{event['id']}/conversation"
+                f"/api/v1/projects/{foreign.project_id}/model-calls/{events[0]['id']}/conversation"
             ).status_code,
             404,
         )
@@ -232,7 +232,7 @@ class ProjectUsageTests(unittest.TestCase):
         response = self.send(claim, headers, [oversized])
         self.assertEqual(response.status_code, 413, response.text)
         with self.sessions() as db:
-            self.assertIsNone(db.get(models.Event, oversized["id"]))
+            self.assertEqual(len(list(db.scalars(fixtures.select(models.Event)))), 1)
 
     def test_shared_observer_spool_delivers_after_completion_over_real_http_routes(
         self,
@@ -322,6 +322,65 @@ class ProjectUsageTests(unittest.TestCase):
             base + "/model-calls/" + rows[0]["id"] + "/conversation"
         ).json()
         self.assertEqual(content["request"], "[REDACTED]")
+
+    def test_untrusted_correlation_and_payload_keys_cannot_persist_granted_secrets(
+        self,
+    ):
+        scope, _, _, claim, headers, _ = self.builtin_claim()
+        event = self.event(
+            call_id="private-github",
+            parent_call_id="private-github",
+            **{"private-github": "source-key"},
+            transport_copy=headers["Authorization"][7:],
+            proof_copy=claim["lease_token"],
+        )
+        self.assertEqual(self.send(claim, headers, [event]).status_code, 202)
+        self.assertEqual(self.send(claim, headers, [event]).status_code, 202)
+        rows = self.client.get(f"/api/v1/projects/{scope.project_id}/events").json()
+        self.assertEqual(len(rows), 1)
+        self.assertNotIn("private-github", str(rows))
+        self.assertNotIn(headers["Authorization"][7:], str(rows))
+        self.assertNotIn(claim["lease_token"], str(rows))
+        self.assertEqual(
+            rows[0]["payload"]["call_id"], rows[0]["payload"]["parent_call_id"]
+        )
+        self.assertEqual(
+            self.client.get(f"/api/v1/projects/{scope.project_id}/usage").json()[
+                "calls"
+            ],
+            1,
+        )
+
+    def test_untrusted_delivery_uuid_is_not_a_plaintext_credential_channel(self):
+        from app.project_context import encrypt
+
+        scope, _, _, claim, headers, _ = self.builtin_claim(deliver_context=False)
+        credential = str(uuid.uuid4())
+        with self.sessions.begin() as db:
+            secret = db.scalar(
+                fixtures.select(models.SecretVersion).where(
+                    models.SecretVersion.project_id == scope.project_id,
+                    models.SecretVersion.purpose == "github",
+                )
+            )
+            secret.ciphertext = encrypt(credential, self.settings)
+        self.assertEqual(
+            self.client.post(
+                "/api/v1/shared-worker/assignments/"
+                + claim["assignment_id"]
+                + "/context",
+                json={"lease_token": claim["lease_token"]},
+                headers=headers,
+            ).status_code,
+            200,
+        )
+        self.assertEqual(
+            self.send(claim, headers, [{**self.event(), "id": credential}]).status_code,
+            202,
+        )
+        rows = self.client.get(f"/api/v1/projects/{scope.project_id}/events").json()
+        self.assertEqual(len(rows), 1)
+        self.assertNotIn(credential, str(rows))
 
     def test_history_rejects_forged_attribution_and_wrong_assignment_proof(self):
         scope, run_id, _, claim, headers, _ = self.builtin_claim()
@@ -521,7 +580,7 @@ class ProjectUsageTests(unittest.TestCase):
         self.assertFalse(rows[0]["payload"].get("conversation_available", False))
         self.assertEqual(
             self.client.get(
-                base + "/model-calls/" + event["id"] + "/conversation"
+                base + "/model-calls/" + rows[0]["id"] + "/conversation"
             ).status_code,
             404,
         )

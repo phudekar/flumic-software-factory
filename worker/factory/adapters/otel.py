@@ -155,6 +155,7 @@ class OpenTelemetryObserver(LoggingObserver):
         logger_provider=None,
     ):
         self.settings = settings
+        self.infrastructure = None
         self.pricing = Pricing(settings.pricing_file or None)
         self.stage = ContextVar("factory_otel_stage", default="unscoped")
         self.parent_call = ContextVar("factory_otel_parent_call", default=None)
@@ -214,7 +215,10 @@ class OpenTelemetryObserver(LoggingObserver):
         self.reported_cost = meter.create_counter(
             "factory.model.reported_cost", unit="USD"
         )
-        if os.getenv("FACTORY_TELEMETRY_PROCESS_ROLE", "worker") == "worker":
+        if (
+            os.getenv("FACTORY_TELEMETRY_PROCESS_ROLE", "worker") == "worker"
+            and not action_metadata()
+        ):
             meter.create_observable_gauge(
                 "factory.worker.heartbeat", callbacks=[self._heartbeat], unit="s"
             )
@@ -239,13 +243,21 @@ class OpenTelemetryObserver(LoggingObserver):
             logging.getLogger().addHandler(self.log_handler)
         atexit.register(self.shutdown)
 
+    def attach_infrastructure(self, infrastructure):
+        self.infrastructure = infrastructure
+        infrastructure.activate(self.settings.telemetry_endpoint)
+
     def _heartbeat(self, options):
+        if self.infrastructure is not None:
+            return
         yield metrics.Observation(
             time.time(),
             {"worker.name": self.worker_id, "worker.type": self.settings.worker_type},
         )
 
     def _active_tasks(self, options):
+        if self.infrastructure is not None:
+            return
         with self.lock:
             counts = {stage: 0 for stage in self.seen_stages}
             for attrs in self.active.values():
@@ -393,6 +405,100 @@ class OpenTelemetryObserver(LoggingObserver):
         self.meter_provider.shutdown()
         if self.logger_provider:
             self.logger_provider.shutdown()
+
+
+class WorkerTelemetry:
+    """One worker-lifetime gauge source, independent of action-specific providers."""
+
+    def __init__(self, settings, *, endpoint="", environment="development"):
+        self.worker_id, self.worker_name, self.role = (
+            settings.worker_id,
+            settings.worker_name,
+            settings.role,
+        )
+        self.endpoint, self.environment = endpoint, environment
+        self.lock = threading.RLock()
+        self.running = 0
+        self.provider = None
+        self.closed = False
+        self.current = ContextVar("factory_shared_worker_execution", default=None)
+        if endpoint:
+            self.activate(endpoint)
+
+    def activate(self, endpoint):
+        with self.lock:
+            if self.provider is not None or self.closed:
+                return
+            endpoint = self.endpoint or endpoint
+            if not endpoint:
+                return
+            resource = Resource.create(
+                {
+                    "service.name": "software-factory",
+                    "service.instance.id": f"{socket.gethostname()}:{os.getpid()}",
+                    "deployment.environment": self.environment,
+                    "factory.worker.id": self.worker_id,
+                    "factory.worker.name": self.worker_name,
+                    "factory.worker.type": self.role,
+                    "factory.process.role": "worker",
+                    "factory.worker.protocol": "shared-v1",
+                }
+            )
+            reader = PeriodicExportingMetricReader(
+                OTLPMetricExporter(
+                    endpoint=endpoint.rstrip("/") + "/v1/metrics", timeout=5
+                ),
+                export_interval_millis=15000,
+            )
+            provider = MeterProvider(resource=resource, metric_readers=[reader])
+            meter = provider.get_meter("software-factory.worker")
+            meter.create_observable_gauge(
+                "factory.worker.heartbeat", callbacks=[self.heartbeat], unit="s"
+            )
+            meter.create_observable_gauge(
+                "factory.worker.active_tasks", callbacks=[self.active_tasks]
+            )
+            self.provider = provider
+            self.endpoint = endpoint
+
+    @contextmanager
+    def track(self, execution_id):
+        if self.current.get() == execution_id:
+            yield
+            return
+        token = self.current.set(execution_id)
+        with self.lock:
+            self.running += 1
+        try:
+            yield
+        finally:
+            with self.lock:
+                self.running -= 1
+            self.current.reset(token)
+
+    def labels(self):
+        return {
+            "worker.id": self.worker_id,
+            "worker.name": self.worker_name,
+            "worker.type": self.role,
+        }
+
+    def heartbeat(self, options):
+        yield metrics.Observation(time.time(), self.labels())
+
+    def active_tasks(self, options):
+        with self.lock:
+            count = self.running
+        yield metrics.Observation(count, {**self.labels(), "stage": "all"})
+
+    def shutdown(self):
+        with self.lock:
+            if self.closed:
+                return
+            self.closed = True
+            provider = self.provider
+        if provider:
+            provider.shutdown()
 
 
 def otel_observer(settings):

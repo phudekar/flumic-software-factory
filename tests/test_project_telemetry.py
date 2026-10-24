@@ -144,6 +144,100 @@ class ProjectTelemetryTests(unittest.TestCase):
         with action_scope(source):
             self.assertEqual(action_metadata()["worker_id"], "shared-worker")
 
+    def test_shared_worker_gauges_total_concurrent_actions_and_remain_alive_when_idle(
+        self,
+    ):
+        import test_telemetry as fixtures
+        from unittest.mock import patch
+        from factory.shared_worker import SharedControl, SharedSettings
+        from opentelemetry.sdk.metrics import MeterProvider
+        from opentelemetry.sdk.metrics.export import InMemoryMetricReader
+
+        reader = InMemoryMetricReader()
+        provider = MeterProvider(metric_readers=[reader])
+        closed = {"value": False}
+        original_shutdown = provider.shutdown
+
+        def shutdown():
+            if not closed["value"]:
+                closed["value"] = True
+                original_shutdown()
+
+        provider.shutdown = shutdown
+        self.addCleanup(shutdown)
+        control = SharedControl(
+            SharedSettings(
+                pool_id="pool", worker_id="worker", worker_name="shared", role="simple"
+            ),
+            {
+                "FACTORY_CONTROL_ENDPOINT": "http://control",
+                "FACTORY_CONTROL_TOKEN": "infra",
+            },
+        )
+        self.addCleanup(control.shutdown)
+        cases = []
+
+        def create(settings):
+            case = fixtures.TelemetryTests(
+                "test_unknown_usage_has_no_zero_token_attributes"
+            )
+            case.setUp()
+            self.addCleanup(case.doCleanups)
+            cases.append(case)
+            return case.observer
+
+        def samples(name):
+            result = []
+            for current in [reader, *[case.reader for case in cases]]:
+                data = current.get_metrics_data()
+                if data is None:
+                    continue
+                for resource in data.resource_metrics:
+                    for scope in resource.scope_metrics:
+                        for metric in scope.metrics:
+                            if metric.name == name:
+                                result.extend(
+                                    point
+                                    for point in metric.data.data_points
+                                    if name.endswith("heartbeat")
+                                    or point.attributes.get("stage") == "all"
+                                )
+            return result
+
+        with (
+            patch("factory.bootstrap.load_factory", return_value=create),
+            patch("factory.adapters.otel.MeterProvider", return_value=provider),
+            patch("factory.adapters.otel.PeriodicExportingMetricReader"),
+            patch("factory.adapters.otel.OTLPMetricExporter"),
+        ):
+            with control.observation(context("alpha"), "alpha-proof") as alpha:
+                with alpha.observe("plan_issue", {}):
+                    with control.observation(context("beta"), "beta-proof") as beta:
+                        with beta.observe("plan_issue", {}):
+                            self.assertEqual(
+                                [
+                                    point.value
+                                    for point in samples("factory.worker.active_tasks")
+                                ],
+                                [2],
+                            )
+                    self.assertEqual(
+                        [
+                            point.value
+                            for point in samples("factory.worker.active_tasks")
+                        ],
+                        [1],
+                    )
+            self.assertEqual(
+                [point.value for point in samples("factory.worker.active_tasks")], [0]
+            )
+            self.assertTrue(samples("factory.worker.heartbeat"))
+            self.assertFalse(closed["value"])
+            for point in samples("factory.worker.heartbeat"):
+                self.assertNotIn("factory.project_id", point.attributes)
+            control.shutdown()
+            self.assertTrue(closed["value"])
+
     def test_nested_otel_accounting_counts_only_leaf_usage(self):
         import test_telemetry as fixtures
         from factory.application.telemetry import action_scope, model_call, ModelUsage
@@ -321,6 +415,44 @@ class ProjectTelemetryTests(unittest.TestCase):
                     for path in Path(directory).rglob("*.json")
                 )
             )
+
+    def test_spool_hashes_untrusted_call_ids_and_redacts_nonprotocol_keys(self):
+        from factory.adapters.shared_history import SharedPublisher
+        from factory.application.telemetry import action_scope
+
+        control = Mock()
+        control.settings.worker_id = "shared-worker"
+        control.headers = {"Authorization": "Bearer infra-secret"}
+        source = context("alpha")
+        credential = "alpha-private-secret"
+        with tempfile.TemporaryDirectory() as directory:
+            publisher = SharedPublisher(control, Path(directory), start=False)
+            with action_scope(context("beta")):
+                bound = publisher.bound(source, "scoped-proof")
+                for _ in range(2):
+                    bound.emit(
+                        "model.completed",
+                        {
+                            "provider": "openai",
+                            "model": "fixture",
+                            "call_id": credential,
+                            "parent_call_id": credential,
+                            credential: "source-key",
+                            "transport_copy": "infra-secret",
+                            "proof_copy": "scoped-proof",
+                        },
+                        {},
+                    )
+            documents = [
+                json.loads(path.read_text()) for path in Path(directory).rglob("*.json")
+            ]
+            self.assertEqual(len(documents), 2)
+            self.assertNotIn(credential, str(documents))
+            self.assertNotIn("infra-secret", str(documents))
+            values = [doc["events"][0]["payload"] for doc in documents]
+            self.assertNotIn("scoped-proof", str(values))
+            self.assertEqual(values[0]["call_id"], values[1]["call_id"])
+            self.assertEqual(values[0]["call_id"], values[0]["parent_call_id"])
 
     def test_disk_spool_replays_original_assignment_after_context_is_gone(self):
         from factory.adapters.shared_history import SharedPublisher

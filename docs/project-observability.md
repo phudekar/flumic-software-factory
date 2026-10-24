@@ -75,6 +75,8 @@ Totals are known subtotals, not invoices. Mixed known and unknown records retain
 
 Nested instrumented parent/child calls retain their trace relationship, but only accounting leaves contribute to cost/token totals and model-usage metrics. A CLI aggregate is a leaf when no nested model call was observed. Provider/model prices come from the configured price table and the recorded estimate context; changing a table does not rewrite existing event totals.
 
+Worker delivery and model-call identifiers are treated as source data. The server derives public event and call IDs using keyed, assignment-scoped digests; preserve the original source packet for delivery retries and use returned event IDs for conversation reads. Worker spooling also hashes call/parent IDs and redacts unknown payload keys, so arbitrary strings cannot bypass secret filtering. Only allowlisted protocol names and verified assignment metadata remain exempt.
+
 Event IDs identify delivery. Model call IDs identify accounting within a logical execution. Retrying delivery must preserve the original ID, timestamp, call ID and payload. Reordered JSON object keys do not create another charge. An identical call replay with another delivery ID is deduplicated; changed content for a stored identity returns `409`. A new logical retry attempt remains a separate execution and can incur separate actual usage.
 
 ## Capture policy and redaction
@@ -102,6 +104,10 @@ The spool stores the original assignment proof and already-redacted event payloa
 Delivery runs separately from business execution, normally waking every two seconds, with up to 25 records per batch of sends. The cursor rotates over pending files so a repeatedly failing project's records do not indefinitely exclude another project's delivery. Infrastructure heartbeats are attempted every 15 seconds and update `last_heartbeat_at` on the worker; they do not create project events or AI usage. OTEL worker heartbeat/resource metrics likewise remain infrastructure-scoped.
 
 At most 500 queued records are retained, with a 500,000-byte per-record budget after redaction. Oversized conversation capture is dropped while bounded usage metadata is retained where possible. Older records are evicted when the queue fills. History is best effort and bounded; the scheduler's canonical run state does not depend on successful history delivery.
+
+Worker OTEL gauges have a separate worker-lifetime provider and aggregate concurrent handlers across projects. Closing an action observer does not close that provider: the total returns to zero when idle and heartbeats continue until worker shutdown. Action model/spans keep their own pinned observer lifecycle and actual shared worker identity.
+
+Set `FACTORY_SHARED_TELEMETRY_ENDPOINT` to choose the infrastructure metric collector explicitly. Empty/unset activates gauges lazily on the first OTEL action's endpoint, retaining that endpoint for the worker lifetime. Other projects still use their own pinned action exporters. `FACTORY_SHARED_DEPLOYMENT_ENVIRONMENT` labels this infrastructure provider (default `development`), independently of project configuration. Recreate the shared worker when changing these environment settings; the base Control Plane Compose manifest forwards them through the reconciler to newly created runtimes.
 
 An authentic original proof can deliver delayed history after lease expiry or terminal completion. It cannot renew execution, fetch fresh credentials or begin new effects. API batches are bounded to 50 events and 512 KiB, including post-redaction accounting. Retrying a malformed/conflicting record cannot change stored accounting. Inspect redacted worker warnings and the private spool when records remain queued.
 

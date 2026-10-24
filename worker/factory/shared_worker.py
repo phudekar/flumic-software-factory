@@ -52,6 +52,13 @@ class SharedControl:
             "Authorization": "Bearer " + env["FACTORY_CONTROL_TOKEN"],
             "Content-Type": "application/json",
         }
+        from factory.adapters.otel import WorkerTelemetry
+
+        self.infrastructure = WorkerTelemetry(
+            settings,
+            endpoint=env.get("FACTORY_SHARED_TELEMETRY_ENDPOINT", ""),
+            environment=env.get("FACTORY_SHARED_DEPLOYMENT_ENVIRONMENT", "development"),
+        )
         self.history = None
         if env.get("FACTORY_SHARED_HISTORY_ROOT"):
             from pathlib import Path
@@ -85,8 +92,18 @@ class SharedControl:
         from factory.bootstrap import load_factory
         from factory.application.telemetry import action_scope, incoming_trace
 
-        with action_scope(context), incoming_trace(context.trace_context):
-            delegate = load_factory(context.settings.observer_factory)(context.settings)
+        from dataclasses import replace
+
+        settings = replace(context.settings, worker_name=self.settings.worker_name)
+        with (
+            self.infrastructure.track(context.execution_id),
+            action_scope(context),
+            incoming_trace(context.trace_context),
+        ):
+            delegate = load_factory(settings.observer_factory)(settings)
+            attach = getattr(delegate, "attach_infrastructure", None)
+            if attach:
+                attach(self.infrastructure)
             if getattr(delegate, "log_handler", None) is not None:
                 delegate.log_handler.assignment_id = context.assignment_id
             observer = delegate
@@ -95,7 +112,7 @@ class SharedControl:
 
                 observer = ControlObserver(
                     delegate,
-                    context.settings,
+                    settings,
                     publisher=self.history.bound(context, proof),
                     assignment_id=context.assignment_id,
                 )
@@ -107,8 +124,11 @@ class SharedControl:
                     shutdown()
 
     def shutdown(self):
-        if self.history:
-            self.history.shutdown()
+        try:
+            if self.history:
+                self.history.shutdown()
+        finally:
+            self.infrastructure.shutdown()
 
     def register(self):
         settings = self.settings
@@ -162,6 +182,10 @@ class SharedControl:
             )
 
     def execute(self, invocation):
+        with self.infrastructure.track(invocation.execution_id):
+            return self._execute(invocation)
+
+    def _execute(self, invocation):
         claim = self.request(
             "/api/v1/shared-worker/claim",
             {**invocation.model_dump(), "claim_key": str(uuid.uuid4())},
