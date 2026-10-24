@@ -75,10 +75,14 @@ class ActionResult(Contract):
             self,
             "usage",
             [
-                UsageRecord.model_validate(redact(item.model_dump()))
+                UsageRecord.model_validate(
+                    {key: redact(value) for key, value in item.model_dump().items()}
+                )
                 for item in self.usage
             ],
         )
+        if len({item.id for item in self.usage}) != len(self.usage):
+            raise ValueError("Duplicate usage identity")
         if len(self.model_dump_json().encode()) > 1048576:
             raise ValueError("Action result exceeds 1 MiB")
         return self
@@ -90,6 +94,10 @@ class ActionContext(Contract):
     repository_revision_id: str
     config_revision_id: str
     workflow_revision_id: str = ""
+    definition_id: str = ""
+    worker_id: str = ""
+    executor: str = "builtin@1"
+    job_id: str | None = None
     run_id: str
     stage_id: str
     execution_id: str

@@ -127,3 +127,49 @@ def record_conversation(*, request=None, response=None, coverage="api_exchange")
     capture = getattr(call, "conversation", None)
     if capture is not None:
         capture(request=request, response=response, coverage=coverage)
+
+
+_action = ContextVar("factory_action_attribution", default=None)
+
+
+def action_metadata():
+    return dict(_action.get() or {})
+
+
+@contextmanager
+def action_scope(context):
+    """Trusted delivered context, independent of mutable operation attributes."""
+    from factory.workflows.redaction import secret_scope, redact
+
+    values = {
+        key: getattr(context, key)
+        for key in (
+            "project_id",
+            "repository_id",
+            "workflow_revision_id",
+            "run_id",
+            "stage_id",
+            "execution_id",
+            "assignment_id",
+            "attempt",
+        )
+    }
+    values.update(
+        definition_id=getattr(context, "definition_id", ""),
+        worker_id=getattr(context, "worker_id", ""),
+        executor=getattr(context, "executor", "builtin@1"),
+        job_id=getattr(context, "job_id", None),
+        factory_run_id=context.factory_run_id or context.run_id,
+        attempt_id=context.execution_id,
+        stage=context.stage_id,
+    )
+    with secret_scope(context.credentials.values()):
+        correlation = redact(values["factory_run_id"])
+        values["factory_run_id"] = (
+            correlation if len(correlation) <= 120 else context.run_id
+        )
+        token = _action.set(values)
+        try:
+            yield
+        finally:
+            _action.reset(token)

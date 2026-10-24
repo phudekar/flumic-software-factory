@@ -50,7 +50,7 @@ The placeholder digest above must be replaced before validation. `command` is an
 
 ## Program contract
 
-Read `/flumic/input.json`, optionally read `/flumic/credentials.json`, then write `/flumic/output/result.json` and exit zero. Credentials are a purpose-to-value JSON object, not environment variables. No worker control token or global provider environment is inherited from the Control Plane.
+Read `/flumic/input.json`, optionally use the new read-only `/flumic/context.json` for canonical execution IDs/trace context, and read explicitly granted `/flumic/credentials.json`, then write `/flumic/output/result.json` and exit zero. Credentials are a purpose-to-value JSON object, not environment variables. No worker control token or global provider environment is inherited from the Control Plane.
 
 ```python
 import json
@@ -99,3 +99,5 @@ python -m unittest discover -s tests/integration -p test_docker_job_contract.py 
 ```
 
 It launches a uniquely named deterministic JSON job, reconstructs the broker, verifies the container identity/result and cleans up only its own job. It performs no GitHub or model calls.
+
+Declared usage is attributed and deduplicated through [project accounting](project-observability.md#custom-docker-actions); container resources and missing reports do not imply zero AI spend.

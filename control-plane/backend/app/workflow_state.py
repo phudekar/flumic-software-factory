@@ -309,7 +309,14 @@ class WorkflowState:
         return {item.stage_id: item for item in attempts}
 
     def _context(
-        self, run, stage, attempt, metadata, revision, assignment_id="pending"
+        self,
+        run,
+        stage,
+        attempt,
+        metadata,
+        revision,
+        assignment_id="pending",
+        definition_id="",
     ):
         raw_input = decrypt(run.input_ciphertext, self.settings)
         try:
@@ -330,6 +337,8 @@ class WorkflowState:
             repository_revision_id=metadata["repository_revision_id"],
             config_revision_id=metadata["config_revision_id"],
             workflow_revision_id=revision,
+            definition_id=definition_id,
+            executor=metadata["executor"],
             run_id=run.id,
             stage_id=stage.id,
             execution_id=attempt.id,
@@ -380,7 +389,12 @@ class WorkflowState:
                     )
                 metadata = snapshot["stages"][stage.id]
                 context = self._context(
-                    run, stage, item, metadata, snapshot["workflow_revision_id"]
+                    run,
+                    stage,
+                    item,
+                    metadata,
+                    snapshot["workflow_revision_id"],
+                    definition_id=snapshot["definition_id"],
                 )
                 try:
                     if not condition_matches(stage.when, run_input, results, context):
@@ -488,7 +502,15 @@ class WorkflowState:
             input=inputs,
         )
         run = db.get(WorkflowRun, item.run_id)
-        context = self._context(run, stage, item, metadata, revision, row.id)
+        context = self._context(
+            run,
+            stage,
+            item,
+            metadata,
+            revision,
+            row.id,
+            self._snapshot(db, run)["definition_id"],
+        )
         if isinstance(stage, BuiltinStage) and stage.action != "core.echo@1":
             from factory.workflows.project_dispatch import ProjectBindings
 

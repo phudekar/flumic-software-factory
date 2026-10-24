@@ -25,6 +25,7 @@ GUIDES = {
     'docs/project-runtime-api.md': 'Project workflow runtime API',
     'docs/docker-action-jobs.md': 'One-time Docker actions',
     'docs/control-plane-workflows.md': 'Workflow control architecture',
+    'docs/project-observability.md': 'Project history, traces and AI accounting',
     'docs/observability.md': 'Observability handbook',
     'docs/issue-lifecycle.md': 'Issue lifecycle and webhooks',
     'docs/architecture.md': 'Architecture and extensions',

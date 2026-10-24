@@ -95,6 +95,7 @@ class Worker(Base):
     pool_id: Mapped[str | None] = mapped_column(ForeignKey("worker_pools.id"))
     capabilities: Mapped[dict] = mapped_column(JSON, default=dict, server_default="{}")
     registered_at: Mapped[float | None] = mapped_column(Float)
+    last_heartbeat_at: Mapped[float | None] = mapped_column(Float)
     profile: Mapped[str] = mapped_column(String(100))
     revision_id: Mapped[str] = mapped_column(String(36))
     config_id: Mapped[str | None] = mapped_column(String(36))
@@ -119,6 +120,9 @@ class Operation(Base):
 class Event(ProjectOwned, Base):
     __tablename__ = "execution_events"
     __table_args__ = (
+        UniqueConstraint(
+            "project_id", "execution_id", "call_id", name="uq_action_model_call"
+        ),
         ForeignKeyConstraint(
             ["project_id", "repository_id"],
             ["repository_connections.project_id", "repository_connections.id"],
@@ -134,6 +138,16 @@ class Event(ProjectOwned, Base):
     occurred_at: Mapped[float] = mapped_column(Float)
     received_at: Mapped[float] = mapped_column(Float, default=time.time)
     payload: Mapped[dict] = mapped_column(JSON)
+
+    # NULL attribution preserves historical/legacy records without guessing.
+    assignment_id: Mapped[str | None] = mapped_column(String(36), index=True)
+    execution_id: Mapped[str | None] = mapped_column(String(120), index=True)
+    definition_id: Mapped[str | None] = mapped_column(String(36), index=True)
+    workflow_revision_id: Mapped[str | None] = mapped_column(String(36), index=True)
+    executor: Mapped[str | None] = mapped_column(String(100), index=True)
+    job_id: Mapped[str | None] = mapped_column(String(64), index=True)
+    call_id: Mapped[str | None] = mapped_column(String(180))
+    ingest_digest: Mapped[str | None] = mapped_column(String(64))
 
     # NULL means historical repository attribution is unknown, never guessed.
     repository_id: Mapped[str | None] = mapped_column(String(36))

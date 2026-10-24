@@ -199,6 +199,10 @@ def create_app(settings=None, sessions=None, runtime=None, workflow=None):
 
     install_workflow_runs(app, sessions, settings, config)
 
+    from app.history import install as install_history
+
+    install_history(app, sessions, settings)
+
     @app.middleware("http")
     async def security(request, call_next):
         if (
@@ -970,7 +974,14 @@ def create_app(settings=None, sessions=None, runtime=None, workflow=None):
         worker_id=None,
         engine_task_id=None,
         stage=None,
+        **filters,
     ):
+        for key, value in filters.items():
+            if value:
+                if key in {"provider", "model"}:
+                    query = query.where(Event.payload[key].as_string() == value)
+                else:
+                    query = query.where(getattr(Event, key) == value)
         if run_id:
             query = query.where(
                 or_(
@@ -1003,11 +1014,32 @@ def create_app(settings=None, sessions=None, runtime=None, workflow=None):
         worker_id: str | None = None,
         engine_task_id: str | None = None,
         stage: str | None = None,
+        repository_id: str | None = None,
+        definition_id: str | None = None,
+        workflow_revision_id: str | None = None,
+        execution_id: str | None = None,
+        executor: str | None = None,
+        job_id: str | None = None,
+        provider: str | None = None,
+        model: str | None = None,
         offset: int = Query(0, ge=0),
         limit: int = Query(100, ge=1, le=500),
     ):
         query = scoped_events(
-            select(Event), run_id, attempt_id, worker_id, engine_task_id, stage
+            select(Event),
+            run_id,
+            attempt_id,
+            worker_id,
+            engine_task_id,
+            stage,
+            repository_id=repository_id,
+            definition_id=definition_id,
+            workflow_revision_id=workflow_revision_id,
+            execution_id=execution_id,
+            executor=executor,
+            job_id=job_id,
+            provider=provider,
+            model=model,
         )
         if kind == "attempt":
             query = query.where(
@@ -1054,12 +1086,33 @@ def create_app(settings=None, sessions=None, runtime=None, workflow=None):
         worker_id: str | None = None,
         engine_task_id: str | None = None,
         stage: str | None = None,
+        repository_id: str | None = None,
+        definition_id: str | None = None,
+        workflow_revision_id: str | None = None,
+        execution_id: str | None = None,
+        executor: str | None = None,
+        job_id: str | None = None,
+        provider: str | None = None,
+        model: str | None = None,
     ):
         with sessions() as db:
             scope = request_scope(request, db)
             calls = db.scalars(
                 scoped_events(
-                    select(Event), run_id, attempt_id, worker_id, engine_task_id, stage
+                    select(Event),
+                    run_id,
+                    attempt_id,
+                    worker_id,
+                    engine_task_id,
+                    stage,
+                    repository_id=repository_id,
+                    definition_id=definition_id,
+                    workflow_revision_id=workflow_revision_id,
+                    execution_id=execution_id,
+                    executor=executor,
+                    job_id=job_id,
+                    provider=provider,
+                    model=model,
                 )
                 .where(
                     Event.project_id == scope.project_id,

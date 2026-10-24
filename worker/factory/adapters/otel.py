@@ -28,7 +28,11 @@ from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExport
 from opentelemetry.exporter.otlp.proto.http.metric_exporter import OTLPMetricExporter
 from opentelemetry.exporter.otlp.proto.http._log_exporter import OTLPLogExporter
 
-from factory.application.telemetry import incoming_carrier, use_recorder
+from factory.application.telemetry import (
+    incoming_carrier,
+    use_recorder,
+    action_metadata,
+)
 from factory.adapters.telemetry import (
     CorrelationFilter,
     LoggingObserver,
@@ -40,6 +44,12 @@ from factory.domain.safety import find_sensitive_categories
 
 class MetadataHandler(LoggingHandler):
     def emit(self, record):
+        assignment = getattr(self, "assignment_id", None)
+        if (
+            assignment is not None
+            and action_metadata().get("assignment_id") != assignment
+        ):
+            return
         import copy
 
         record = copy.copy(record)
@@ -63,11 +73,17 @@ class MetadataFilter(CorrelationFilter):
 
 def safe_attributes(values):
     result = {}
-    for key, value in redact(values).items():
+    authority = {"factory." + key: value for key, value in action_metadata().items()}
+    for key, value in values.items():
+        value = authority[key] if key in authority else redact(value)
         if value is None:
             continue
         if isinstance(value, str):
-            value = "[redacted]" if find_sensitive_categories(value) else value[:512]
+            value = (
+                "[redacted]"
+                if key not in authority and find_sensitive_categories(value)
+                else value[:512]
+            )
         if isinstance(value, (str, int, float, bool)):
             result[key] = value
     return result
@@ -77,12 +93,21 @@ class Call:
     def __init__(self, observer, span, attributes):
         self.observer, self.span, self.attributes = observer, span, attributes
         self.recorded = False
+        self.usage = None
+        self.leaf = True
 
     def record(self, usage):
         # One final usage report per call; callers never add cumulative snapshots.
         if self.recorded:
             return
         self.recorded = True
+        self.usage = usage
+
+    def flush(self):
+        self.span.set_attribute("factory.accounting_leaf", self.leaf)
+        if self.usage is None:
+            return
+        usage = self.usage
         estimate = self.observer.pricing.estimate(
             self.attributes["provider"], self.attributes["model"], usage
         )
@@ -91,7 +116,8 @@ class Call:
         )
         if estimate is not None:
             self.span.set_attribute("factory.cost.estimated_usd", estimate)
-            self.observer.estimated_cost.add(estimate, self.attributes)
+            if self.leaf:
+                self.observer.estimated_cost.add(estimate, self.attributes)
         attrs = {
             "gen_ai.usage.input_tokens": usage.input_tokens,
             "gen_ai.usage.output_tokens": usage.output_tokens,
@@ -111,11 +137,11 @@ class Call:
             ("cache_read", usage.cached_input_tokens),
             ("cache_creation", usage.cache_creation_tokens),
         ):
-            if count is not None:
+            if count is not None and self.leaf:
                 self.observer.tokens.add(
                     count, {**self.attributes, "token.type": category}
                 )
-        if usage.reported_cost_usd is not None:
+        if usage.reported_cost_usd is not None and self.leaf:
             self.observer.reported_cost.add(usage.reported_cost_usd, self.attributes)
 
 
@@ -129,8 +155,10 @@ class OpenTelemetryObserver(LoggingObserver):
         logger_provider=None,
     ):
         self.settings = settings
+        self.infrastructure = None
         self.pricing = Pricing(settings.pricing_file or None)
         self.stage = ContextVar("factory_otel_stage", default="unscoped")
+        self.parent_call = ContextVar("factory_otel_parent_call", default=None)
         self.worker_id = (
             settings.worker_name or f"software-factory-{settings.worker_type}-worker"
         )
@@ -187,7 +215,10 @@ class OpenTelemetryObserver(LoggingObserver):
         self.reported_cost = meter.create_counter(
             "factory.model.reported_cost", unit="USD"
         )
-        if os.getenv("FACTORY_TELEMETRY_PROCESS_ROLE", "worker") == "worker":
+        if (
+            os.getenv("FACTORY_TELEMETRY_PROCESS_ROLE", "worker") == "worker"
+            and not action_metadata()
+        ):
             meter.create_observable_gauge(
                 "factory.worker.heartbeat", callbacks=[self._heartbeat], unit="s"
             )
@@ -212,13 +243,21 @@ class OpenTelemetryObserver(LoggingObserver):
             logging.getLogger().addHandler(self.log_handler)
         atexit.register(self.shutdown)
 
+    def attach_infrastructure(self, infrastructure):
+        self.infrastructure = infrastructure
+        infrastructure.activate(self.settings.telemetry_endpoint)
+
     def _heartbeat(self, options):
+        if self.infrastructure is not None:
+            return
         yield metrics.Observation(
             time.time(),
             {"worker.name": self.worker_id, "worker.type": self.settings.worker_type},
         )
 
     def _active_tasks(self, options):
+        if self.infrastructure is not None:
+            return
         with self.lock:
             counts = {stage: 0 for stage in self.seen_stages}
             for attrs in self.active.values():
@@ -239,6 +278,7 @@ class OpenTelemetryObserver(LoggingObserver):
             {
                 "factory.stage": stage,
                 **{"factory." + k: v for k, v in attributes.items()},
+                **{"factory." + k: v for k, v in action_metadata().items()},
             }
         )
         parent = (
@@ -284,6 +324,9 @@ class OpenTelemetryObserver(LoggingObserver):
                     "stage": stage,
                     "outcome": outcome,
                     "worker.type": self.settings.worker_type,
+                    **safe_attributes(
+                        {"factory." + k: v for k, v in action_metadata().items()}
+                    ),
                 }
                 self.completed.add(1, labels)
                 self.duration.record(time.monotonic() - started, labels)
@@ -315,6 +358,7 @@ class OpenTelemetryObserver(LoggingObserver):
                 "model": model or "unknown",
                 "agent": agent,
                 "stage": self.stage.get(),
+                **{"factory." + k: v for k, v in action_metadata().items()},
             }
         )
         outcome = "completed"
@@ -327,6 +371,10 @@ class OpenTelemetryObserver(LoggingObserver):
             span.set_attribute("factory.usage.status", "unknown")
             span.set_attribute("factory.cost.status", "unknown")
             call = Call(self, span, labels)
+            parent = self.parent_call.get()
+            if parent is not None:
+                parent.leaf = False
+            parent_token = self.parent_call.set(call)
             try:
                 yield call
             except BaseException as error:
@@ -335,7 +383,9 @@ class OpenTelemetryObserver(LoggingObserver):
                 span.set_status(trace.StatusCode.ERROR)
                 raise
             finally:
-                if model is not None:
+                self.parent_call.reset(parent_token)
+                call.flush()
+                if model is not None and call.leaf:
                     self.calls.add(1, {**labels, "outcome": outcome})
 
     def flush(self):
@@ -348,12 +398,107 @@ class OpenTelemetryObserver(LoggingObserver):
         if self.closed:
             return
         self.closed = True
+        atexit.unregister(self.shutdown)
         if self.log_handler:
             logging.getLogger().removeHandler(self.log_handler)
         self.tracer_provider.shutdown()
         self.meter_provider.shutdown()
         if self.logger_provider:
             self.logger_provider.shutdown()
+
+
+class WorkerTelemetry:
+    """One worker-lifetime gauge source, independent of action-specific providers."""
+
+    def __init__(self, settings, *, endpoint="", environment="development"):
+        self.worker_id, self.worker_name, self.role = (
+            settings.worker_id,
+            settings.worker_name,
+            settings.role,
+        )
+        self.endpoint, self.environment = endpoint, environment
+        self.lock = threading.RLock()
+        self.running = 0
+        self.provider = None
+        self.closed = False
+        self.current = ContextVar("factory_shared_worker_execution", default=None)
+        if endpoint:
+            self.activate(endpoint)
+
+    def activate(self, endpoint):
+        with self.lock:
+            if self.provider is not None or self.closed:
+                return
+            endpoint = self.endpoint or endpoint
+            if not endpoint:
+                return
+            resource = Resource.create(
+                {
+                    "service.name": "software-factory",
+                    "service.instance.id": f"{socket.gethostname()}:{os.getpid()}",
+                    "deployment.environment": self.environment,
+                    "factory.worker.id": self.worker_id,
+                    "factory.worker.name": self.worker_name,
+                    "factory.worker.type": self.role,
+                    "factory.process.role": "worker",
+                    "factory.worker.protocol": "shared-v1",
+                }
+            )
+            reader = PeriodicExportingMetricReader(
+                OTLPMetricExporter(
+                    endpoint=endpoint.rstrip("/") + "/v1/metrics", timeout=5
+                ),
+                export_interval_millis=15000,
+            )
+            provider = MeterProvider(resource=resource, metric_readers=[reader])
+            meter = provider.get_meter("software-factory.worker")
+            meter.create_observable_gauge(
+                "factory.worker.heartbeat", callbacks=[self.heartbeat], unit="s"
+            )
+            meter.create_observable_gauge(
+                "factory.worker.active_tasks", callbacks=[self.active_tasks]
+            )
+            self.provider = provider
+            self.endpoint = endpoint
+
+    @contextmanager
+    def track(self, execution_id):
+        if self.current.get() == execution_id:
+            yield
+            return
+        token = self.current.set(execution_id)
+        with self.lock:
+            self.running += 1
+        try:
+            yield
+        finally:
+            with self.lock:
+                self.running -= 1
+            self.current.reset(token)
+
+    def labels(self):
+        return {
+            "worker.id": self.worker_id,
+            "worker.name": self.worker_name,
+            "worker.type": self.role,
+        }
+
+    def heartbeat(self, options):
+        yield metrics.Observation(time.time(), self.labels())
+
+    def active_tasks(self, options):
+        with self.lock:
+            count = self.running
+        yield metrics.Observation(count, {**self.labels(), "stage": "all"})
+
+    def shutdown(self):
+        with self.lock:
+            if self.closed:
+                return
+            self.closed = True
+            provider = self.provider
+        if provider:
+            provider.shutdown()
 
 
 def otel_observer(settings):
