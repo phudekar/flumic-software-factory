@@ -74,6 +74,7 @@ class LeaseProof(BaseModel):
 
 class Completion(LeaseProof):
     result: ActionResult
+    failed: bool = False
 
 
 def pool_record(db, identity):
@@ -308,6 +309,11 @@ def require_lease(db, worker, identifier, proof, settings, *, now=None, terminal
         raise HTTPException(
             409, "Assignment lease is not active; reconcile before retry"
         )
+    from app.database import WorkflowRun
+
+    run = db.get(WorkflowRun, row.run_id)
+    if run is not None and run.state != "running":
+        raise HTTPException(409, "Run is not active; only terminal proof is accepted")
     deadline = assignment_deadline(db, row, settings)
     if deadline is not None and (time.time() if now is None else now) >= deadline:
         raise HTTPException(
@@ -526,6 +532,13 @@ def install(app, sessions, settings):
                 raise HTTPException(
                     409, "External jobs require a broker terminal receipt"
                 )
+            if body.failed:
+                from factory.workflows.action_schemas import READ_ONLY_FAILURE_ACTIONS
+
+                if row.action not in READ_ONLY_FAILURE_ACTIONS:
+                    raise HTTPException(
+                        409, "Uncertain effects require operator reconciliation"
+                    )
             attempt = db.get(StageAttempt, row.execution_id)
             if attempt is not None:
                 if (attempt.project_id, attempt.assignment_id) != (
@@ -570,10 +583,14 @@ def install(app, sessions, settings):
                     db, ProjectScope(row.project_id), WorkflowRun, row.run_id
                 )
                 deadline = assignment_deadline(db, row, settings)
-                failed = attempt.state == "failed" or (
-                    attempt.state not in {"completed", "cancelled"}
-                    and deadline is not None
-                    and time.time() >= deadline
+                failed = (
+                    body.failed
+                    or attempt.state == "failed"
+                    or (
+                        attempt.state not in {"completed", "cancelled"}
+                        and deadline is not None
+                        and time.time() >= deadline
+                    )
                 )
                 cancelled = attempt.state == "cancelled" or run.state in {
                     "cancelling",

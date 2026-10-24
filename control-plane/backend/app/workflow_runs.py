@@ -5,7 +5,13 @@ from fastapi import Depends, HTTPException, Request, Query
 from pydantic import BaseModel, ConfigDict, Field
 from typing import Literal
 from sqlalchemy import select, and_
-from app.database import WorkflowRun, StageAttempt, DynamicDispatch, RuntimeJob
+from app.database import (
+    WorkflowRun,
+    StageAttempt,
+    DynamicDispatch,
+    RuntimeJob,
+    ProjectFollowup,
+)
 from app.projects import ProjectScope, require_owned, request_scope, project_parameter
 from app.workflow_state import WorkflowState, transition_lock
 from app.workflow_definitions import read_definition_pin
@@ -301,6 +307,36 @@ class DynamicRuntime:
             else {"state": "pending", "engine_id": None, "error": None}
         )
         if detail:
+            result["followups"] = []
+            for item, waiting in db.execute(
+                select(ProjectFollowup, DynamicDispatch)
+                .outerjoin(
+                    DynamicDispatch,
+                    and_(
+                        DynamicDispatch.project_id == ProjectFollowup.project_id,
+                        DynamicDispatch.kind == "wait",
+                        DynamicDispatch.subject_id == ProjectFollowup.id,
+                    ),
+                )
+                .where(
+                    ProjectFollowup.project_id == scope.project_id,
+                    ProjectFollowup.source_run_id == run.id,
+                )
+                .order_by(ProjectFollowup.id)
+            ):
+                entry = {
+                    key: getattr(item, key)
+                    for key in ("id", "kind", "state", "result_run_id", "error")
+                }
+                entry["dispatch"] = (
+                    {
+                        key: getattr(waiting, key)
+                        for key in ("state", "engine_id", "error")
+                    }
+                    if waiting
+                    else None
+                )
+                result["followups"].append(entry)
             result["attempts"] = [
                 {
                     key: getattr(item, key)
@@ -378,6 +414,22 @@ def install(app, sessions, settings, config):
             )
             if run.state not in TERMINAL:
                 row.state, row.available_at, row.error = "pending", 0, None
+            if run.state not in {"cancelling", "cancelled"}:
+                for followup in db.scalars(
+                    select(ProjectFollowup).where(
+                        ProjectFollowup.project_id == scope.project_id,
+                        ProjectFollowup.source_run_id == run.id,
+                        ProjectFollowup.state == "waiting",
+                    )
+                ):
+                    waiting = runtime.enqueue(
+                        db, scope, "wait", followup.id, {"wait_id": followup.id}
+                    )
+                    waiting.state, waiting.available_at, waiting.error = (
+                        "pending",
+                        0,
+                        None,
+                    )
         with sessions() as db:
             return runtime.public(db, scope, identifier)
 

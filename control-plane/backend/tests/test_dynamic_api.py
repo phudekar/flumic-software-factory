@@ -216,6 +216,80 @@ class DynamicApiTests(unittest.TestCase):
             404,
         )
 
+    def test_cancel_started_builtin_fences_mutations_but_accepts_terminal_proof(self):
+        scope, run_id, _, claim, headers, context = self.builtin_claim()
+        url = f"/api/v1/projects/{scope.project_id}/workflow-runs/{run_id}"
+        self.assertEqual(
+            self.client.post(url + "/cancel", json={}).json()["state"], "cancelling"
+        )
+        path = "/api/v1/shared-worker/assignments/" + claim["assignment_id"]
+        proof = {"lease_token": claim["lease_token"]}
+        for endpoint, data in (
+            ("renew", {}),
+            ("context", {}),
+            (
+                "resource",
+                {"resource": "github.com/phudekar/software-factory-test/issue/999"},
+            ),
+            ("state", {"operation": "put", "key": "new-after-cancel", "value": True}),
+            ("followups", {"request": self.followup(context)}),
+        ):
+            with self.subTest(endpoint=endpoint):
+                self.assertEqual(
+                    self.client.post(
+                        path + "/" + endpoint, json={**proof, **data}, headers=headers
+                    ).status_code,
+                    409,
+                )
+        response = self.client.post(
+            path + "/complete",
+            json={**proof, "result": {"output": {"stopped": True}}},
+            headers=headers,
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(self.client.get(url).json()["state"], "cancelled")
+
+    def test_reconcile_completed_source_requeues_wait_with_original_pin(self):
+        scope, run_id, _, claim, headers, context = self.builtin_claim()
+        path = "/api/v1/shared-worker/assignments/" + claim["assignment_id"]
+        response = self.client.post(
+            path + "/followups",
+            json={
+                "lease_token": claim["lease_token"],
+                "request": self.followup(context, kind="discussion", number=2),
+            },
+            headers=headers,
+        )
+        wait_id = response.json()["followup_id"]
+        with self.sessions.begin() as db:
+            db.get(models.StageAttempt, claim["execution_id"]).state = "completed"
+            db.get(models.WorkflowRun, run_id).state = "completed"
+        runtime = self.app.state.dynamic_runtime
+        runtime.reconcile_followups()
+        with self.sessions.begin() as db:
+            row = db.scalar(
+                fixtures.select(models.DynamicDispatch).where(
+                    models.DynamicDispatch.subject_id == wait_id
+                )
+            )
+            row.state, row.engine_id = "submitted", "failed-engine-wait"
+        url = f"/api/v1/projects/{scope.project_id}/workflow-runs/{run_id}"
+        response = self.client.post(url + "/reconcile", json={})
+        self.assertEqual(response.status_code, 202, response.text)
+        with self.sessions() as db:
+            row = db.scalar(
+                fixtures.select(models.DynamicDispatch).where(
+                    models.DynamicDispatch.subject_id == wait_id
+                )
+            )
+            self.assertEqual(row.state, "pending")
+            self.assertEqual(row.payload, {"wait_id": wait_id})
+        detail = self.client.get(url).json()
+        self.assertEqual(detail["followups"][0]["id"], wait_id)
+        self.assertEqual(
+            detail["followups"][0]["dispatch"]["engine_id"], "failed-engine-wait"
+        )
+
     def test_cancel_claimed_builtin_waits_for_terminal_result(self):
         scope, _, definition = self.arrange()
         run_id, claim, headers = self.claim_run(scope, definition)
@@ -712,6 +786,25 @@ class DynamicApiTests(unittest.TestCase):
             )
             self.assertIsNotNone(row)
 
+    def test_worker_failure_flag_cannot_release_uncertain_mutating_action(self):
+        _, _, _, claim, headers, _ = self.builtin_claim()
+        with self.sessions.begin() as db:
+            db.get(models.Assignment, claim["assignment_id"]).action = "issue.plan@1"
+        response = self.client.post(
+            "/api/v1/shared-worker/assignments/" + claim["assignment_id"] + "/complete",
+            json={
+                "lease_token": claim["lease_token"],
+                "failed": True,
+                "result": {"output": {"error": "failed"}},
+            },
+            headers=headers,
+        )
+        self.assertEqual(response.status_code, 409, response.text)
+        with self.sessions() as db:
+            self.assertEqual(
+                db.get(models.StageAttempt, claim["execution_id"]).state, "running"
+            )
+
     def test_resolve_lost_builtin_requires_explicit_external_effect_confirmation(self):
         scope, _, definition = self.arrange()
         run_id, claim, _ = self.claim_run(scope, definition)
@@ -886,6 +979,12 @@ class DynamicApiTests(unittest.TestCase):
         self.assertNotIn("private", str(call))
 
     def test_real_shared_client_executes_load_and_plan_over_authenticated_http(self):
+        self.real_shared_client_load()
+
+    def test_read_only_load_failure_releases_execution_and_project_quota(self):
+        self.real_shared_client_load(read_failure=True)
+
+    def real_shared_client_load(self, *, read_failure=False):
         import io
         import urllib.error
         from urllib.parse import urlsplit
@@ -954,6 +1053,10 @@ class DynamicApiTests(unittest.TestCase):
             "body": "",
             "labels": [{"name": "agent-subtask"}],
         }
+        if read_failure:
+            from factory.domain.models import RepositoryError
+
+            github.get_issue.side_effect = RepositoryError("404 private-github")
         with (
             patch("urllib.request.urlopen", side_effect=urlopen),
             patch("github_client.GitHubClient", return_value=github) as repository,
@@ -963,7 +1066,35 @@ class DynamicApiTests(unittest.TestCase):
             ),
         ):
             client.register()
-            self.assertEqual(client.execute(invocation).state, "completed")
+            receipt = client.execute(invocation)
+            if read_failure:
+                self.assertEqual(receipt.state, "failed")
+                with self.sessions() as db:
+                    self.assertEqual(
+                        db.get(
+                            models.Assignment,
+                            db.get(
+                                models.StageAttempt, invocation.execution_id
+                            ).assignment_id,
+                        ).status,
+                        "failed",
+                    )
+                    self.assertNotIn(
+                        "private-github",
+                        str(
+                            db.get(
+                                models.StageAttempt, invocation.execution_id
+                            ).result_digest
+                        ),
+                    )
+                self.assertEqual(
+                    self.app.state.dynamic_runtime.advance(
+                        RunInvocation(project_id=scope.project_id, run_id=run_id)
+                    ).state,
+                    "failed",
+                )
+                return
+            self.assertEqual(receipt.state, "completed")
             next_stage = self.app.state.dynamic_runtime.advance(
                 RunInvocation(project_id=scope.project_id, run_id=run_id)
             ).ready[0]

@@ -10,7 +10,7 @@ import urllib.error
 from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 from factory.workflows.contracts import ActionResult, StageReceipt
-from factory.workflows.action_schemas import CATALOG
+from factory.workflows.action_schemas import CATALOG, READ_ONLY_FAILURE_ACTIONS
 
 RENEW_SECONDS = 20
 
@@ -137,6 +137,7 @@ class SharedControl:
             raise ValueError("Action is not installed in shared worker")
         identifier, proof = claim["assignment_id"], claim["lease_token"]
         with self.lease(identifier, proof):
+            failed = False
             if claim.get("executor") == "docker@1":
                 self.request(
                     "/api/v1/shared-worker/assignments/" + identifier + "/jobs",
@@ -179,15 +180,27 @@ class SharedControl:
                     BindingOrigin(**{**value, "path": tuple(value["path"])})
                     for value in delivered["origins"]
                 )
-                result = run_builtin(
-                    claim["action"],
-                    context,
-                    ResolvedInputs(claim["input"], origins),
-                    BoundTransport(self, identifier, proof),
-                )
+                try:
+                    result = run_builtin(
+                        claim["action"],
+                        context,
+                        ResolvedInputs(claim["input"], origins),
+                        BoundTransport(self, identifier, proof),
+                    )
+                except Exception:
+                    if claim["action"] not in READ_ONLY_FAILURE_ACTIONS:
+                        raise
+                    # Fixed implementation policy proves no external mutation;
+                    # never include provider errors/credentials in this receipt.
+                    failed = True
+                    result = ActionResult(output={"error": "Read-only action failed"})
             receipt = self.request(
                 "/api/v1/shared-worker/assignments/" + identifier + "/complete",
-                {"lease_token": proof, "result": result.model_dump(mode="json")},
+                {
+                    "lease_token": proof,
+                    "result": result.model_dump(mode="json"),
+                    **({"failed": True} if failed else {}),
+                },
             )
             return StageReceipt.model_validate(receipt)
 
