@@ -21,8 +21,11 @@ def items(value):
 
 
 class HatchetEngine:
-    def __init__(self, settings: Settings, client=None):
+    def __init__(
+        self, settings: Settings, client=None, *, runtime_namespace="flumic-dynamic-v1"
+    ):
         self.settings = settings
+        self.runtime_namespace = runtime_namespace
         self._client = client
 
     @property
@@ -300,3 +303,32 @@ class HatchetEngine:
                 raise RuntimeError("Engine response did not contain a run identity")
             return {"run_id": identifier, "status": "SUBMITTED"}
         raise ValueError("Unsupported workflow action")
+
+    def submit_dynamic(self, kind, payload, dispatch_id):
+        """Root invocations contain IDs only; registered expressions deduplicate active runs."""
+        from factory.workflows.contracts import RunInvocation
+        from factory.workflows.project_waits import WaitInvocation
+        from hatchet_sdk.exceptions import IdempotencyCollisionError
+
+        model, suffix = {
+            "run": (RunInvocation, "-coordinate"),
+            "wait": (WaitInvocation, "-waits-wait"),
+        }.get(kind, (None, None))
+        if model is None:
+            raise ValueError("Unknown runtime dispatch kind")
+        command = model.model_validate(payload)
+        task = self.client.workflow(
+            name=self.runtime_namespace + suffix, input_validator=model
+        )
+        try:
+            ref = task.run(
+                command,
+                wait_for_result=False,
+                additional_metadata={
+                    "flumic_dispatch_id": dispatch_id,
+                    **command.model_dump(),
+                },
+            )
+        except IdempotencyCollisionError as collision:
+            return {"run_id": collision.existing_run_external_id}
+        return {"run_id": ref.workflow_run_id}

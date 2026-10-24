@@ -213,7 +213,7 @@ class WorkflowState:
                 )
             return self._create_run(db, scope, pin, run_input, key, digest, cursor)
 
-    def start_pinned_run(self, scope, snapshot_id, run_input, *, key):
+    def start_pinned_run(self, scope, snapshot_id, run_input, *, key, db=None):
         if (
             not isinstance(run_input, dict)
             or len(json_bytes(run_input)) > 65536
@@ -222,24 +222,26 @@ class WorkflowState:
         ):
             raise HTTPException(422, "Invalid pinned run request")
         digest = hashed({"snapshot": snapshot_id, "input": run_input})
-        with self.sessions.begin() as db:
-            cursor = transition_lock(db)
-            from app.database import WorkflowLaunchSnapshot
-
-            pin = require_owned(db, scope, WorkflowLaunchSnapshot, snapshot_id)
-            existing = db.scalar(
-                select(WorkflowRun).where(
-                    WorkflowRun.project_id == scope.project_id,
-                    WorkflowRun.request_key == key,
+        if db is None:
+            with self.sessions.begin() as transaction:
+                return self.start_pinned_run(
+                    scope, snapshot_id, run_input, key=key, db=transaction
                 )
+        cursor = transition_lock(db)
+        from app.database import WorkflowLaunchSnapshot
+
+        pin = require_owned(db, scope, WorkflowLaunchSnapshot, snapshot_id)
+        existing = db.scalar(
+            select(WorkflowRun).where(
+                WorkflowRun.project_id == scope.project_id,
+                WorkflowRun.request_key == key,
             )
-            if existing:
-                if existing.request_digest != digest:
-                    raise HTTPException(
-                        409, "Run key has another pinned context or input"
-                    )
-                return existing
-            return self._create_run(db, scope, pin, run_input, key, digest, cursor)
+        )
+        if existing:
+            if existing.request_digest != digest:
+                raise HTTPException(409, "Run key has another pinned context or input")
+            return existing
+        return self._create_run(db, scope, pin, run_input, key, digest, cursor)
 
     def _create_run(self, db, scope, pin, run_input, key, digest, cursor):
         try:
@@ -670,7 +672,15 @@ class WorkflowState:
                     if item.assignment_id
                     else None
                 )
-                if row is not None and row.status == "running":
+                if (
+                    row is not None
+                    and row.status == "running"
+                    and not (
+                        row.executor == "builtin@1"
+                        and row.action != "core.echo@1"
+                        and row.started_at is None
+                    )
+                ):
                     continue
                 item.state = "cancelled"
                 if row is not None:
@@ -701,6 +711,7 @@ class WorkflowState:
         result=None,
         failed=False,
         confirmed_terminal=False,
+        cancelled=False,
         db=None,
     ):
         if not confirmed_terminal:
@@ -717,6 +728,7 @@ class WorkflowState:
                     result=result,
                     failed=failed,
                     confirmed_terminal=True,
+                    cancelled=cancelled,
                     db=transaction,
                 )
         item = require_owned(db, scope, StageAttempt, execution_id)
@@ -725,7 +737,13 @@ class WorkflowState:
         # Validate both success/failure payloads with finite JSON and the same bounds.
         json_bytes(output if result is None else result.output)
         result = (result or ActionResult(output=output)).model_dump(mode="json")
-        digest = hashed({"failed": failed, "result": result})
+        digest = hashed(
+            {
+                "failed": failed,
+                "result": result,
+                **({"cancelled": True} if cancelled else {}),
+            }
+        )
         if item.state in TERMINAL:
             if item.result_digest != digest:
                 raise HTTPException(
@@ -734,7 +752,7 @@ class WorkflowState:
             return StageReceipt(execution_id=item.id, state=item.state)
         if item.state not in ACTIVE:
             raise HTTPException(409, "Execution is not admitted")
-        item.state = "failed" if failed else "completed"
+        item.state = "cancelled" if cancelled else "failed" if failed else "completed"
         item.result_digest = digest
         item.result_ciphertext = encrypt(result, self.settings)
         row = db.get(Assignment, item.assignment_id)
@@ -757,7 +775,12 @@ class WorkflowState:
             for s in WorkflowDefinition.model_validate(snapshot["definition"]).stages
             if s.id == item.stage_id
         )
-        if failed and run.state != "cancelling" and item.generation <= stage.retries:
+        if (
+            failed
+            and not cancelled
+            and run.state != "cancelling"
+            and item.generation <= stage.retries
+        ):
             # Allocate once, only after a known terminal previous attempt.
             db.add(
                 StageAttempt(
@@ -784,33 +807,37 @@ class WorkflowState:
             )
         return StageReceipt(execution_id=item.id, state=item.state)
 
-    def _state(self, scope, repository_id, key, operation, value=None):
+    def _state(self, scope, repository_id, key, operation, value=None, *, db=None):
         if not isinstance(key, str) or not 1 <= len(key) <= 512:
             raise HTTPException(422, "State key is required and bounded")
         if operation == "put" and len(json_bytes(value)) > 1048576:
             raise HTTPException(422, "State value exceeds 1 MiB")
-        with self.sessions.begin() as db:
-            transition_lock(db)
-            require_owned(db, scope, RepositoryConnection, repository_id)
-            row = db.get(ProjectBusinessState, (repository_id, key))
-            if row and row.project_id != scope.project_id:
-                raise HTTPException(404, "Resource not found")
-            if operation == "get":
-                return decrypt(row.ciphertext, self.settings) if row else None
-            if operation == "delete":
-                if row:
-                    db.delete(row)
-            elif row:
-                row.ciphertext = encrypt(value, self.settings)
-            else:
-                db.add(
-                    ProjectBusinessState(
-                        project_id=scope.project_id,
-                        repository_id=repository_id,
-                        key=key,
-                        ciphertext=encrypt(value, self.settings),
-                    )
+        if db is None:
+            with self.sessions.begin() as transaction:
+                transition_lock(transaction)
+                return self._state(
+                    scope, repository_id, key, operation, value, db=transaction
                 )
+        require_owned(db, scope, RepositoryConnection, repository_id)
+        row = db.get(ProjectBusinessState, (repository_id, key))
+        if row and row.project_id != scope.project_id:
+            raise HTTPException(404, "Resource not found")
+        if operation == "get":
+            return decrypt(row.ciphertext, self.settings) if row else None
+        if operation == "delete":
+            if row:
+                db.delete(row)
+        elif row:
+            row.ciphertext = encrypt(value, self.settings)
+        else:
+            db.add(
+                ProjectBusinessState(
+                    project_id=scope.project_id,
+                    repository_id=repository_id,
+                    key=key,
+                    ciphertext=encrypt(value, self.settings),
+                )
+            )
 
     def get_state(self, scope, repository_id, key):
         return self._state(scope, repository_id, key, "get")
@@ -821,47 +848,51 @@ class WorkflowState:
     def delete_state(self, scope, repository_id, key):
         return self._state(scope, repository_id, key, "delete")
 
-    def claim_resource(self, scope, execution_id, resource):
-        with self.sessions.begin() as db:
-            transition_lock(db)
-            item = require_owned(db, scope, StageAttempt, execution_id)
-            if item.state not in ACTIVE:
-                raise HTTPException(409, "Execution is not admitted")
-            run = db.get(WorkflowRun, item.run_id)
-            snapshot = self._snapshot(db, run)
-            metadata = snapshot["stages"][item.stage_id]
-            repository = next(
-                value["document"]
-                for value in snapshot["repositories"].values()
-                if value["id"] == metadata["repository_id"]
-            )
-            root = repository_key(repository)
-            if resource != root and not re.fullmatch(
-                re.escape(root) + r"/issue/[1-9][0-9]*", resource
+    def claim_resource(self, scope, execution_id, resource, *, db=None):
+        if db is None:
+            with self.sessions.begin() as transaction:
+                transition_lock(transaction)
+                return self.claim_resource(
+                    scope, execution_id, resource, db=transaction
+                )
+        item = require_owned(db, scope, StageAttempt, execution_id)
+        if item.state not in ACTIVE:
+            raise HTTPException(409, "Execution is not admitted")
+        run = db.get(WorkflowRun, item.run_id)
+        snapshot = self._snapshot(db, run)
+        metadata = snapshot["stages"][item.stage_id]
+        repository = next(
+            value["document"]
+            for value in snapshot["repositories"].values()
+            if value["id"] == metadata["repository_id"]
+        )
+        root = repository_key(repository)
+        if resource != root and not re.fullmatch(
+            re.escape(root) + r"/issue/[1-9][0-9]*", resource
+        ):
+            raise HTTPException(404, "Resource is outside the pinned repository")
+        for existing in db.scalars(select(ExternalResourceClaim)):
+            if (
+                existing.resource == resource
+                or existing.resource == root
+                or (resource == root and existing.resource.startswith(root + "/"))
             ):
-                raise HTTPException(404, "Resource is outside the pinned repository")
-            for existing in db.scalars(select(ExternalResourceClaim)):
-                if (
-                    existing.resource == resource
-                    or existing.resource == root
-                    or (resource == root and existing.resource.startswith(root + "/"))
-                ):
-                    if existing.execution_id != item.id:
-                        raise HTTPException(
-                            409,
-                            "Another execution owns the external resource; reconcile before retry",
-                        )
-                    if existing.resource == resource:
-                        return existing
-            row = ExternalResourceClaim(
-                resource=resource,
-                project_id=scope.project_id,
-                execution_id=item.id,
-                expires_at=self.clock() + LEASE_SECONDS,
-            )
-            db.add(row)
-            db.flush()
-            return row
+                if existing.execution_id != item.id:
+                    raise HTTPException(
+                        409,
+                        "Another execution owns the external resource; reconcile before retry",
+                    )
+                if existing.resource == resource:
+                    return existing
+        row = ExternalResourceClaim(
+            resource=resource,
+            project_id=scope.project_id,
+            execution_id=item.id,
+            expires_at=self.clock() + LEASE_SECONDS,
+        )
+        db.add(row)
+        db.flush()
+        return row
 
     def enable_dynamic_repository(self, scope, repository_id):
         with self.sessions.begin() as db:

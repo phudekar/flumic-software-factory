@@ -318,10 +318,11 @@ as GitHub issues. Project/repository APIs, shared pool foundations, immutable
 definition publication and the internal run-state/admission service are implemented.
 The durable coordinator adapter is implemented with live echo replay/cancellation tests.
 The executable builtin catalog, pinned project follow-ups and recipe helpers are also implemented.
-The [durable one-time Docker broker](docs/docker-action-jobs.md) is implemented internally.
-Runtime transport activation and project/workflow UI remain in progress; see [runtime status and limits](docs/control-plane.md#durable-run-state-and-admission).
+The [durable one-time Docker broker](docs/docker-action-jobs.md) integrates through
+[project run and worker APIs](docs/project-runtime-api.md). Project/workflow UI remains in progress; see [runtime status and limits](docs/control-plane.md#durable-run-state-and-admission).
 
-Public assignment/job API activation is tracked in [#11](https://github.com/phudekar/flumic-software-factory/issues/11); Kubernetes and remote function executors remain planned.
+Use the runtime API guide to activate the fixed control service, seed workflows and
+launch pinned runs. Kubernetes and remote function executors remain planned.
 
 ## Website and documentation
 

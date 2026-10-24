@@ -7,6 +7,11 @@ from factory.domain import models
 from factory.workflows.references import is_reference, contains_reference
 
 
+# Only actions whose entire implementation has no external mutations may
+# acknowledge an exception as terminal without operator reconciliation.
+READ_ONLY_FAILURE_ACTIONS = frozenset({"issue.load@1"})
+
+
 class Arguments(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
 

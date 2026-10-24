@@ -194,7 +194,12 @@ def pin_definition(db, scope, revision_id, config, settings, *, frozen=None):
     """
     revision = require_owned(db, scope, WorkflowRevision, revision_id)
     graph, metadata = prepare_definition(
-        db, scope, config, decrypt(revision.graph_ciphertext, settings), frozen=frozen
+        db,
+        scope,
+        config,
+        decrypt(revision.graph_ciphertext, settings),
+        allow_bridge=settings.job_bridge is not None,
+        frozen=frozen,
     )
     value = {
         "workflow_revision_id": revision.id,
@@ -244,7 +249,11 @@ def install(app, sessions, config, settings):
     def validate(body: DefinitionEdit, request: Request):
         with sessions() as db:
             graph, _ = prepare_definition(
-                db, request_scope(request, db), config, body.document
+                db,
+                request_scope(request, db),
+                config,
+                body.document,
+                allow_bridge=settings.job_bridge is not None,
             )
             return {
                 "digest": graph_digest(graph.model_dump(mode="json")),
@@ -279,7 +288,13 @@ def install(app, sessions, config, settings):
                 raise HTTPException(
                     422, "A new definition cannot select an existing parent"
                 )
-            graph, _ = prepare_definition(db, scope, config, body.document)
+            graph, _ = prepare_definition(
+                db,
+                scope,
+                config,
+                body.document,
+                allow_bridge=settings.job_bridge is not None,
+            )
             if db.scalar(
                 select(WorkflowDefinitionRecord.id).where(
                     WorkflowDefinitionRecord.project_id == scope.project_id,
@@ -338,7 +353,13 @@ def install(app, sessions, config, settings):
                 raise HTTPException(404, "Resource not found")
             if item.revision_id != parent.id:
                 raise HTTPException(409, "Definition changed; reload before saving")
-            graph, _ = prepare_definition(db, scope, config, body.document)
+            graph, _ = prepare_definition(
+                db,
+                scope,
+                config,
+                body.document,
+                allow_bridge=settings.job_bridge is not None,
+            )
             if db.scalar(
                 select(WorkflowDefinitionRecord.id).where(
                     WorkflowDefinitionRecord.project_id == scope.project_id,

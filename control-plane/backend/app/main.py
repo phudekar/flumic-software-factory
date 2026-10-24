@@ -18,7 +18,8 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select, desc, or_, text, func
 from app.database import (
     database,
-    Project, DEFAULT_PROJECT_ID,
+    Project,
+    DEFAULT_PROJECT_ID,
     Revision,
     Worker,
     Operation,
@@ -80,7 +81,11 @@ def row(value):
 
 
 def _lifecycle_marker(db, worker):
-    operations = db.execute(select(func.count(Operation.id), func.max(Operation.updated_at)).where(Operation.worker_id == worker.id)).one()
+    operations = db.execute(
+        select(func.count(Operation.id), func.max(Operation.updated_at)).where(
+            Operation.worker_id == worker.id
+        )
+    ).one()
     return (worker.revision_id, worker.config_id, worker.desired_state, *operations)
 
 
@@ -100,9 +105,20 @@ def create_app(settings=None, sessions=None, runtime=None, workflow=None):
     async def lifespan(app):
         with sessions.begin() as db:
             if db.get(Project, DEFAULT_PROJECT_ID) is None:
-                db.add(Project(id=DEFAULT_PROJECT_ID, slug="default", name="Default project"))
+                db.add(
+                    Project(
+                        id=DEFAULT_PROJECT_ID, slug="default", name="Default project"
+                    )
+                )
                 db.flush()
-            if db.scalar(select(Revision.id).where(Revision.project_id == DEFAULT_PROJECT_ID).limit(1)) is None:
+            if (
+                db.scalar(
+                    select(Revision.id)
+                    .where(Revision.project_id == DEFAULT_PROJECT_ID)
+                    .limit(1)
+                )
+                is None
+            ):
                 config.validate(config.approved)
                 db.add(
                     Revision(
@@ -129,12 +145,16 @@ def create_app(settings=None, sessions=None, runtime=None, workflow=None):
 
     install(app, sessions, config, row)
     from app.projects import install as install_projects
+
     install_projects(app, sessions, config, row)
     from app.project_context import install as install_project_context
+
     install_project_context(app, sessions, settings)
     from app.worker_pools import install as install_worker_pools
+
     install_worker_pools(app, sessions, settings)
     from app.workflow_definitions import install as install_workflow_definitions
+
     install_workflow_definitions(app, sessions, config, settings)
 
     def runtime_adapter():
@@ -155,7 +175,10 @@ def create_app(settings=None, sessions=None, runtime=None, workflow=None):
         with sessions() as db:
             revision = db.scalar(
                 select(Revision)
-                .where(Revision.scope == "factory", Revision.project_id == DEFAULT_PROJECT_ID)
+                .where(
+                    Revision.scope == "factory",
+                    Revision.project_id == DEFAULT_PROJECT_ID,
+                )
                 .order_by(desc(Revision.created_at))
                 .limit(1)
             )
@@ -172,15 +195,23 @@ def create_app(settings=None, sessions=None, runtime=None, workflow=None):
     from app.workflow_controls import install as install_workflow_controls
 
     install_workflow_controls(app, sessions, workflow_adapter)
+    from app.workflow_runs import install as install_workflow_runs
+
+    install_workflow_runs(app, sessions, settings, config)
 
     @app.middleware("http")
     async def security(request, call_next):
-        if request.url.path.startswith("/api/") and not request.url.path.startswith("/api/v1/shared-worker/") and request.url.path not in {
-            "/api/v1/auth/login",
-            "/api/v1/health",
-            "/api/v1/ingest",
-            "/api/v1/worker-bootstrap",
-        }:
+        if (
+            request.url.path.startswith("/api/")
+            and not request.url.path.startswith("/api/v1/shared-worker/")
+            and request.url.path
+            not in {
+                "/api/v1/auth/login",
+                "/api/v1/health",
+                "/api/v1/ingest",
+                "/api/v1/worker-bootstrap",
+            }
+        ):
             with sessions() as db:
                 session = db.get(
                     Session, digest(request.cookies.get("factory_session", ""))
@@ -389,8 +420,12 @@ def create_app(settings=None, sessions=None, runtime=None, workflow=None):
             raise HTTPException(422, "Unsupported deployment target")
         with sessions.begin() as db:
             from app.workflow_state import transition_lock, legacy_guard
+
             transition_lock(db)
-            for field, model in (("config_id", WorkerConfiguration), ("revision_id", Revision)):
+            for field, model in (
+                ("config_id", WorkerConfiguration),
+                ("revision_id", Revision),
+            ):
                 value = getattr(body, field)
                 if value is not None:
                     require_owned(db, ProjectScope(DEFAULT_PROJECT_ID), model, value)
@@ -464,15 +499,21 @@ def create_app(settings=None, sessions=None, runtime=None, workflow=None):
                 candidate = observation_db.get(Worker, identifier)
                 if candidate is not None:
                     observation_marker = _lifecycle_marker(observation_db, candidate)
-                    needs_observation = candidate.protocol == "legacy" and (body.action == "configure" or candidate.config_id is not None)
+                    needs_observation = candidate.protocol == "legacy" and (
+                        body.action == "configure" or candidate.config_id is not None
+                    )
                 else:
                     needs_observation = False
             if needs_observation:
                 observed_runtime = runtime_adapter().list()
         with sessions.begin() as db:
             from app.workflow_state import transition_lock, legacy_guard
+
             transition_lock(db)
-            for field, model in (("config_id", WorkerConfiguration), ("revision_id", Revision)):
+            for field, model in (
+                ("config_id", WorkerConfiguration),
+                ("revision_id", Revision),
+            ):
                 value = getattr(body, field)
                 if value is not None:
                     require_owned(db, ProjectScope(DEFAULT_PROJECT_ID), model, value)
@@ -481,15 +522,25 @@ def create_app(settings=None, sessions=None, runtime=None, workflow=None):
             )
             if worker is None:
                 raise HTTPException(404, "Managed worker not found")
-            if worker.protocol == 'shared-v1' and (body.action == 'configure' or body.config_id or body.revision_id):
-                raise HTTPException(422, 'Shared workers use infrastructure pool profiles, not project behavior profiles')
+            if worker.protocol == "shared-v1" and (
+                body.action == "configure" or body.config_id or body.revision_id
+            ):
+                raise HTTPException(
+                    422,
+                    "Shared workers use infrastructure pool profiles, not project behavior profiles",
+                )
             existing = db.scalar(
                 select(Operation).where(Operation.key == f"{identifier}:{key}")
             )
             if existing:
                 return row(existing)
-            if observation_marker is not None and _lifecycle_marker(db, worker) != observation_marker:
-                raise HTTPException(409, "Worker changed during runtime observation; retry the action")
+            if (
+                observation_marker is not None
+                and _lifecycle_marker(db, worker) != observation_marker
+            ):
+                raise HTTPException(
+                    409, "Worker changed during runtime observation; retry the action"
+                )
             if db.scalar(
                 select(Operation.id).where(
                     Operation.worker_id == identifier,
@@ -503,7 +554,9 @@ def create_app(settings=None, sessions=None, runtime=None, workflow=None):
                 )
             if body.action == "configure":
                 cfg = db.get(WorkerConfiguration, body.config_id or "")
-                if body.config_id and (cfg is None or cfg.project_id != DEFAULT_PROJECT_ID):
+                if body.config_id and (
+                    cfg is None or cfg.project_id != DEFAULT_PROJECT_ID
+                ):
                     raise HTTPException(404, "Worker configuration not found")
                 if cfg and cfg.profile != worker.profile:
                     raise HTTPException(422, "Configuration profile must match worker")
@@ -575,7 +628,11 @@ def create_app(settings=None, sessions=None, runtime=None, workflow=None):
                         if body.action == "restart" and actual
                         else "configure_start"
                     )
-            if worker.protocol == "legacy" and body.action in {"start", "restart", "configure"}:
+            if worker.protocol == "legacy" and body.action in {
+                "start",
+                "restart",
+                "configure",
+            }:
                 selected = db.get(Revision, worker.revision_id)
                 legacy_guard(db, config, selected.document, worker.profile)
             operation = Operation(
@@ -637,7 +694,10 @@ def create_app(settings=None, sessions=None, runtime=None, workflow=None):
         }
 
     @app.get("/api/v1/config/revisions")
-    @app.get("/api/v1/projects/{project_id}/config/revisions", dependencies=[Depends(project_parameter)])
+    @app.get(
+        "/api/v1/projects/{project_id}/config/revisions",
+        dependencies=[Depends(project_parameter)],
+    )
     def revisions(request: Request):
         with sessions() as db:
             scope = request_scope(request, db)
@@ -645,14 +705,20 @@ def create_app(settings=None, sessions=None, runtime=None, workflow=None):
                 {key: value for key, value in row(rev).items() if key != "document"}
                 for rev in db.scalars(
                     select(Revision)
-                    .where(Revision.scope == "factory", Revision.project_id == scope.project_id)
+                    .where(
+                        Revision.scope == "factory",
+                        Revision.project_id == scope.project_id,
+                    )
                     .order_by(desc(Revision.created_at))
                     .limit(100)
                 )
             ]
 
     @app.get("/api/v1/config/revisions/{identifier}")
-    @app.get("/api/v1/projects/{project_id}/config/revisions/{identifier}", dependencies=[Depends(project_parameter)])
+    @app.get(
+        "/api/v1/projects/{project_id}/config/revisions/{identifier}",
+        dependencies=[Depends(project_parameter)],
+    )
     def revision(identifier: str, request: Request):
         with sessions() as db:
             scope = request_scope(request, db)
@@ -662,7 +728,10 @@ def create_app(settings=None, sessions=None, runtime=None, workflow=None):
             return {**row(rev), "profiles": config.validate(rev.document)}
 
     @app.post("/api/v1/config/validate")
-    @app.post("/api/v1/projects/{project_id}/config/validate", dependencies=[Depends(project_parameter)])
+    @app.post(
+        "/api/v1/projects/{project_id}/config/validate",
+        dependencies=[Depends(project_parameter)],
+    )
     def validate(body: ConfigEdit, request: Request):
         with sessions() as db:
             scope = request_scope(request, db)
@@ -674,7 +743,11 @@ def create_app(settings=None, sessions=None, runtime=None, workflow=None):
         }
 
     @app.post("/api/v1/config/revisions", status_code=201)
-    @app.post("/api/v1/projects/{project_id}/config/revisions", status_code=201, dependencies=[Depends(project_parameter)])
+    @app.post(
+        "/api/v1/projects/{project_id}/config/revisions",
+        status_code=201,
+        dependencies=[Depends(project_parameter)],
+    )
     def save_config(body: ConfigEdit, request: Request):
         config.validate(body.document)
         with sessions.begin() as db:
@@ -683,7 +756,9 @@ def create_app(settings=None, sessions=None, runtime=None, workflow=None):
                 db.execute(text("SELECT pg_advisory_xact_lock(6423400)"))
             latest = db.scalar(
                 select(Revision)
-                .where(Revision.scope == "factory", Revision.project_id == scope.project_id)
+                .where(
+                    Revision.scope == "factory", Revision.project_id == scope.project_id
+                )
                 .order_by(desc(Revision.created_at))
                 .with_for_update()
                 .limit(1)
@@ -706,10 +781,15 @@ def create_app(settings=None, sessions=None, runtime=None, workflow=None):
             return row(revision)
 
     @app.get("/api/v1/config/revisions/{identifier}/export")
-    @app.get("/api/v1/projects/{project_id}/config/revisions/{identifier}/export", dependencies=[Depends(project_parameter)])
+    @app.get(
+        "/api/v1/projects/{project_id}/config/revisions/{identifier}/export",
+        dependencies=[Depends(project_parameter)],
+    )
     def export(identifier: str, request: Request):
         with sessions() as db:
-            revision = require_owned(db, request_scope(request, db), Revision, identifier)
+            revision = require_owned(
+                db, request_scope(request, db), Revision, identifier
+            )
             if revision is None:
                 raise HTTPException(404, "Revision not found")
             return PlainTextResponse(
@@ -735,8 +815,9 @@ def create_app(settings=None, sessions=None, runtime=None, workflow=None):
                 )
             ):
                 raise HTTPException(401, "Invalid worker credentials")
-            if worker.protocol == 'shared-v1':
+            if worker.protocol == "shared-v1":
                 from app.worker_pools import pool_record, shared_profile
+
                 return shared_profile(worker, pool_record(db, worker.pool_id))
             # The container label identifies the installed image's configuration.
             # Desired DB state may already point at a replacement whose build failed.
@@ -823,8 +904,10 @@ def create_app(settings=None, sessions=None, runtime=None, workflow=None):
                 )
             ):
                 raise HTTPException(401, "Invalid worker credentials")
-            if worker.protocol == 'shared-v1':
-                raise HTTPException(409, 'Shared workers require assignment-scoped history ingestion')
+            if worker.protocol == "shared-v1":
+                raise HTTPException(
+                    409, "Shared workers require assignment-scoped history ingestion"
+                )
             if db.bind.dialect.name == "postgresql":
                 db.execute(
                     text("SELECT pg_advisory_xact_lock(:key)"),
@@ -908,7 +991,10 @@ def create_app(settings=None, sessions=None, runtime=None, workflow=None):
         return query
 
     @app.get("/api/v1/events")
-    @app.get("/api/v1/projects/{project_id}/events", dependencies=[Depends(project_parameter)])
+    @app.get(
+        "/api/v1/projects/{project_id}/events",
+        dependencies=[Depends(project_parameter)],
+    )
     def events(
         request: Request,
         run_id: str | None = None,
@@ -940,10 +1026,15 @@ def create_app(settings=None, sessions=None, runtime=None, workflow=None):
             ]
 
     @app.get("/api/v1/model-calls/{identifier}/conversation")
-    @app.get("/api/v1/projects/{project_id}/model-calls/{identifier}/conversation", dependencies=[Depends(project_parameter)])
+    @app.get(
+        "/api/v1/projects/{project_id}/model-calls/{identifier}/conversation",
+        dependencies=[Depends(project_parameter)],
+    )
     def conversation(identifier: str, request: Request):
         with sessions.begin() as db:
-            content = require_owned(db, request_scope(request, db), Conversation, identifier)
+            content = require_owned(
+                db, request_scope(request, db), Conversation, identifier
+            )
             if content is None or content.expires_at < time.time():
                 raise HTTPException(
                     404, "Conversation not captured or retention expired"
@@ -952,7 +1043,9 @@ def create_app(settings=None, sessions=None, runtime=None, workflow=None):
             return json.loads(cipher.decrypt(content.ciphertext.encode()))
 
     @app.get("/api/v1/usage")
-    @app.get("/api/v1/projects/{project_id}/usage", dependencies=[Depends(project_parameter)])
+    @app.get(
+        "/api/v1/projects/{project_id}/usage", dependencies=[Depends(project_parameter)]
+    )
     def usage(
         request: Request,
         since: float = Query(default=0, ge=0),
@@ -968,7 +1061,11 @@ def create_app(settings=None, sessions=None, runtime=None, workflow=None):
                 scoped_events(
                     select(Event), run_id, attempt_id, worker_id, engine_task_id, stage
                 )
-                .where(Event.project_id == scope.project_id, Event.kind == "model.completed", Event.occurred_at >= since)
+                .where(
+                    Event.project_id == scope.project_id,
+                    Event.kind == "model.completed",
+                    Event.occurred_at >= since,
+                )
                 .order_by(desc(Event.occurred_at))
                 .limit(10000)
             ).all()

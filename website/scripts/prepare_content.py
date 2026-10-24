@@ -22,6 +22,7 @@ GUIDES = {
     'docs/configuration-workflows.md': 'Workflow settings: effects and examples',
     'docs/configuration-control-plane.md': 'Control Plane settings: effects and examples',
     'docs/worker-image-builds.md': 'Worker image builds',
+    'docs/project-runtime-api.md': 'Project workflow runtime API',
     'docs/docker-action-jobs.md': 'One-time Docker actions',
     'docs/control-plane-workflows.md': 'Workflow control architecture',
     'docs/observability.md': 'Observability handbook',

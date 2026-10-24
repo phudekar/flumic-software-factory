@@ -168,3 +168,138 @@ class SharedWorkerTests(unittest.TestCase):
         self.assertIn("factory_role", text)
         self.assertIn("shared-v1", text)
         self.assertNotIn("on_crons", text)
+
+    def test_catalog_runner_fetches_pinned_context_and_stored_origins(self):
+        import json
+        from factory.shared_worker import SharedControl
+        from factory.workflows.contracts import (
+            ActionContext,
+            ActionInvocation,
+            ActionResult,
+        )
+        from factory.workflows.bindings import BindingOrigin
+
+        context = ActionContext(
+            project_id="p",
+            repository_id="repo",
+            repository_revision_id="rv",
+            config_revision_id="cfg",
+            run_id="run",
+            stage_id="load",
+            execution_id="e",
+            assignment_id="a",
+            attempt=1,
+            namespace="p/repo",
+            settings_json=json.dumps({"repository": "owner/repo"}),
+        )
+        client = SharedControl(
+            self.settings().model_copy(update={"actions": ["issue.load@1"]}),
+            {
+                "FACTORY_CONTROL_ENDPOINT": "http://control",
+                "FACTORY_CONTROL_TOKEN": "infra",
+            },
+        )
+
+        def request(path, body=None):
+            if path.endswith("/claim"):
+                return {
+                    "assignment_id": "a",
+                    "lease_token": "lease",
+                    "executor": "builtin@1",
+                    "action": "issue.load@1",
+                    "input": {"command": {"issue_number": 2}},
+                    "reused": False,
+                }
+            if path.endswith("/context"):
+                return {
+                    "context": {
+                        **context.model_dump(mode="json"),
+                        "settings_json": context.settings_json,
+                    },
+                    "credentials": {"github": "scoped-token"},
+                    "origins": [
+                        {
+                            "path": ["state"],
+                            "stage_id": "parent",
+                            "project_id": "p",
+                            "repository_id": "repo",
+                        }
+                    ],
+                }
+            return {"execution_id": "e", "state": "completed"}
+
+        with (
+            patch.object(client, "request", side_effect=request),
+            patch(
+                "factory.bootstrap.run_builtin",
+                return_value=ActionResult(output={"state": "open"}),
+            ) as builtin,
+        ):
+            receipt = client.execute(
+                ActionInvocation(project_id="p", run_id="run", execution_id="e")
+            )
+        self.assertEqual(receipt.state, "completed")
+        self.assertEqual(builtin.call_args.args[0], "issue.load@1")
+        self.assertEqual(
+            builtin.call_args.args[1].credentials["github"], "scoped-token"
+        )
+        self.assertEqual(
+            builtin.call_args.args[2].origins,
+            (
+                BindingOrigin(
+                    path=("state",),
+                    stage_id="parent",
+                    project_id="p",
+                    repository_id="repo",
+                ),
+            ),
+        )
+
+    def test_docker_runner_returns_waiting_after_durable_acceptance(self):
+        from factory.shared_worker import SharedControl
+        from factory.workflows.contracts import ActionInvocation
+
+        client = SharedControl(
+            self.settings().model_copy(
+                update={"actions": ["docker.run@1"], "executors": ["docker@1"]}
+            ),
+            {
+                "FACTORY_CONTROL_ENDPOINT": "http://control",
+                "FACTORY_CONTROL_TOKEN": "infra",
+            },
+        )
+        calls = []
+
+        def request(path, body=None):
+            calls.append((path, body))
+            if path.endswith("/claim"):
+                return {
+                    "assignment_id": "a",
+                    "lease_token": "lease",
+                    "executor": "docker@1",
+                    "action": "docker.run@1",
+                    "spec_digest": "a" * 64,
+                    "input": {},
+                    "reused": False,
+                }
+            return {"job_id": "job", "state": "pending"}
+
+        with patch.object(client, "request", side_effect=request):
+            receipt = client.execute(
+                ActionInvocation(project_id="p", run_id="run", execution_id="e")
+            )
+        self.assertEqual(receipt.state, "waiting")
+        self.assertTrue(calls[-1][0].endswith("/jobs"))
+        self.assertEqual(set(calls[-1][1]), {"lease_token", "spec_digest"})
+        self.assertFalse(any(path.endswith("/complete") for path, _ in calls))
+
+    def test_catalog_runner_budget_covers_maximum_stage_timeout(self):
+        from datetime import timedelta
+        from factory.adapters.orchestration.dynamic import register_action
+
+        engine = Mock()
+        engine.task.return_value = lambda fn: fn
+        register_action(engine, "pool", "simple", Mock())
+        self.assertEqual(
+            engine.task.call_args.kwargs["execution_timeout"], timedelta(seconds=3660)
+        )
