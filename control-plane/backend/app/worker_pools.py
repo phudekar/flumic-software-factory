@@ -12,6 +12,7 @@ from app.database import (
     ProjectPool,
     Worker,
     Assignment,
+    StageAttempt,
     RepositoryConnection,
     Operation,
 )
@@ -148,6 +149,7 @@ def authorize_execution(
     ):
         raise HTTPException(409, "Pool does not support execution requirements")
     from factory.workflows.references import json_bytes
+
     if len(json_bytes(input)) > 1048576:
         raise HTTPException(422, "Action input exceeds 1 MiB")
     row = Assignment(
@@ -197,6 +199,7 @@ def lease_token(settings, row):
 
 def claim_execution(db, invocation, worker_id, settings, *, claim_key, now=None):
     from app.workflow_state import transition_lock
+
     transition_lock(db)
     now = time.time() if now is None else now
     row = db.scalar(
@@ -247,13 +250,37 @@ def claim_execution(db, invocation, worker_id, settings, *, claim_key, now=None)
     row.status = "running"
     row.expires_at = now + LEASE_SECONDS
     from app.database import StageAttempt
+
     attempt = db.get(StageAttempt, row.execution_id)
     if attempt is not None:
         if (attempt.project_id, attempt.assignment_id) != (row.project_id, row.id):
             raise HTTPException(409, "Assignment does not match logical execution")
         attempt.state = "running"
+        if row.action == "core.echo@1":
+            row.started_at = now
     db.flush()
     return row, False
+
+
+def assignment_deadline(db, row, settings):
+    if row.started_at is None or row.executor != "builtin@1":
+        return None
+    from app.database import WorkflowRun
+    from app.workflow_definitions import read_definition_pin
+
+    attempt = db.get(StageAttempt, row.execution_id)
+    if attempt is None:
+        return None
+    run = require_owned(db, ProjectScope(row.project_id), WorkflowRun, attempt.run_id)
+    document = read_definition_pin(
+        db, ProjectScope(row.project_id), run.snapshot_id, settings
+    )
+    stage = next(
+        stage
+        for stage in document["definition"]["stages"]
+        if stage["id"] == attempt.stage_id
+    )
+    return row.started_at + stage["timeout_seconds"]
 
 
 def require_lease(db, worker, identifier, proof, settings, *, now=None, terminal=False):
@@ -265,7 +292,15 @@ def require_lease(db, worker, identifier, proof, settings, *, now=None, terminal
     eligibility(db, worker, row)
     if not hmac.compare_digest(proof, lease_token(settings, row)):
         raise HTTPException(409, "Invalid assignment lease")
-    if terminal and row.status == "completed":
+    if terminal and (
+        row.status in {"completed", "failed", "cancelled"}
+        or (
+            row.status == "running"
+            and db.get(StageAttempt, row.execution_id) is not None
+        )
+    ):
+        # The claim is never reassigned on expiry. A stopped builtin may submit
+        # its terminal acknowledgement with that same proof, without new grants.
         return row
     if row.status != "running" or row.expires_at <= (
         time.time() if now is None else now
@@ -273,17 +308,27 @@ def require_lease(db, worker, identifier, proof, settings, *, now=None, terminal
         raise HTTPException(
             409, "Assignment lease is not active; reconcile before retry"
         )
+    deadline = assignment_deadline(db, row, settings)
+    if deadline is not None and (time.time() if now is None else now) >= deadline:
+        raise HTTPException(
+            409, "Execution deadline expired; reconcile before continuing"
+        )
     return row
 
 
 def renew_execution(db, worker, identifier, proof, settings, *, now=None):
     from app.workflow_state import transition_lock
     from app.database import ExternalResourceClaim
+
     transition_lock(db)
     now = time.time() if now is None else now
     row = require_lease(db, worker, identifier, proof, settings, now=now)
     row.expires_at = now + LEASE_SECONDS
-    for resource in db.scalars(select(ExternalResourceClaim).where(ExternalResourceClaim.execution_id == row.execution_id)):
+    for resource in db.scalars(
+        select(ExternalResourceClaim).where(
+            ExternalResourceClaim.execution_id == row.execution_id
+        )
+    ):
         resource.expires_at = row.expires_at
     db.flush()
     return row
@@ -440,11 +485,14 @@ def install(app, sessions, settings):
             row, reused = claim_execution(
                 db, body, worker.id, settings, claim_key=body.claim_key
             )
+            attempt = db.get(StageAttempt, row.execution_id)
             return {
                 "assignment_id": row.id,
                 "execution_id": row.execution_id,
                 "project_id": row.project_id,
                 "action": row.action,
+                "executor": row.executor,
+                "spec_digest": attempt.spec_digest if attempt else None,
                 "input": decrypt(row.input_ciphertext, settings),
                 "lease_token": lease_token(settings, row),
                 "expires_at": row.expires_at,
@@ -464,6 +512,7 @@ def install(app, sessions, settings):
         with sessions.begin() as db:
             from app.workflow_state import transition_lock, WorkflowState
             from app.database import StageAttempt
+
             transition_lock(db)
             row = require_lease(
                 db,
@@ -473,14 +522,76 @@ def install(app, sessions, settings):
                 settings,
                 terminal=True,
             )
+            if row.executor != "builtin@1":
+                raise HTTPException(
+                    409, "External jobs require a broker terminal receipt"
+                )
             attempt = db.get(StageAttempt, row.execution_id)
             if attempt is not None:
-                if (attempt.project_id, attempt.assignment_id) != (row.project_id, row.id):
-                    raise HTTPException(409, "Assignment does not match logical execution")
-                return WorkflowState(sessions, settings, None).finish_execution(
-                    ProjectScope(row.project_id), row.execution_id,
-                    result=body.result, confirmed_terminal=True, db=db,
-                ).model_dump()
+                if (attempt.project_id, attempt.assignment_id) != (
+                    row.project_id,
+                    row.id,
+                ):
+                    raise HTTPException(
+                        409, "Assignment does not match logical execution"
+                    )
+                from app.database import (
+                    ActionContextSnapshot,
+                    SecretVersion,
+                    WorkflowRun,
+                )
+                from factory.workflows.redaction import secret_scope
+
+                credentials = []
+                if row.context_id:
+                    pin = require_owned(
+                        db,
+                        ProjectScope(row.project_id),
+                        ActionContextSnapshot,
+                        row.context_id,
+                    )
+                    for version in decrypt(pin.ciphertext, settings)["grants"].values():
+                        credentials.append(
+                            decrypt(
+                                require_owned(
+                                    db,
+                                    ProjectScope(row.project_id),
+                                    SecretVersion,
+                                    version,
+                                ).ciphertext,
+                                settings,
+                            )
+                        )
+                with secret_scope(credentials):
+                    result = ActionResult(
+                        output=body.result.output, usage=body.result.usage
+                    )
+                run = require_owned(
+                    db, ProjectScope(row.project_id), WorkflowRun, row.run_id
+                )
+                deadline = assignment_deadline(db, row, settings)
+                failed = attempt.state == "failed" or (
+                    attempt.state not in {"completed", "cancelled"}
+                    and deadline is not None
+                    and time.time() >= deadline
+                )
+                cancelled = attempt.state == "cancelled" or run.state in {
+                    "cancelling",
+                    "cancelled",
+                }
+                return (
+                    WorkflowState(sessions, settings, None)
+                    .finish_execution(
+                        ProjectScope(row.project_id),
+                        row.execution_id,
+                        result=result,
+                        failed=failed,
+                        cancelled=cancelled,
+                        confirmed_terminal=True,
+                        db=db,
+                    )
+                    .model_dump()
+                )
             value = body.result.model_dump(mode="json")
             encoded = json.dumps(
                 value, sort_keys=True, allow_nan=False, separators=(",", ":")
@@ -498,9 +609,20 @@ def install(app, sessions, settings):
 
     @app.post("/api/v1/shared-worker/assignments/{identifier}/context")
     def context(identifier: str, body: LeaseProof, request: Request):
-        with sessions() as db:
+        with sessions.begin() as db:
+            from app.workflow_state import transition_lock
+            from app.database import WorkflowRun
+
+            transition_lock(db)
             worker = authenticate(db, request)
             row = require_lease(db, worker, identifier, body.lease_token, settings)
+            attempt = db.get(StageAttempt, row.execution_id)
+            if attempt is not None:
+                run = require_owned(
+                    db, ProjectScope(row.project_id), WorkflowRun, row.run_id
+                )
+                if run.state != "running":
+                    raise HTTPException(409, "Run is not accepting action starts")
             value = resolve_context(
                 db,
                 ProjectScope(row.project_id),
@@ -509,8 +631,15 @@ def install(app, sessions, settings):
                 settings,
                 lease_proof=body.lease_token,
             )
+            if row.started_at is None:
+                row.started_at = time.time()
             # Deliberate authorized delivery only; never use generic row/query APIs.
+            attempt = db.get(StageAttempt, row.execution_id)
             return {
+                "deadline": assignment_deadline(db, row, settings),
+                "origins": decrypt(attempt.origins_ciphertext, settings)
+                if attempt and attempt.origins_ciphertext
+                else [],
                 "context": {
                     **value.model_dump(mode="json"),
                     "settings_json": value.settings_json,

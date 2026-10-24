@@ -30,7 +30,7 @@ Standalone workers use `Settings.load`, which reads the selected YAML file/profi
 
 ### `CONTROL_JOB_BRIDGE`
 
-Configures optional `job_bridge` (default `None`): the fixed, pre-created dedicated Docker network used by internal one-time job stages declaring `network: bridge`. Example: `CONTROL_JOB_BRIDGE=flumic-action-network`. Reserved `host`, `bridge` and `none` names are rejected. Jobs default to no network; this is not a host/metadata egress firewall. Recreate the reconciler after changing it and forward it explicitly through a Compose environment override; the base manifest does not forward it automatically. Public graph policy activation remains #11. See the [job contract](docker-action-jobs.md).
+Configures optional `job_bridge` (default `None`): the fixed, pre-created dedicated Docker network used by internal one-time job stages declaring `network: bridge`. Example: `CONTROL_JOB_BRIDGE=flumic-action-network`. Reserved `host`, `bridge` and `none` names are rejected. Jobs default to no network; this is not a host/metadata egress firewall. The base Compose manifest forwards it to the API and reconciler. Recreate both after changing it: publication policy and broker execution must agree. A graph may use bridge mode only when this fixed deployment network is configured. See the [job contract](docker-action-jobs.md).
 
 ### `CONTROL_DATABASE_URL`
 
@@ -125,6 +125,10 @@ These are real runtime inputs, separate from YAML `Settings`. Credentials are no
 | `FACTORY_TELEMETRY_PROCESS_ROLE` | `worker`; Codex healthcheck sets `healthcheck`. | Internal telemetry classification and suppression of worker-only runtime metrics in healthcheck processes. This is process metadata, not a YAML override or control-plane setting; normal deployments leave it unset. |
 
 `./scripts/start-workers.sh` and `./scripts/start-observed-workers.sh` always require the Hatchet CLI development profile and a nonempty exported token, unlike the control-plane script's optional CLI lookup. They pass arguments to Compose `up --build`; the observed variant also includes `compose.observability.yaml`. See the worker and observability references for those settings.
+
+## Dynamic control workflow namespace
+
+`runtime_namespace` is configured by `CONTROL_RUNTIME_NAMESPACE` (default `flumic-dynamic-v1`). It is a lowercase slug of 1–80 characters beginning with a letter. For example, `flumic-staging-v1` isolates control handler names in a shared Hatchet tenant. The API outbox and `dynamic-runtime` service must use the same value; recreate both after changing it. This does not select a project, repository, worker pool or business configuration. Existing queued engine workflow names are not migrated automatically. See [runtime activation](project-runtime-api.md).
 
 ## Saved profile metadata and runtime consequences
 

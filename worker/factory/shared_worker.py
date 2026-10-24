@@ -6,14 +6,24 @@ from contextlib import contextmanager
 import os
 import uuid
 import urllib.request
+import urllib.error
 from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 from factory.workflows.contracts import ActionResult, StageReceipt
+from factory.workflows.action_schemas import CATALOG
 
 RENEW_SECONDS = 20
 
-INSTALLED_ACTIONS = ("core.echo@1",)
-INSTALLED_EXECUTORS = ("builtin@1",)
+INSTALLED_ACTIONS = (*CATALOG, "docker.run@1")
+INSTALLED_EXECUTORS = ("builtin@1", "docker@1")
+
+
+class SharedRequestError(RuntimeError):
+    def __init__(self, status=None):
+        self.status = status
+        super().__init__(
+            "Shared worker request failed; inspect assignment metadata on the control plane"
+        )
 
 
 class SharedSettings(BaseModel):
@@ -57,14 +67,18 @@ class SharedControl:
             if len(raw) > 2 * 1048576:
                 raise ValueError("Worker response exceeds size limit")
             return json.loads(raw)
+        except urllib.error.HTTPError as error:
+            raise SharedRequestError(error.code) from None
         except Exception:
-            raise RuntimeError(
-                "Shared worker request failed; inspect assignment metadata on the control plane"
-            ) from None
+            raise SharedRequestError() from None
 
     def register(self):
         settings = self.settings
-        actions = sorted(set(INSTALLED_ACTIONS) & set(settings.actions))
+        actions = sorted(
+            action
+            for action in set(INSTALLED_ACTIONS) & set(settings.actions)
+            if action == "docker.run@1" or CATALOG[action].role in {None, settings.role}
+        )
         executors = sorted(set(INSTALLED_EXECUTORS) & set(settings.executors))
         if not actions or not executors:
             raise ValueError("Pool has no locally installed action/executor")
@@ -116,20 +130,106 @@ class SharedControl:
         )
         if claim.get("reused"):
             return StageReceipt(execution_id=invocation.execution_id, state="waiting")
-        if claim["action"] != "core.echo@1":
+        if (
+            claim["action"] not in INSTALLED_ACTIONS
+            or claim["action"] not in self.settings.actions
+        ):
             raise ValueError("Action is not installed in shared worker")
-        # Deterministic smoke action only. Catalog execution/context heartbeat
-        # integration arrives with #7/#9; no project clients are created here.
-        with self.lease(claim["assignment_id"], claim["lease_token"]):
-            result = ActionResult(output=claim["input"])
-        receipt = self.request(
-            "/api/v1/shared-worker/assignments/" + claim["assignment_id"] + "/complete",
-            {
-                "lease_token": claim["lease_token"],
-                "result": result.model_dump(mode="json"),
-            },
+        identifier, proof = claim["assignment_id"], claim["lease_token"]
+        with self.lease(identifier, proof):
+            if claim.get("executor") == "docker@1":
+                self.request(
+                    "/api/v1/shared-worker/assignments/" + identifier + "/jobs",
+                    {"lease_token": proof, "spec_digest": claim["spec_digest"]},
+                )
+                # Durable acceptance is not terminal proof. The trusted controller
+                # settles the stage from the broker receipt even if this worker dies.
+                return StageReceipt(
+                    execution_id=invocation.execution_id, state="waiting"
+                )
+            if claim["action"] == "core.echo@1":
+                result = ActionResult(output=claim["input"])
+            else:
+                from factory.workflows.contracts import ActionContext
+                from factory.workflows.bindings import ResolvedInputs, BindingOrigin
+                from factory.bootstrap import run_builtin
+
+                delivered = self.request(
+                    "/api/v1/shared-worker/assignments/" + identifier + "/context",
+                    {"lease_token": proof},
+                )
+                context = ActionContext.model_validate_json(
+                    json.dumps(delivered["context"])
+                ).with_credentials(delivered["credentials"])
+                if (
+                    context.project_id,
+                    context.run_id,
+                    context.execution_id,
+                    context.assignment_id,
+                    context.settings.worker_type,
+                ) != (
+                    invocation.project_id,
+                    invocation.run_id,
+                    invocation.execution_id,
+                    identifier,
+                    self.settings.role,
+                ):
+                    raise ValueError("Delivered context does not match invocation")
+                origins = tuple(
+                    BindingOrigin(**{**value, "path": tuple(value["path"])})
+                    for value in delivered["origins"]
+                )
+                result = run_builtin(
+                    claim["action"],
+                    context,
+                    ResolvedInputs(claim["input"], origins),
+                    BoundTransport(self, identifier, proof),
+                )
+            receipt = self.request(
+                "/api/v1/shared-worker/assignments/" + identifier + "/complete",
+                {"lease_token": proof, "result": result.model_dump(mode="json")},
+            )
+            return StageReceipt.model_validate(receipt)
+
+
+class BoundTransport:
+    """Only proof and operation data cross HTTP; context labels never grant scope."""
+
+    def __init__(self, control, identifier, proof):
+        self.control, self.identifier, self.proof = control, identifier, proof
+
+    def call(self, path, **body):
+        return self.control.request(
+            "/api/v1/shared-worker/assignments/" + self.identifier + "/" + path,
+            {"lease_token": self.proof, **body},
         )
-        return StageReceipt.model_validate(receipt)
+
+    def get_state(self, context, key):
+        return self.call("state", operation="get", key=key)["value"]
+
+    def put_state(self, context, key, value):
+        self.call("state", operation="put", key=key, value=value)
+
+    def delete_state(self, context, key):
+        self.call("state", operation="delete", key=key)
+
+    def claim_resource(self, context, resource):
+        try:
+            self.call("resource", resource=resource)
+        except SharedRequestError as error:
+            if error.status == 409:
+                from factory.domain.models import OperationBusy
+
+                raise OperationBusy(
+                    "Work item is held or lease is unavailable"
+                ) from None
+            raise
+
+    def submit_followup(self, context, request):
+        value = self.call("followups", request=request.model_dump(mode="json"))
+        if value.get("accepted") is not True:
+            raise ValueError("Follow-up was not durably accepted")
+        return True
 
 
 def build_shared_worker(hatchet, settings, control):

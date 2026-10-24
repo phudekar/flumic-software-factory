@@ -188,6 +188,7 @@ class CoordinatorTests(unittest.IsolatedAsyncioTestCase):
         tasks = register_coordinator(
             engine, lambda value: RunAdvance(state="completed")
         )
+        self.assertIn("idempotency", str(tasks.coordinator.to_proto()))
         result = tasks.advance.mock_run(RunInvocation(project_id="p", run_id="r"))
         self.assertEqual(RunAdvance.model_validate(result).state, "completed")
 

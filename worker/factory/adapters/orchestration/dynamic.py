@@ -21,6 +21,7 @@ from factory.workflows.contracts import (
     StageReceipt,
 )
 from factory.workflows.coordinator import coordinate
+from hatchet_sdk.types.idempotency import StatusBasedIdempotencyConfig
 
 
 def labels(**values):
@@ -40,7 +41,7 @@ def register_action(hatchet, pool_id, role, execute):
         desired_worker_labels=labels(
             factory_protocol="shared-v1", factory_pool=pool_id, factory_role=role
         ),
-        execution_timeout=timedelta(seconds=90),
+        execution_timeout=timedelta(seconds=3660),
         retries=0,
     )
     def action(input: ActionInvocation, ctx: Context) -> StageReceipt:
@@ -83,6 +84,10 @@ def register_coordinator(
 
     @hatchet.durable_task(
         name=namespace + "-coordinate",
+        idempotency=StatusBasedIdempotencyConfig(
+            key_expression="input.project_id + ':' + input.run_id",
+            fallback_ttl=timedelta(days=7),
+        ),
         input_validator=RunInvocation,
         desired_worker_labels=affinity,
         execution_timeout=timedelta(days=7),
@@ -183,6 +188,9 @@ def register_project_waits(
 
     @hatchet.durable_task(
         name=namespace + "-wait",
+        idempotency=StatusBasedIdempotencyConfig(
+            key_expression="input.wait_id", fallback_ttl=timedelta(days=7)
+        ),
         input_validator=WaitInvocation,
         desired_worker_labels=affinity,
         retries=0,

@@ -11,7 +11,9 @@ class WaitInvocation(Contract):
 
 class WaitCheck(Contract):
     kind: Literal["discussion", "review"]
-    state: Literal["waiting", "ready", "issue-not-open", "merged", "closed-unmerged"]
+    state: Literal[
+        "waiting", "ready", "issue-not-open", "merged", "closed-unmerged", "cancelled"
+    ]
     poll_seconds: int = Field(default=30, ge=1, le=3600)
 
 
@@ -23,12 +25,12 @@ async def coordinate_wait(wait_id, check, resume, sleep):
             await check(wait_id, f"check/{wait_id}/{round_number}")
         )
         allowed = {
-            "discussion": {"waiting", "ready", "issue-not-open"},
-            "review": {"waiting", "merged", "closed-unmerged"},
+            "discussion": {"waiting", "ready", "issue-not-open", "cancelled"},
+            "review": {"waiting", "merged", "closed-unmerged", "cancelled"},
         }
         if status.state not in allowed[status.kind]:
             raise ValueError("Wait status does not match request kind")
-        if status.state in {"issue-not-open", "closed-unmerged"}:
+        if status.state in {"issue-not-open", "closed-unmerged", "cancelled"}:
             return {"state": status.state}
         if status.state in {"ready", "merged"}:
             accepted = await resume(wait_id, f"resume/{wait_id}/{round_number}")

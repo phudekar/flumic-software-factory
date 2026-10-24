@@ -672,11 +672,12 @@ for field defaults, examples, limits and the execution integration status.
 
 The internal `WorkflowState` service persists runs, logical stage attempts,
 encrypted inputs/results, business state and canonical external-resource claims.
-It is the run repository for the durable coordinator adapter (#8) and upcoming scoped run
-APIs (#11). Saving a definition in the current UI still does not trigger this runtime.
-Only the deterministic echo action is enabled by shared startup at this milestone.
-The executable builtin catalog and pinned follow-up helpers are implemented; their
-runtime transport activation remains #11, and the Docker broker remains #10.
+Project-scoped run APIs, assignment-authenticated builtin/job transport and the
+`dynamic-runtime` control service connect this state to the durable coordinator.
+Saving a definition in the current UI still does not launch a run. Existing worker
+pools retain their action allowlists; activate catalog actions deliberately.
+See the [runtime API guide](project-runtime-api.md) for seeding, launch, cancellation
+and uncertain-effect reconciliation.
 See [builtin action contracts](workflow-development.md#builtin-actions-and-pinned-project-follow-ups).
 
 A launch validates the chosen definition revision once and stores its exact graph,
@@ -730,7 +731,7 @@ not release an uncertain in-flight assignment; it still requires reconciliation.
 Business state is encrypted and scoped by project and repository connection.
 The new `ExecutionStateStore` takes an explicit delivered action context and an
 assignment-authenticated transport; it never reads a legacy SQLite key as a
-fallback. Worker state/claim transport endpoints integrate in #11. Generic stage
+fallback. Worker state/claim transport endpoints enforce assignment proofs and pinned scope. Generic stage
 bindings retain encrypted repository-origin metadata across relays, and affine
 builtins reject foreign-origin data before client construction.
 Origin identities are deduplicated while collecting ancestry, with a separate

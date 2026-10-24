@@ -2,7 +2,7 @@
 
 The dynamic runtime has a durable Docker job broker separate from persistent worker management. A shared worker never receives the Docker socket. The Control Plane reconciler launches jobs from an owned, admitted assignment and its pinned workflow revision.
 
-**Delivery status:** the broker and Docker adapter are internal runtime foundations. Assignment-authenticated HTTP job submission, worker polling and graph-result completion are the next milestone, [#11](https://github.com/phudekar/flumic-software-factory/issues/11). The public UI does not launch these jobs yet. Kubernetes Jobs and remote/function executors remain planned.
+**Delivery status:** the broker integrates with assignment-authenticated HTTP submission, worker polling and broker-confirmed graph completion through the [project runtime API](project-runtime-api.md). The public UI does not launch these jobs yet. Kubernetes Jobs and remote/function executors remain planned.
 
 ## Define an action
 
@@ -81,7 +81,7 @@ Broker instances for a local Docker target must share the same private job direc
 
 Jobs run as UID/GID `10001:10001`, with a read-only root, all Linux capabilities dropped, `no-new-privileges`, restart policy `no`, no automatic container removal and broker-generated input/credential/output mounts only. The broker parent directory is private; mounted input/credential files are read-only and accessible to the fixed container UID. The output mount is writable by that UID. The trusted broker/reconciler alone has Docker access.
 
-`CONTROL_JOB_BRIDGE` can name a pre-created dedicated network for trusted networked actions. Reserved Docker `host`, `bridge` and `none` names are rejected. Publication enabling that deployment policy is part of #11; default graph publication currently rejects bridge stages.
+`CONTROL_JOB_BRIDGE` can name a pre-created dedicated network for trusted networked actions. Reserved Docker `host`, `bridge` and `none` names are rejected. Graph publication accepts bridge stages only when this fixed deployment policy is configured.
 
 The writable output bind mount has **no hard host disk quota** in v1. Result retention is bounded, but a program can write unrelated files before it exits. Monitor free disk space, use a dedicated filesystem/quota where needed, and verify cleanup. Protect and back up the database/encryption key; keep broker data and locks available during reconciliation. Do not delete active jobs or reuse their durable identities.
 
