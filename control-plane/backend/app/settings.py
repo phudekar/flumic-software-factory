@@ -18,8 +18,16 @@ class AppSettings:
     # Deprecated constructor alias for integrations using the old Compose name.
     project: str | None = field(default=None, kw_only=True)
     cookie_secure: bool = False
+    job_bridge: str | None = field(default=None, kw_only=True)
 
     def __post_init__(self):
+        import re
+
+        if self.job_bridge is not None and (
+            self.job_bridge in {"host", "none", "bridge"}
+            or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,99}", self.job_bridge)
+        ):
+            raise ValueError("Job bridge must be a fixed dedicated Docker network")
         if self.project is not None:
             object.__setattr__(self, "compose_project_name", self.project)
 
@@ -42,5 +50,6 @@ class AppSettings:
             worker_endpoint=os.environ.get(
                 "CONTROL_WORKER_ENDPOINT", "http://factory-control-api:8000"
             ),
+            job_bridge=os.environ.get("CONTROL_JOB_BRIDGE") or None,
             cookie_secure=os.environ.get("CONTROL_COOKIE_SECURE", "false") == "true",
         )

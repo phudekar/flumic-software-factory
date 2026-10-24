@@ -128,6 +128,19 @@ def reconcile_once(sessions, runtime, settings):
     return True
 
 
+def reconcile_jobs(sessions, runtime, settings, stopped):
+    """Independent loop: worker image builds never block action-job deadlines."""
+    from app.job_broker import JobBroker
+    broker = JobBroker(sessions, settings)
+    while not stopped.is_set():
+        try:
+            broker.reconcile_once(runtime)
+        except Exception:
+            import logging
+            logging.getLogger(__name__).error("Job reconciliation tick unavailable")
+        stopped.wait(2)
+
+
 def main():
     from app.settings import AppSettings
     from app.database import database
@@ -137,6 +150,14 @@ def main():
     settings = AppSettings.load()
     _, sessions = database(settings.database_url)
     runtime = DockerRuntime(settings, Configurations(settings.root))
+    from app.adapters.docker_jobs import DockerJobRuntime
+    import hashlib
+    root = settings.snapshot_root / "jobs"
+    host = settings.host_root / root.relative_to(settings.root)
+    deployment = hashlib.sha256(f"{settings.compose_project_name}:{settings.host_root}".encode()).hexdigest()[:24]
+    jobs = DockerJobRuntime(root, host, deployment, bridge=settings.job_bridge)
+    stopped = threading.Event()
+    threading.Thread(target=reconcile_jobs, args=(sessions, jobs, settings, stopped), daemon=True).start()
     while True:
         reconcile_once(sessions, runtime, settings)
         with sessions.begin() as db:

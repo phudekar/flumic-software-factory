@@ -381,3 +381,26 @@ class RepositoryExecutionMode(Base):
     __tablename__ = "repository_execution_modes"
     repository: Mapped[str] = mapped_column(String(300), primary_key=True)
     mode: Mapped[str] = mapped_column(String(20))
+
+
+class RuntimeJob(ProjectOwned, Base):
+    __tablename__ = "runtime_jobs"
+    __table_args__ = (
+        UniqueConstraint("project_id", "execution_id", name="uq_runtime_job_execution"),
+        ForeignKeyConstraint(["project_id", "execution_id"], ["workflow_stage_attempts.project_id", "workflow_stage_attempts.id"], name="fk_runtime_job_execution"),
+        ForeignKeyConstraint(["project_id", "assignment_id"], ["execution_assignments.project_id", "execution_assignments.id"], name="fk_runtime_job_assignment"),
+    )
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    execution_id: Mapped[str] = mapped_column(String(36))
+    assignment_id: Mapped[str] = mapped_column(String(36))
+    spec_digest: Mapped[str] = mapped_column(String(64))
+    launch_ciphertext: Mapped[str] = mapped_column(Text)
+    state: Mapped[str] = mapped_column(String(20), default="pending")
+    launch_started: Mapped[bool] = mapped_column(default=False)
+    runtime_observed: Mapped[bool] = mapped_column(default=False)
+    cancel_requested: Mapped[bool] = mapped_column(default=False)
+    deadline: Mapped[float] = mapped_column(Float)
+    result_ciphertext: Mapped[str | None] = mapped_column(Text)
+    updated_at: Mapped[float] = mapped_column(Float, default=time.time)
+    next_cleanup_at: Mapped[float] = mapped_column(Float, default=0)
+    error: Mapped[str | None] = mapped_column(String(120))

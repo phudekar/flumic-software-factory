@@ -318,7 +318,10 @@ as GitHub issues. Project/repository APIs, shared pool foundations, immutable
 definition publication and the internal run-state/admission service are implemented.
 The durable coordinator adapter is implemented with live echo replay/cancellation tests.
 The executable builtin catalog, pinned project follow-ups and recipe helpers are also implemented.
-Runtime transport activation, Docker broker and project/workflow UI remain in progress; see [runtime status and limits](docs/control-plane.md#durable-run-state-and-admission).
+The [durable one-time Docker broker](docs/docker-action-jobs.md) is implemented internally.
+Runtime transport activation and project/workflow UI remain in progress; see [runtime status and limits](docs/control-plane.md#durable-run-state-and-admission).
+
+Public assignment/job API activation is tracked in [#11](https://github.com/phudekar/flumic-software-factory/issues/11); Kubernetes and remote function executors remain planned.
 
 ## Website and documentation
 
@@ -332,6 +335,7 @@ for local preview commands and Pages setup. The expected deployment address is
 - [Issue lifecycle, GitHub webhooks, labels, and security boundaries](docs/issue-lifecycle.md)
 - [Control-plane operation and troubleshooting](docs/control-plane.md)
 - [Worker configuration reference](docs/worker-configuration.md)
+- [One-time Docker actions, execution contract and recovery](docs/docker-action-jobs.md)
 - [Create workflows, add stages and link executions](docs/workflow-development.md)
 - [Architecture diagram, component responsibilities and extension points](docs/architecture.md#architecture-at-a-glance)
 - [Optional SigNoz observability](docs/observability.md)
