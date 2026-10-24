@@ -403,6 +403,61 @@ def install(app, sessions, settings):
                 for p in db.scalars(select(WorkerPool).order_by(WorkerPool.name))
             ]
 
+    @app.get(
+        "/api/v1/projects/{project_id}/worker-pools",
+        dependencies=[Depends(project_parameter)],
+    )
+    def project_pools(request: Request):
+        """Policy/registration view; loaded capabilities do not prove live capacity."""
+        with sessions() as db:
+            scope = request_scope(request, db)
+            result = []
+            for pool in db.scalars(select(WorkerPool).order_by(WorkerPool.name)):
+                workers = []
+                for worker in db.scalars(
+                    select(Worker).where(Worker.pool_id == pool.id)
+                ):
+                    state = (
+                        "unsupported"
+                        if worker.protocol != PROTOCOL
+                        else "unloaded"
+                        if worker.registered_at is None
+                        else "loaded"
+                    )
+                    missing_actions = sorted(
+                        set(pool.profile["actions"])
+                        - set(worker.capabilities.get("actions", []))
+                    )
+                    missing_executors = sorted(
+                        set(pool.profile["executors"])
+                        - set(worker.capabilities.get("executors", []))
+                    )
+                    if state == "loaded" and (missing_actions or missing_executors):
+                        state = "partial"
+                    workers.append(
+                        {
+                            "id": worker.id,
+                            "name": worker.name,
+                            "protocol": worker.protocol,
+                            "desired_state": worker.desired_state,
+                            "capability_state": state,
+                            "capabilities": worker.capabilities,
+                            "missing_actions": missing_actions,
+                            "missing_executors": missing_executors,
+                            "registered_at": worker.registered_at,
+                            "last_heartbeat_at": worker.last_heartbeat_at,
+                        }
+                    )
+                result.append(
+                    {
+                        **public(pool),
+                        "authorized": db.get(ProjectPool, (scope.project_id, pool.id))
+                        is not None,
+                        "workers": workers,
+                    }
+                )
+            return result
+
     @app.post("/api/v1/worker-pools", status_code=201)
     def create_pool(body: PoolEdit):
         import re

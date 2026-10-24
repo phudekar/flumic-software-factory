@@ -1399,7 +1399,52 @@ pre {
 }
 
 /* The same brand SVG is used by the application, documentation and favicons. */
-.brand-icon img { display: block; width: 100%; height: 100%; }
+.brand-icon img {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
 
 /* Brand assets carry their own background, including transparent corners. */
-.brand-icon:has(img) { background: transparent; box-shadow: none; }
+.brand-icon:has(img) {
+  background: transparent;
+  box-shadow: none;
+}
+
+.project-selector {
+  display: grid;
+  gap: 8px;
+  margin: 14px 18px 20px;
+  color: var(--muted);
+  font-size: 11px;
+}
+.project-selector select {
+  width: 100%;
+  min-width: 0;
+}
+.project-space .tabs {
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 16px;
+  padding-bottom: 14px;
+}
+.project-space .editor-body label {
+  max-width: 900px;
+  margin-bottom: 16px;
+}
+.project-space textarea {
+  width: 100%;
+  font-family: ui-monospace, monospace;
+}
+.project-space pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.project-space small {
+  display: block;
+  margin: 12px 0;
+  color: var(--muted);
+}
+.project-space .panel {
+  margin-bottom: 24px;
+}
