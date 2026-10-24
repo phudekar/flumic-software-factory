@@ -15,7 +15,11 @@ import time
 import urllib.request
 import uuid
 
-from factory.application.telemetry import current_recorder, use_recorder
+from factory.application.telemetry import (
+    current_recorder,
+    use_recorder,
+    action_metadata,
+)
 from factory.adapters.telemetry import current_metadata
 from factory.adapters.pricing import Pricing
 from factory.domain.models import OperationBusy
@@ -62,6 +66,7 @@ def engine_context(function):
 
 def redact(value):
     from factory.workflows.redaction import redact as action_redact
+
     value = action_redact(value)
     if isinstance(value, dict):
         return {str(k): redact(v) for k, v in value.items()}
@@ -269,14 +274,19 @@ class Recorder:
 
 
 class ControlLogHandler(logging.Handler):
-    def __init__(self, publisher):
+    def __init__(self, publisher, assignment_id=None):
         super().__init__()
         self.publisher = publisher
+        self.assignment_id = assignment_id
 
     def emit(self, record):
         metadata = current_metadata()
         if (
             metadata.get("attempt_id")
+            and (
+                self.assignment_id is None
+                or metadata.get("assignment_id") == self.assignment_id
+            )
             and record.name.startswith("issue-worker")
             and record.name != "issue-worker.control"
         ):
@@ -296,15 +306,16 @@ class ControlLogHandler(logging.Handler):
 
 
 class ControlObserver:
-    def __init__(self, delegate, settings, publisher=None):
+    def __init__(self, delegate, settings, publisher=None, *, assignment_id=None):
         self.delegate, self.settings = delegate, settings
         self.publisher = publisher or Publisher(settings)
         self.pricing = Pricing(settings.pricing_file or None)
-        self.handler = ControlLogHandler(self.publisher)
+        self.handler = ControlLogHandler(self.publisher, assignment_id)
         logging.getLogger().addHandler(self.handler)
 
     @contextmanager
     def observe(self, stage, attributes):
+        attributes = {**attributes, **action_metadata()}
         with self.delegate.observe(stage, attributes):
             metadata = current_metadata()
             self.publisher.emit(

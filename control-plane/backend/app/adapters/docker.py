@@ -162,15 +162,24 @@ class DockerRuntime:
         engine_token = os.environ.get('HATCHET_CLIENT_TOKEN')
         if not engine_token:
             raise ValueError('Configure Hatchet infrastructure credentials')
+        directory = self.settings.snapshot_root.parent / "shared-history" / worker.id
+        directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+        host = self.settings.host_root
         container = self.client.containers.create(image, name=worker.name,
             environment={'HATCHET_CLIENT_TOKEN':engine_token,
                 'FACTORY_CONTROL_ENDPOINT':self.settings.worker_endpoint,
                 'FACTORY_CONTROL_TOKEN':token,'FACTORY_CONTROL_WORKER_ID':worker.id,
-                'FACTORY_WORKER_PROTOCOL':'shared-v1','FACTORY_WORKER_POOL_ID':worker.pool_id},
+                'FACTORY_WORKER_PROTOCOL':'shared-v1','FACTORY_WORKER_POOL_ID':worker.pool_id,
+                'FACTORY_SHARED_HISTORY_ROOT':'/data/control-spool'},
             labels={LABEL:'factory','factory.instance':worker.id,'factory.profile':worker.profile,
                 'factory.revision':worker.revision_id,'factory.pool':worker.pool_id,
                 'software-factory.shared-protocol':'1'},
-            volumes={}, network='worker-network', mem_limit='2g', nano_cpus=2_000_000_000,
+            volumes={
+                str(host / "data/control-plane/shared-history" / worker.id): {
+                    "bind": "/data/control-spool/" + worker.id, "mode": "rw"},
+                str(host / "observability/model-pricing.json"): {
+                    "bind": "/observability/model-pricing.json", "mode": "ro"},
+            }, network='worker-network', mem_limit='2g', nano_cpus=2_000_000_000,
             restart_policy={'Name':'unless-stopped'},detach=True)
         return container.id
 

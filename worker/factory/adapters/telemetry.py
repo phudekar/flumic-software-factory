@@ -18,11 +18,16 @@ _context = contextvars.ContextVar("factory_context", default={})
 
 class CorrelationFilter(logging.Filter):
     def filter(self, record):
+        from factory.application.telemetry import action_metadata
+
+        authority = action_metadata()
         record.factory_context = {
-            key: "[redacted]"
+            key: authority[key]
+            if key in authority
+            else "[redacted]"
             if isinstance(value, str) and find_sensitive_categories(value)
-            else value
-            for key, value in redact(_context.get()).items()
+            else redact(value)
+            for key, value in _context.get().items()
         }
         message = redact(record.getMessage())
         record.msg, record.args = message, ()
@@ -35,7 +40,8 @@ class CorrelationFilter(logging.Filter):
         # OTLP also exports arbitrary LogRecord extras, including nested values.
         # Scrub before any handler translates them into telemetry attributes.
         for key, value in tuple(vars(record).items()):
-            setattr(record, key, redact(value))
+            if key != "factory_context":
+                setattr(record, key, redact(value))
         return True
 
 
@@ -62,7 +68,16 @@ class JsonFormatter(logging.Formatter):
         # Do not export exception repr/tracebacks, which can carry provider content.
         if record.exc_info:
             payload["error_type"] = record.exc_info[0].__name__
-        return json.dumps(redact(payload), default=str)
+        from factory.application.telemetry import action_metadata
+
+        authority = action_metadata()
+        return json.dumps(
+            {
+                key: authority[key] if key in authority else redact(value)
+                for key, value in payload.items()
+            },
+            default=str,
+        )
 
 
 class LoggingObserver:
@@ -71,8 +86,13 @@ class LoggingObserver:
         context = dict(_context.get())
         context.setdefault("factory_run_id", str(uuid.uuid4()))
         context.update(attributes)
-        context["stage"] = stage
-        context["attempt_id"] = str(uuid.uuid4())
+        from factory.application.telemetry import action_metadata
+
+        authority = action_metadata()
+        context.update(authority)
+        context["operation"] = stage
+        context["stage"] = authority.get("stage_id", stage)
+        context["attempt_id"] = authority.get("execution_id", str(uuid.uuid4()))
         token = _context.set(context)
         started = time.monotonic()
         logger = logging.getLogger("issue-worker.operations")

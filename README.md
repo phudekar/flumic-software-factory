@@ -322,7 +322,10 @@ The [durable one-time Docker broker](docs/docker-action-jobs.md) integrates thro
 [project run and worker APIs](docs/project-runtime-api.md). Project/workflow UI remains in progress; see [runtime status and limits](docs/control-plane.md#durable-run-state-and-admission).
 
 Use the runtime API guide to activate the fixed control service, seed workflows and
-launch pinned runs. Kubernetes and remote function executors remain planned.
+launch pinned runs.
+[Project-scoped history, traces and AI accounting](docs/project-observability.md)
+now follow authoritative assignments, including delayed spool delivery and explicit
+Docker usage reports. Project management and workflow editing UI remain in progress. Kubernetes and remote function executors remain planned.
 
 ## Website and documentation
 

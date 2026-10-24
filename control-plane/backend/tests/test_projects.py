@@ -8,7 +8,7 @@ from unittest.mock import Mock, patch
 
 from alembic import command
 from alembic.config import Config
-from sqlalchemy import text, select, inspect, create_engine, MetaData, event
+from sqlalchemy import text, select, inspect, create_engine, MetaData, event, Table
 from sqlalchemy.engine import make_url
 import uuid
 from sqlalchemy.exc import IntegrityError
@@ -201,8 +201,14 @@ class ProjectTests(unittest.TestCase):
                     db.get(models.RepositoryConnection,"a").revision_id="rev-a"
                 with self.assertRaises(IntegrityError), sessions.begin() as db:
                     db.get(models.RepositoryConnection,"a").revision_id="rev-b"
+                # This deliberately exercises revision 1, not today's ORM shape.
+                historical_events = Table("execution_events", MetaData(), autoload_with=engine)
                 with self.assertRaises(IntegrityError), sessions.begin() as db:
-                    db.add(models.Event(id="foreign",project_id=DEFAULT,repository_id="b",kind="heartbeat",worker_id="worker",occurred_at=1,payload={}))
+                    db.execute(historical_events.insert().values(
+                        id="foreign", project_id=DEFAULT, repository_id="b",
+                        kind="heartbeat", worker_id="worker", occurred_at=1,
+                        received_at=1, payload={},
+                    ))
 
                 command.upgrade(cfg,"head")
                 with sessions.begin() as db:

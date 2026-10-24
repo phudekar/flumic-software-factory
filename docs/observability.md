@@ -1,5 +1,7 @@
 # Flumic AI observability
 
+For shared multi-project execution, see [project history, traces and AI accounting](project-observability.md) for authoritative identities, scoped queries, capture policy, spool delivery and explicit Docker usage.
+
 The optional monitoring stack is self-hosted SigNoz. Workers export standard
 OpenTelemetry traces, metrics, and logs over OTLP/HTTP. The factory application
 still depends only on its observation and usage interfaces.

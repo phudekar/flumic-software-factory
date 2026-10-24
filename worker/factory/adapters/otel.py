@@ -28,7 +28,11 @@ from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExport
 from opentelemetry.exporter.otlp.proto.http.metric_exporter import OTLPMetricExporter
 from opentelemetry.exporter.otlp.proto.http._log_exporter import OTLPLogExporter
 
-from factory.application.telemetry import incoming_carrier, use_recorder
+from factory.application.telemetry import (
+    incoming_carrier,
+    use_recorder,
+    action_metadata,
+)
 from factory.adapters.telemetry import (
     CorrelationFilter,
     LoggingObserver,
@@ -40,6 +44,12 @@ from factory.domain.safety import find_sensitive_categories
 
 class MetadataHandler(LoggingHandler):
     def emit(self, record):
+        assignment = getattr(self, "assignment_id", None)
+        if (
+            assignment is not None
+            and action_metadata().get("assignment_id") != assignment
+        ):
+            return
         import copy
 
         record = copy.copy(record)
@@ -63,11 +73,17 @@ class MetadataFilter(CorrelationFilter):
 
 def safe_attributes(values):
     result = {}
-    for key, value in redact(values).items():
+    authority = {"factory." + key: value for key, value in action_metadata().items()}
+    for key, value in values.items():
+        value = authority[key] if key in authority else redact(value)
         if value is None:
             continue
         if isinstance(value, str):
-            value = "[redacted]" if find_sensitive_categories(value) else value[:512]
+            value = (
+                "[redacted]"
+                if key not in authority and find_sensitive_categories(value)
+                else value[:512]
+            )
         if isinstance(value, (str, int, float, bool)):
             result[key] = value
     return result
@@ -77,12 +93,21 @@ class Call:
     def __init__(self, observer, span, attributes):
         self.observer, self.span, self.attributes = observer, span, attributes
         self.recorded = False
+        self.usage = None
+        self.leaf = True
 
     def record(self, usage):
         # One final usage report per call; callers never add cumulative snapshots.
         if self.recorded:
             return
         self.recorded = True
+        self.usage = usage
+
+    def flush(self):
+        self.span.set_attribute("factory.accounting_leaf", self.leaf)
+        if self.usage is None:
+            return
+        usage = self.usage
         estimate = self.observer.pricing.estimate(
             self.attributes["provider"], self.attributes["model"], usage
         )
@@ -91,7 +116,8 @@ class Call:
         )
         if estimate is not None:
             self.span.set_attribute("factory.cost.estimated_usd", estimate)
-            self.observer.estimated_cost.add(estimate, self.attributes)
+            if self.leaf:
+                self.observer.estimated_cost.add(estimate, self.attributes)
         attrs = {
             "gen_ai.usage.input_tokens": usage.input_tokens,
             "gen_ai.usage.output_tokens": usage.output_tokens,
@@ -111,11 +137,11 @@ class Call:
             ("cache_read", usage.cached_input_tokens),
             ("cache_creation", usage.cache_creation_tokens),
         ):
-            if count is not None:
+            if count is not None and self.leaf:
                 self.observer.tokens.add(
                     count, {**self.attributes, "token.type": category}
                 )
-        if usage.reported_cost_usd is not None:
+        if usage.reported_cost_usd is not None and self.leaf:
             self.observer.reported_cost.add(usage.reported_cost_usd, self.attributes)
 
 
@@ -131,6 +157,7 @@ class OpenTelemetryObserver(LoggingObserver):
         self.settings = settings
         self.pricing = Pricing(settings.pricing_file or None)
         self.stage = ContextVar("factory_otel_stage", default="unscoped")
+        self.parent_call = ContextVar("factory_otel_parent_call", default=None)
         self.worker_id = (
             settings.worker_name or f"software-factory-{settings.worker_type}-worker"
         )
@@ -239,6 +266,7 @@ class OpenTelemetryObserver(LoggingObserver):
             {
                 "factory.stage": stage,
                 **{"factory." + k: v for k, v in attributes.items()},
+                **{"factory." + k: v for k, v in action_metadata().items()},
             }
         )
         parent = (
@@ -284,6 +312,9 @@ class OpenTelemetryObserver(LoggingObserver):
                     "stage": stage,
                     "outcome": outcome,
                     "worker.type": self.settings.worker_type,
+                    **safe_attributes(
+                        {"factory." + k: v for k, v in action_metadata().items()}
+                    ),
                 }
                 self.completed.add(1, labels)
                 self.duration.record(time.monotonic() - started, labels)
@@ -315,6 +346,7 @@ class OpenTelemetryObserver(LoggingObserver):
                 "model": model or "unknown",
                 "agent": agent,
                 "stage": self.stage.get(),
+                **{"factory." + k: v for k, v in action_metadata().items()},
             }
         )
         outcome = "completed"
@@ -327,6 +359,10 @@ class OpenTelemetryObserver(LoggingObserver):
             span.set_attribute("factory.usage.status", "unknown")
             span.set_attribute("factory.cost.status", "unknown")
             call = Call(self, span, labels)
+            parent = self.parent_call.get()
+            if parent is not None:
+                parent.leaf = False
+            parent_token = self.parent_call.set(call)
             try:
                 yield call
             except BaseException as error:
@@ -335,7 +371,9 @@ class OpenTelemetryObserver(LoggingObserver):
                 span.set_status(trace.StatusCode.ERROR)
                 raise
             finally:
-                if model is not None:
+                self.parent_call.reset(parent_token)
+                call.flush()
+                if model is not None and call.leaf:
                     self.calls.add(1, {**labels, "outcome": outcome})
 
     def flush(self):
@@ -348,6 +386,7 @@ class OpenTelemetryObserver(LoggingObserver):
         if self.closed:
             return
         self.closed = True
+        atexit.unregister(self.shutdown)
         if self.log_handler:
             logging.getLogger().removeHandler(self.log_handler)
         self.tracer_provider.shutdown()

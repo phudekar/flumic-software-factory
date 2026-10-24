@@ -141,6 +141,9 @@ class DynamicRuntime:
                         ),
                         True,
                     )
+                from app.history import record_job_usage
+
+                record_job_usage(db, self.settings, job, result)
                 self.store.finish_execution(
                     scope,
                     job.execution_id,

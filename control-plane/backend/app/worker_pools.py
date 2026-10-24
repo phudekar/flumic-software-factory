@@ -374,6 +374,20 @@ def resolve_context(
         row.execution_id,
     ):
         raise HTTPException(409, "Pinned context does not match execution authority")
+    if db.get(StageAttempt, row.execution_id) is not None:
+        from app.database import WorkflowRun
+        from app.workflow_definitions import read_definition_pin
+
+        run = require_owned(db, scope, WorkflowRun, row.run_id)
+        pin = read_definition_pin(db, scope, run.snapshot_id, settings)
+        context = context.model_copy(
+            update={
+                "definition_id": pin["definition_id"],
+                "workflow_revision_id": pin["workflow_revision_id"],
+                "executor": row.executor,
+                "worker_id": worker.id,
+            }
+        )
     return context
 
 

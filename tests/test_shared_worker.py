@@ -240,6 +240,7 @@ class SharedWorkerTests(unittest.TestCase):
             )
         self.assertEqual(receipt.state, "completed")
         self.assertEqual(builtin.call_args.args[0], "issue.load@1")
+        self.assertIsNotNone(builtin.call_args.kwargs.get("observer"))
         self.assertEqual(
             builtin.call_args.args[1].credentials["github"], "scoped-token"
         )

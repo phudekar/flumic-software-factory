@@ -100,13 +100,37 @@ class JobBroker:
             grants = {
                 purpose: metadata["secret_versions"][purpose] for purpose in requested
             }
-            for purpose, version in grants.items():
-                resolve_secret(
+            resolved = {
+                purpose: resolve_secret(
                     db, scope, version, purpose, self.settings, assignment.repository_id
                 )
+                for purpose, version in grants.items()
+            }
             job_id = hashlib.sha256(
                 f"{scope.project_id}:{run.id}:{stage.id}:{item.generation}".encode()
             ).hexdigest()
+            from app.history import attribution
+            from app.database import ActionContextSnapshot
+            from factory.workflows.redaction import secret_scope, redact
+
+            public_context = attribution(db, assignment, self.settings, job_id=job_id)
+            if assignment.context_id:
+                source = decrypt(
+                    require_owned(
+                        db, scope, ActionContextSnapshot, assignment.context_id
+                    ).ciphertext,
+                    self.settings,
+                )["context"]
+                with secret_scope(resolved.values()):
+                    public_context["trace_context"] = {
+                        key: redact(value)
+                        for key, value in source.get("trace_context", {}).items()
+                        if key in {"traceparent", "tracestate"}
+                    }
+                    correlation = redact(source.get("factory_run_id", run.id))
+                    public_context["factory_run_id"] = (
+                        correlation if len(correlation) <= 120 else run.id
+                    )
             launch = JobLaunch(
                 job_id=job_id,
                 project_id=scope.project_id,
@@ -115,6 +139,7 @@ class JobBroker:
                 image=stage.image,
                 command=stage.command,
                 inputs=inputs,
+                context=public_context,
                 network=stage.network,
                 limits=stage.limits,
             )

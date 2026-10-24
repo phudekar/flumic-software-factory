@@ -101,6 +101,8 @@ class DockerJobRuntime:
         output.chmod(0o777)  # Writable by fixed UID10001; parent stays broker-private.
         self._file(directory / "input.json", launch.inputs)
         self._file(directory / "credentials.json", launch.credentials)
+        if launch.context:
+            self._file(directory / "context.json", launch.context)
         host = self.host_root / ref.job_id
         options = dict(
             name="flumic-job-" + ref.job_id,
@@ -133,6 +135,11 @@ class DockerJobRuntime:
                 type="json-file", config={"max-size": "1m", "max-file": "2"}
             ),
         )
+        if launch.context:
+            options["volumes"][str(host / "context.json")] = {
+                "bind": "/flumic/context.json",
+                "mode": "ro",
+            }
         try:
             existing = self.client.containers.create(launch.image, **options)
         except APIError as error:

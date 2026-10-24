@@ -265,7 +265,15 @@ class AdapterTests(unittest.TestCase):
             protocol="shared-v1",
             pool_id="pool",
         )
-        settings = SimpleNamespace(worker_endpoint="http://control")
+        import tempfile
+
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        settings = SimpleNamespace(
+            worker_endpoint="http://control",
+            snapshot_root=Path(temporary.name) / "snapshots",
+            host_root=Path("/host"),
+        )
         client = Mock()
         client.containers.list.return_value = []
         client.images.get.return_value.attrs = {
@@ -294,9 +302,27 @@ class AdapterTests(unittest.TestCase):
                 "FACTORY_CONTROL_WORKER_ID",
                 "FACTORY_WORKER_PROTOCOL",
                 "FACTORY_WORKER_POOL_ID",
+                "FACTORY_SHARED_HISTORY_ROOT",
             },
         )
-        self.assertEqual(args["volumes"], {})
+        self.assertEqual(
+            args["volumes"],
+            {
+                "/host/data/control-plane/shared-history/shared": {
+                    "bind": "/data/control-spool/shared",
+                    "mode": "rw",
+                },
+                "/host/observability/model-pricing.json": {
+                    "bind": "/observability/model-pricing.json",
+                    "mode": "ro",
+                },
+            },
+        )
+        self.assertEqual(
+            (settings.snapshot_root.parent / "shared-history/shared").stat().st_mode
+            & 0o777,
+            0o700,
+        )
         self.assertNotIn("project-github", str(args))
         self.assertNotIn("project-model", str(args))
         self.assertNotIn("docker.sock", str(args))

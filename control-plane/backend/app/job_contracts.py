@@ -2,7 +2,7 @@
 
 from typing import Literal
 from pydantic import Field, field_validator
-from factory.workflows.contracts import Contract
+from factory.workflows.contracts import Contract, UsageRecord
 from factory.workflows.definitions import DockerLimits, DockerStage
 from factory.workflows.references import json_bytes
 
@@ -17,6 +17,7 @@ class JobLaunch(Contract):
     )
     command: list[str] = Field(min_length=1, max_length=128)
     inputs: dict
+    context: dict = Field(default_factory=dict)
     credentials: dict[str, str] = Field(default_factory=dict, repr=False, exclude=True)
     network: Literal["none", "bridge"] = "none"
     limits: DockerLimits = Field(default_factory=DockerLimits)
@@ -33,6 +34,13 @@ class JobLaunch(Contract):
     def input_size(cls, value):
         if len(json_bytes(value)) > 1048576:
             raise ValueError("Job input exceeds 1 MiB")
+        return value
+
+    @field_validator("context")
+    @classmethod
+    def context_size(cls, value):
+        if len(json_bytes(value)) > 16384:
+            raise ValueError("Job context exceeds 16 KiB")
         return value
 
     @field_validator("credentials")
@@ -129,7 +137,18 @@ def sanitize_capture(capture, secrets):
         raw = {"output": capture.output, "usage": capture.usage}
         if len(json_bytes(raw)) > 1048576:
             raise ValueError("Job result exceeds 1 MiB")
-        envelope = {"output": content(capture.output), "usage": content(capture.usage)}
+        envelope = {
+            "output": content(capture.output),
+            "usage": [
+                {
+                    key if key in UsageRecord.model_fields else text(key): content(
+                        value
+                    )
+                    for key, value in record.items()
+                }
+                for record in capture.usage
+            ],
+        }
         if len(json_bytes(envelope)) > 1048576:
             raise ValueError("Redacted job result exceeds 1 MiB")
         result.update(envelope)

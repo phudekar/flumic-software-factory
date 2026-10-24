@@ -52,6 +52,14 @@ class SharedControl:
             "Authorization": "Bearer " + env["FACTORY_CONTROL_TOKEN"],
             "Content-Type": "application/json",
         }
+        self.history = None
+        if env.get("FACTORY_SHARED_HISTORY_ROOT"):
+            from pathlib import Path
+            from factory.adapters.shared_history import SharedPublisher
+
+            self.history = SharedPublisher(
+                self, Path(env["FACTORY_SHARED_HISTORY_ROOT"])
+            )
 
     def request(self, path, body=None):
         request = urllib.request.Request(
@@ -71,6 +79,36 @@ class SharedControl:
             raise SharedRequestError(error.code) from None
         except Exception:
             raise SharedRequestError() from None
+
+    @contextmanager
+    def observation(self, context, proof):
+        from factory.bootstrap import load_factory
+        from factory.application.telemetry import action_scope, incoming_trace
+
+        with action_scope(context), incoming_trace(context.trace_context):
+            delegate = load_factory(context.settings.observer_factory)(context.settings)
+            if getattr(delegate, "log_handler", None) is not None:
+                delegate.log_handler.assignment_id = context.assignment_id
+            observer = delegate
+            if self.history is not None:
+                from factory.adapters.control import ControlObserver
+
+                observer = ControlObserver(
+                    delegate,
+                    context.settings,
+                    publisher=self.history.bound(context, proof),
+                    assignment_id=context.assignment_id,
+                )
+            try:
+                yield observer
+            finally:
+                shutdown = getattr(observer, "shutdown", None)
+                if shutdown:
+                    shutdown()
+
+    def shutdown(self):
+        if self.history:
+            self.history.shutdown()
 
     def register(self):
         settings = self.settings
@@ -176,24 +214,29 @@ class SharedControl:
                     self.settings.role,
                 ):
                     raise ValueError("Delivered context does not match invocation")
+                if context.worker_id and context.worker_id != self.settings.worker_id:
+                    raise ValueError("Delivered context does not match assigned worker")
                 origins = tuple(
                     BindingOrigin(**{**value, "path": tuple(value["path"])})
                     for value in delivered["origins"]
                 )
-                try:
-                    result = run_builtin(
-                        claim["action"],
-                        context,
-                        ResolvedInputs(claim["input"], origins),
-                        BoundTransport(self, identifier, proof),
-                    )
-                except Exception:
-                    if claim["action"] not in READ_ONLY_FAILURE_ACTIONS:
-                        raise
-                    # Fixed implementation policy proves no external mutation;
-                    # never include provider errors/credentials in this receipt.
-                    failed = True
-                    result = ActionResult(output={"error": "Read-only action failed"})
+                with self.observation(context, proof) as observer:
+                    try:
+                        result = run_builtin(
+                            claim["action"],
+                            context,
+                            ResolvedInputs(claim["input"], origins),
+                            BoundTransport(self, identifier, proof),
+                            observer=observer,
+                        )
+                    except Exception:
+                        if claim["action"] not in READ_ONLY_FAILURE_ACTIONS:
+                            raise
+                        # Fixed policy proves no external mutation.
+                        failed = True
+                        result = ActionResult(
+                            output={"error": "Read-only action failed"}
+                        )
             receipt = self.request(
                 "/api/v1/shared-worker/assignments/" + identifier + "/complete",
                 {
@@ -266,7 +309,8 @@ def build_shared_worker(hatchet, settings, control):
 
 
 def start_shared(env=None):
-    env = os.environ if env is None else env
+    env = dict(os.environ if env is None else env)
+    env.setdefault("FACTORY_SHARED_HISTORY_ROOT", "/data/control-spool")
     worker_id = env.get("FACTORY_CONTROL_WORKER_ID", "")
     request = urllib.request.Request(
         env["FACTORY_CONTROL_ENDPOINT"].rstrip("/") + "/api/v1/worker-bootstrap",
@@ -294,5 +338,8 @@ def start_shared(env=None):
 
     configure_logging(settings)
     control = SharedControl(settings, env)
-    control.register()
-    return build_shared_worker(create_client(settings), settings, control).start()
+    try:
+        control.register()
+        return build_shared_worker(create_client(settings), settings, control).start()
+    finally:
+        control.shutdown()
