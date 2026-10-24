@@ -43,11 +43,11 @@ POST this body to `/api/v1/projects/{project_id}/workflow-definitions/seed-built
 ```sh
 curl -b cookies.txt -H 'Origin: http://localhost:3400' -H "X-CSRF-Token: $CSRF" \
   -H 'Content-Type: application/json' -H 'Idempotency-Key: issue-42-attempt-1' \
-  -d '{"revision_id":"<published-revision-id>","input":{"issue_number":42}}' \
+  -d '{"revision_id":"<issue-revision-id>","input":{"issue_number":42},"bindings":{"<repository-connection-id>":{"issue":"<issue-revision-id>","feedback":"<feedback-revision-id>","verify":"<verification-revision-id>"}}}' \
   "$CONTROL/api/v1/projects/$PROJECT/workflow-runs"
 ```
 
-Use input matching the first stage's contract. The builtin issue template takes an issue command; custom echo graphs can take arbitrary JSON objects. An optional `bindings` map selects pinned follow-up workflow revisions per repository connection:
+Use input matching the first stage's contract. The builtin issue template takes an issue command; custom echo graphs can take arbitrary JSON objects. A `bindings` map selects pinned follow-up workflow revisions per repository connection. It is required for every repository used by a non-echo builtin, including the seeded templates; echo-only/custom Docker graphs may omit it:
 
 ```json
 {"bindings":{"<repository-connection-id>":{
