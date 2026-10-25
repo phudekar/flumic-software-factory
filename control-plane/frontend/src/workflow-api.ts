@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { parseDocument, stringify } from "yaml";
 import { api, ApiError } from "./api";
+import type { FactoryEvent } from "./api";
 import { projectPath, useProjectId } from "./project-context";
 export interface GraphStage {
   id: string;
@@ -174,4 +175,20 @@ export function useWorkflowWrite() {
       return result;
     },
   };
+}
+
+// Event accounting names intentionally differ from aggregate Usage response keys.
+export interface ModelAccountingPayload extends Record<string, unknown> {
+  provider?: string | null;
+  model?: string | null;
+  input_tokens?: number | null;
+  output_tokens?: number | null;
+  estimated_usd?: number | null;
+  reported_cost_usd?: number | null;
+  accounting_leaf?: boolean;
+  conversation_available?: boolean;
+}
+export interface ModelAccountingEvent extends FactoryEvent {
+  kind: "model.completed";
+  payload: ModelAccountingPayload;
 }

@@ -10,7 +10,7 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, useNavigate } from "react-router-dom";
 import { App } from "./app/App";
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -186,13 +186,18 @@ function fixtures(
     }),
   );
 }
-function mount(path = "/projects/a/workflows/def") {
+function FixtureNavigation({ target }: { target: string }) {
+  const navigate = useNavigate();
+  return <button onClick={() => navigate(target)}>Go to fixture target</button>;
+}
+function mount(path = "/projects/a/workflows/def", target?: string) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false, refetchInterval: false } },
   });
   render(
     <QueryClientProvider client={client}>
       <MemoryRouter initialEntries={[path]}>
+        {target && <FixtureNavigation target={target} />}
         <App />
       </MemoryRouter>
     </QueryClientProvider>,
@@ -447,3 +452,232 @@ it("shows Docker cancellation intent, deadline and bounded logs separately from 
   ).toHaveAttribute("href", "/projects/a/runs/run-1");
   expect(screen.getAllByText("Unknown").length).toBeGreaterThan(0);
 });
+it.each(["worker", "cached job"])(
+  "does not retain an exchange across a same-project %s change",
+  async (kind) => {
+    const event = {
+      id: "event-a",
+      kind: "model.completed",
+      worker_id: "worker-a",
+      occurred_at: 1,
+      payload: { model: "test", conversation_available: true },
+    };
+    fixtures((path) => {
+      if (path === "/api/v1/workers")
+        return json({
+          managed: [
+            { id: "worker-a", name: "A", desired_state: "running" },
+            { id: "worker-b", name: "B", desired_state: "running" },
+          ],
+          warnings: [],
+          discovered: [],
+          observed_at: 0,
+        });
+      if (path.endsWith("/jobs/job-a"))
+        return json({
+          job_id: "job-a",
+          execution_id: "e-a",
+          state: "completed",
+          deadline: 1000,
+          cancel_requested: false,
+          result: null,
+        });
+      if (path.endsWith("/jobs/job-b"))
+        return json({
+          job_id: "job-b",
+          execution_id: "e-b",
+          state: "completed",
+          deadline: 1000,
+          cancel_requested: false,
+          result: null,
+        });
+      if (path.includes("/events?"))
+        return json(
+          path.includes("worker-a") || path.includes("e-a") ? [event] : [],
+        );
+      if (path.endsWith("/model-calls/event-a/conversation"))
+        return json({ exchange: "entity A transcript" });
+    });
+    const start =
+      kind === "worker"
+        ? "/projects/a/workers/worker-a"
+        : "/projects/a/jobs/job-a";
+    const target =
+      kind === "worker"
+        ? "/projects/a/workers/worker-b"
+        : "/projects/a/jobs/job-b";
+    const client = mount(start, target);
+    await screen.findByRole("button", { name: "View exchange event-a" });
+    fireEvent.click(
+      screen.getByRole("button", { name: "View exchange event-a" }),
+    );
+    await screen.findByText(/entity A transcript/);
+    if (kind === "cached job")
+      client.setQueryData(["project", "a", "/jobs/job-b"], {
+        job_id: "job-b",
+        execution_id: "e-b",
+        state: "completed",
+        deadline: 1000,
+        cancel_requested: false,
+        result: null,
+      });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Go to fixture target" }),
+    );
+    await screen.findByRole("heading", {
+      name: kind === "worker" ? "Worker B" : "Job job-b",
+    });
+    await waitFor(() =>
+      expect(screen.queryByText(/entity A transcript/)).not.toBeInTheDocument(),
+    );
+  },
+);
+it.each(["terminal refresh", "later polling"])(
+  "lets canonical terminal state supersede cancellation guidance after %s",
+  async (mode) => {
+    let requested = false;
+    fixtures((path, options) => {
+      if (
+        path.endsWith("/workflow-runs/run-1/cancel") &&
+        options?.method === "POST"
+      ) {
+        requested = true;
+        return json({ ...receipt, state: "cancelling" }, 202);
+      }
+      if (path.endsWith("/workflow-runs/run-1") && requested)
+        return json({
+          ...receipt,
+          state: mode === "terminal refresh" ? "cancelled" : "cancelling",
+        });
+    });
+    const client = mount("/projects/a/runs/run-1");
+    await screen.findByText(/Dispatch pending/);
+    fireEvent.click(
+      screen.getByRole("button", { name: "Request cancellation" }),
+    );
+    if (mode === "later polling") {
+      await screen.findByText(
+        "Cancellation requested; execution may still be running.",
+      );
+      await act(async () => {
+        client.setQueryData(["project", "a", "/workflow-runs/run-1"], {
+          ...receipt,
+          state: "cancelled",
+        });
+      });
+    }
+    await screen.findByText("cancelled");
+    await waitFor(() =>
+      expect(
+        screen.queryByText(
+          "Cancellation requested; execution may still be running.",
+        ),
+      ).not.toBeInTheDocument(),
+    );
+  },
+);
+it.each([
+  [0.25, "$0.2500"],
+  [0, "$0.0000"],
+  [undefined, "Unknown"],
+])(
+  "displays the model event reported_cost_usd field %s without merging accounting sources",
+  async (cost, want) => {
+    fixtures((path) => {
+      if (path.includes("/events?"))
+        return json([
+          {
+            id: "cost-event",
+            kind: "model.completed",
+            worker_id: "worker",
+            occurred_at: 1,
+            payload: { model: "cost-model", reported_cost_usd: cost },
+          },
+        ]);
+    });
+    mount("/projects/a/runs/run-1");
+    await screen.findByText("Unknown provider / cost-model");
+    expect(
+      screen.getByText(
+        new RegExp("reported " + String(want).replace("$", "\\$")),
+      ),
+    ).toBeInTheDocument();
+  },
+);
+it.each(["success", "revision failure", "delayed revision"])(
+  "fetches the actual head before replacing a conflicted draft: %s",
+  async (mode) => {
+    let conflict = false;
+    let finish!: (r: Response) => void;
+    fixtures((path, options) => {
+      if (
+        path.endsWith("/workflow-definitions/def") &&
+        options?.method === "PUT"
+      ) {
+        conflict = true;
+        return json(
+          { detail: "Definition changed; reload before saving" },
+          409,
+        );
+      }
+      if (path.endsWith("/workflow-definitions/def") && conflict)
+        return json({ id: "def", name: "new-head", revision_id: "r2" });
+      if (path.endsWith("/workflow-definition-revisions/r2")) {
+        if (mode === "revision failure")
+          return json({ detail: "Reload unavailable" }, 503);
+        if (mode === "delayed revision")
+          return new Promise<Response>((resolve) => {
+            finish = resolve;
+          });
+        return json({
+          id: "r2",
+          definition_id: "def",
+          document: { ...graph, name: "actual-latest" },
+        });
+      }
+    });
+    mount();
+    const editor = await screen.findByLabelText("Workflow source");
+    await waitFor(() =>
+      expect((editor as HTMLTextAreaElement).value).toContain("mixed-check"),
+    );
+    fireEvent.change(editor, {
+      target: {
+        value: JSON.stringify({ ...graph, name: "keep-conflicted-draft" }),
+      },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Publish revision" }));
+    await screen.findByText("Definition changed; reload before saving");
+    fireEvent.click(
+      screen.getByRole("button", { name: "Discard edits and load latest" }),
+    );
+    if (mode === "revision failure") {
+      await screen.findByText("Reload unavailable");
+      expect((editor as HTMLTextAreaElement).value).toContain(
+        "keep-conflicted-draft",
+      );
+    } else {
+      if (mode === "delayed revision") {
+        await waitFor(() => expect(finish).toBeDefined());
+        expect((editor as HTMLTextAreaElement).value).toContain(
+          "keep-conflicted-draft",
+        );
+        expect(editor).toHaveAttribute("readonly");
+        await act(async () =>
+          finish(
+            json({
+              id: "r2",
+              definition_id: "def",
+              document: { ...graph, name: "actual-latest" },
+            }),
+          ),
+        );
+      }
+      await waitFor(() =>
+        expect((editor as HTMLTextAreaElement).value).toContain(
+          "actual-latest",
+        ),
+      );
+    }
+  },
+);

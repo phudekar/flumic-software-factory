@@ -16,7 +16,11 @@ import {
 import { useData } from "../hooks";
 import { projectPath, useProjectData, useProjectId } from "../project-context";
 import { diagnostic, useWorkflowWrite } from "../workflow-api";
-import type { ProjectRun, ProjectJob } from "../workflow-api";
+import type {
+  ProjectRun,
+  ProjectJob,
+  ModelAccountingEvent,
+} from "../workflow-api";
 import { ProjectAccounting } from "./usage";
 export function ProjectRunsPage() {
   const project = useProjectId(),
@@ -124,7 +128,7 @@ function RunDetail({ id }: { id: string }) {
                   setMessage(
                     ["cancelled", "completed", "failed"].includes(receipt.state)
                       ? "Cancellation receipt: " + receipt.state
-                      : "Cancellation requested; execution may still be running.",
+                      : "Cancellation requested (receipt).",
                   );
               } catch (e) {
                 if (alive.current) setError(diagnostic(e));
@@ -135,11 +139,9 @@ function RunDetail({ id }: { id: string }) {
           >
             Request cancellation
           </button>
-          {value.state === "cancelling" &&
-            message !==
-              "Cancellation requested; execution may still be running." && (
-              <p>Cancellation requested; execution may still be running.</p>
-            )}
+          {value.state === "cancelling" && (
+            <p>Cancellation requested; execution may still be running.</p>
+          )}
           <Section title="Pinned dependency graph">
             <div className="editor-body">
               <p>
@@ -424,12 +426,17 @@ function ProjectHistory({ query }: { query: string }) {
         </div>
       </Section>
       <ProjectCalls
-        events={events.data?.filter((e) => e.kind === "model.completed") ?? []}
+        key={query}
+        events={
+          events.data?.filter(
+            (e): e is ModelAccountingEvent => e.kind === "model.completed",
+          ) ?? []
+        }
       />
     </>
   );
 }
-function ProjectCalls({ events }: { events: FactoryEvent[] }) {
+function ProjectCalls({ events }: { events: ModelAccountingEvent[] }) {
   const project = useProjectId(),
     [selected, setSelected] = useState<string | null>(null);
   const transcript = useQuery<Record<string, unknown>>({
@@ -460,10 +467,10 @@ function ProjectCalls({ events }: { events: FactoryEvent[] }) {
               </strong>
               <p>
                 Stage {e.stage ?? "unknown"} · tokens{" "}
-                {count(e.payload.input_tokens as number | null)} /{" "}
-                {count(e.payload.output_tokens as number | null)} · estimated{" "}
-                {money(e.payload.estimated_usd as number | null)} · reported{" "}
-                {money(e.payload.reported_usd as number | null)}
+                {count(e.payload.input_tokens)} /{" "}
+                {count(e.payload.output_tokens)} · estimated{" "}
+                {money(e.payload.estimated_usd)} · reported{" "}
+                {money(e.payload.reported_cost_usd)}
               </p>
               {e.payload.accounting_leaf === false && (
                 <p>Parent summary — excluded from totals</p>

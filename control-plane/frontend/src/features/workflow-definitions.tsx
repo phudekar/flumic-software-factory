@@ -1,3 +1,5 @@
+import { useQueryClient } from "@tanstack/react-query";
+import { api } from "../api";
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { Failure, PageTitle, Section, date } from "../components/ui";
@@ -87,6 +89,7 @@ export function DefinitionEditorPage() {
 function DefinitionEditor({ identifier }: { identifier?: string }) {
   const project = useProjectId(),
     navigate = useNavigate();
+  const client = useQueryClient();
   const definition = useProjectData<Definition>(
     "/workflow-definitions/" + (identifier ?? ""),
     !!identifier,
@@ -248,16 +251,41 @@ function DefinitionEditor({ identifier }: { identifier?: string }) {
                 {identifier ? (
                   <button
                     disabled={pending || !revision.data}
-                    onClick={() => {
-                      if (revision.data) {
-                        const source = graphSource(revision.data.document);
-                        setDraft({
-                          base: revision.data.id,
-                          source,
-                          baseline: source,
-                        });
-                        setError("");
-                        setMessage("");
+                    onClick={async () => {
+                      setPending(true);
+                      setError("");
+                      setMessage("");
+                      try {
+                        const refreshed = await definition.refetch();
+                        if (refreshed.error) throw refreshed.error;
+                        if (!refreshed.data)
+                          throw new Error("Definition head is unavailable.");
+                        if (!alive.current) return;
+                        const path =
+                          "/workflow-definition-revisions/" +
+                          refreshed.data.revision_id;
+                        const latest =
+                          await client.fetchQuery<DefinitionRevision>({
+                            queryKey: ["project", project, path],
+                            queryFn: ({ signal }) =>
+                              api<DefinitionRevision>(
+                                projectPath(project, path),
+                                undefined,
+                                { signal },
+                              ),
+                          });
+                        if (alive.current) {
+                          const source = graphSource(latest.document);
+                          setDraft({
+                            base: latest.id,
+                            source,
+                            baseline: source,
+                          });
+                        }
+                      } catch (e) {
+                        if (alive.current) setError(diagnostic(e));
+                      } finally {
+                        if (alive.current) setPending(false);
                       }
                     }}
                   >
