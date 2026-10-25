@@ -78,6 +78,13 @@ export function ProjectsPage() {
     [pending, setPending] = useState(false);
   const navigate = useNavigate();
   const client = useQueryClient();
+  const alive = useRef(true);
+  useEffect(() => {
+    alive.current = true;
+    return () => {
+      alive.current = false;
+    };
+  }, []);
   return (
     <>
       <PageTitle
@@ -108,11 +115,11 @@ export function ProjectsPage() {
             try {
               const p = await api<Project>("/projects", { name, slug });
               await client.invalidateQueries({ queryKey: ["projects"] });
-              navigate(projectPath(p.id, "/repositories"));
+              if (alive.current) navigate(projectPath(p.id, "/repositories"));
             } catch (e) {
-              setError((e as Error).message);
+              if (alive.current) setError((e as Error).message);
             } finally {
-              setPending(false);
+              if (alive.current) setPending(false);
             }
           }}
         >
@@ -358,33 +365,75 @@ function Repositories() {
     </>
   );
 }
+interface EffectiveResult {
+  repository_id: string;
+  repository_revision_id: string;
+  factory_revision_id: string;
+  settings: unknown;
+}
 function EffectivePreview({ repositories }: { repositories: Repository[] }) {
-  const [repository, setRepository] = useState(""),
-    [profile, setProfile] = useState("simple"),
-    [preview, setPreview] = useState<unknown>(null),
-    [error, setError] = useState(""),
+  const revisions = useProjectData<{ id: string }[]>("/config/revisions");
+  const head = revisions.data?.[0]?.id;
+  const [repositoryId, setRepositoryId] = useState("");
+  const [profile, setProfile] = useState("simple");
+  const [preview, setPreview] = useState<{
+    identity: string;
+    result: EffectiveResult;
+  } | null>(null);
+  const [error, setError] = useState(""),
     [pending, setPending] = useState(false);
   const { write, alive } = useScopedWrite();
-  const selected = repositories.some((r) => r.alias === repository)
-    ? repository
-    : (repositories[0]?.alias ?? "");
+  const selected =
+    repositories.find((r) => r.id === repositoryId) ??
+    (!repositoryId ? repositories[0] : undefined);
+  useEffect(() => {
+    setRepositoryId((current) =>
+      repositories.some((r) => r.id === current)
+        ? current
+        : (repositories[0]?.id ?? ""),
+    );
+  }, [repositories]);
+  const identity = JSON.stringify([
+    selected?.id,
+    selected?.revision_id,
+    profile,
+    head,
+  ]);
+  const currentIdentity = useRef(identity);
+  currentIdentity.current = identity;
   return (
     <Section title="Effective configuration preview">
       <form
         className="editor-body"
         onSubmit={async (e) => {
           e.preventDefault();
+          if (!selected) return;
+          const requestedIdentity = identity;
           setPending(true);
           setError("");
           setPreview(null);
           try {
-            const result = await write("/config/effective", {
-              repository: selected,
+            const result = await write<EffectiveResult>("/config/effective", {
+              repository: selected.alias,
               profile,
             });
-            if (alive.current) setPreview(result);
+            if (
+              alive.current &&
+              currentIdentity.current === requestedIdentity
+            ) {
+              if (
+                result.repository_id !== selected.id ||
+                result.repository_revision_id !== selected.revision_id ||
+                (head && result.factory_revision_id !== head)
+              ) {
+                setError(
+                  "Saved configuration changed during preview. Refresh and try again.",
+                );
+              } else setPreview({ identity: requestedIdentity, result });
+            }
           } catch (e) {
-            if (alive.current) setError((e as Error).message);
+            if (alive.current && currentIdentity.current === requestedIdentity)
+              setError((e as Error).message);
           } finally {
             if (alive.current) setPending(false);
           }
@@ -394,14 +443,15 @@ function EffectivePreview({ repositories }: { repositories: Repository[] }) {
           Preview repository
           <select
             disabled={pending}
-            value={selected}
+            value={selected?.id ?? ""}
             onChange={(e) => {
-              setRepository(e.target.value);
+              setRepositoryId(e.target.value);
               setPreview(null);
+              setError("");
             }}
           >
             {repositories.map((r) => (
-              <option key={r.id} value={r.alias}>
+              <option key={r.id} value={r.id}>
                 {r.alias}
               </option>
             ))}
@@ -415,14 +465,17 @@ function EffectivePreview({ repositories }: { repositories: Repository[] }) {
             onChange={(e) => {
               setProfile(e.target.value);
               setPreview(null);
+              setError("");
             }}
           />
         </label>
-        <button disabled={!selected || pending}>
+        <button disabled={!selected || pending || revisions.isPending}>
           Preview effective configuration
         </button>
-        <Failure error={error} />
-        {preview !== null && <pre>{JSON.stringify(preview, null, 2)}</pre>}
+        <Failure error={error || revisions.error} />
+        {preview?.identity === identity && (
+          <pre>{JSON.stringify(preview.result, null, 2)}</pre>
+        )}
       </form>
     </Section>
   );
@@ -548,23 +601,43 @@ function Credentials() {
     </>
   );
 }
+interface ConfigRevision {
+  id: string;
+  document: unknown;
+}
+interface ConfigDraft {
+  id: string;
+  baseline: string;
+  source: string;
+}
+function draftFor(revision: ConfigRevision): ConfigDraft {
+  const source = JSON.stringify(revision.document, null, 2);
+  return { id: revision.id, baseline: source, source };
+}
 export function ProjectConfiguration() {
   const revisions =
     useProjectData<{ id: string; summary: string }[]>("/config/revisions");
   const head = revisions.data?.[0]?.id;
-  const revision = useProjectData<{ id: string; document: unknown }>(
+  const revision = useProjectData<ConfigRevision>(
     "/config/revisions/" + (head ?? ""),
     !!head,
   );
-  const [source, setSource] = useState(""),
-    [error, setError] = useState(""),
+  const [draft, setDraft] = useState<ConfigDraft | null>(null);
+  const [error, setError] = useState(""),
     [message, setMessage] = useState(""),
     [pending, setPending] = useState(false);
   const { write, alive } = useScopedWrite();
   useEffect(() => {
-    if (revision.data)
-      setSource(JSON.stringify(revision.data.document, null, 2));
-  }, [revision.data]);
+    if (revision.data && !pending) {
+      const latest = revision.data;
+      setDraft((current) =>
+        !current || current.source === current.baseline
+          ? draftFor(latest)
+          : current,
+      );
+    }
+  }, [revision.data, pending]);
+  const changed = !!draft && !!head && draft.id !== head;
   return (
     <>
       <PageTitle
@@ -578,16 +651,20 @@ export function ProjectConfiguration() {
           className="editor-body"
           onSubmit={async (e) => {
             e.preventDefault();
+            if (!draft) return;
             setPending(true);
             setError("");
             setMessage("");
             try {
-              await write("/config/revisions", {
-                parent_id: head,
-                document: object(source),
+              const saved = await write<ConfigRevision>("/config/revisions", {
+                parent_id: draft.id,
+                document: object(draft.source),
                 summary: "Project defaults updated from Control Pane",
               });
-              if (alive.current) setMessage("Project configuration saved.");
+              if (alive.current) {
+                setDraft(draftFor(saved));
+                setMessage("Project configuration saved.");
+              }
             } catch (e) {
               if (alive.current) setError((e as Error).message);
             } finally {
@@ -595,22 +672,50 @@ export function ProjectConfiguration() {
             }
           }}
         >
+          {changed && (
+            <p role="status">
+              A newer configuration revision is available. Your draft retains
+              its original baseline; saving may conflict. Load the latest
+              revision deliberately to discard these edits.
+            </p>
+          )}
           <label>
             Project configuration JSON
             <textarea
               rows={20}
-              value={source}
-              onChange={(e) => setSource(e.target.value)}
+              disabled={pending || !draft}
+              value={draft?.source ?? ""}
+              onChange={(e) =>
+                setDraft((current) =>
+                  current ? { ...current, source: e.target.value } : null,
+                )
+              }
             />
           </label>
-          <button disabled={pending || !revision.data}>
+          <button disabled={pending || !draft}>
             Save project configuration
           </button>
+          {(changed || draft?.source !== draft?.baseline) && (
+            <button
+              type="button"
+              disabled={pending || !revision.data}
+              onClick={() => {
+                if (revision.data) {
+                  setDraft(draftFor(revision.data));
+                  setError("");
+                  setMessage("");
+                }
+              }}
+            >
+              Discard edits and load latest
+            </button>
+          )}
           {message && <p role="status">{message}</p>}
           <small>
-            Active revision: {head ?? "unavailable"}. Provider grants are
-            selected by workflow action bindings using the project credential
-            IDs. Running actions keep their pinned settings.
+            Editor baseline: {draft?.id ?? "unavailable"}. Latest revision:{" "}
+            {head ?? "unavailable"}. Provider grants are selected by workflow
+            action bindings using the project credential IDs. Running actions
+            keep their pinned settings.
           </small>
         </form>
       </Section>

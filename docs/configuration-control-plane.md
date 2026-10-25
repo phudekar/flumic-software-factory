@@ -186,12 +186,19 @@ Identity, infrastructure and inline credentials are not behavior overrides. Use
 **Effective configuration preview** with an alias and profile (`simple` or
 `developer`) to inspect the saved project defaults merged with the saved
 repository revision. Save overrides before previewing them. This preview does not
-include a particular workflow or stage's additional overrides.
+include a particular workflow or stage's additional overrides. Selection follows
+the repository identity, so connecting another alias cannot silently switch the
+preview. A changed saved repository or configuration revision clears the result;
+late responses for the older revision are ignored.
 
 ### Project defaults and shared workers
 
 **Project configuration** edits the full validated project configuration document
-and shows its saved revision IDs. New runs pin the configuration revision; edits
+and shows its saved revision IDs. The editor retains the revision on which its
+draft was based. If another operator publishes while you are editing, your JSON
+is preserved and saving against the earlier parent produces a conflict. Use
+**Discard edits and load latest** deliberately to replace the draft. New runs pin
+the configuration revision; edits
 do not rewrite an active run. These project defaults are independent of worker
 pool images and slots. The **Legacy profiles** link and existing unscoped sidebar
 screens continue to refer to the default legacy project and its saved profile

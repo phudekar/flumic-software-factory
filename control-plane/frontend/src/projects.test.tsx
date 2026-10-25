@@ -178,6 +178,8 @@ it("saves immutable repository edits with owned credential references and previe
         if (input.endsWith("/config/effective"))
           return json({
             repository_id: "ar",
+            repository_revision_id: "ar1",
+            factory_revision_id: "f1",
             settings: { openai_model: "custom-model" },
           });
         return json({ id: "ar" });
@@ -254,6 +256,7 @@ it("does not let a previous repository preview overwrite a changed selection", a
             alias: "one",
             owner: "alpha",
             name: "one",
+            revision_id: "ar1",
             overrides: {},
           },
           {
@@ -261,6 +264,7 @@ it("does not let a previous repository preview overwrite a changed selection", a
             alias: "two",
             owner: "alpha",
             name: "two",
+            revision_id: "ar2rev",
             overrides: {},
           },
         ]);
@@ -275,10 +279,18 @@ it("does not let a previous repository preview overwrite a changed selection", a
   await waitFor(() => expect(finish).toBeDefined());
   expect(screen.getByLabelText("Preview repository")).toBeDisabled();
   await act(async () =>
-    finish(json({ repository_id: "ar", settings: { model: "first-model" } })),
+    finish(
+      json({
+        repository_id: "ar",
+        repository_revision_id: "ar1",
+        factory_revision_id: "f1",
+        settings: { openai_model: "first-model" },
+      }),
+    ),
   );
+  expect(screen.getByText(/first-model/)).toBeInTheDocument();
   fireEvent.change(screen.getByLabelText("Preview repository"), {
-    target: { value: "two" },
+    target: { value: "ar2" },
   });
   expect(screen.queryByText(/first-model/)).not.toBeInTheDocument();
 });
@@ -408,4 +420,260 @@ it("clears project defaults forms and ignores an earlier project save result", a
     (screen.getByLabelText("Project configuration JSON") as HTMLTextAreaElement)
       .value,
   ).toContain("beta-model");
+});
+it("keeps dirty project defaults when head refreshes and submits the draft baseline", async () => {
+  let head = "a1";
+  const parents: string[] = [];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: string, options?: RequestInit) => {
+      if (input.endsWith("/auth/session")) return json({ csrf: "test" });
+      if (input === "/api/v1/projects") return json(projects);
+      if (input.endsWith("/config/revisions") && options?.method === "POST") {
+        parents.push(JSON.parse(String(options.body)).parent_id);
+        return new Response(
+          JSON.stringify({
+            detail: "Configuration changed; reload before saving",
+          }),
+          { status: 409, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      if (input.endsWith("/config/revisions"))
+        return json([{ id: head, summary: "Defaults" }]);
+      if (input.endsWith("/config/revisions/a1"))
+        return json({
+          id: "a1",
+          document: { defaults: { openai_model: "initial" } },
+        });
+      if (input.endsWith("/config/revisions/a2"))
+        return json({
+          id: "a2",
+          document: { defaults: { openai_model: "external-change" } },
+        });
+      return json({});
+    }),
+  );
+  const client = mount("/projects/a/config");
+  await waitFor(() =>
+    expect(
+      (
+        screen.getByLabelText(
+          "Project configuration JSON",
+        ) as HTMLTextAreaElement
+      ).value,
+    ).toContain("initial"),
+  );
+  fireEvent.change(screen.getByLabelText("Project configuration JSON"), {
+    target: { value: '{"defaults":{"openai_model":"unsaved"}}' },
+  });
+  head = "a2";
+  await act(async () => {
+    await client.invalidateQueries({
+      queryKey: ["project", "a", "/config/revisions"],
+    });
+  });
+  await waitFor(() =>
+    expect(
+      client.getQueryData(["project", "a", "/config/revisions/a2"]),
+    ).toBeDefined(),
+  );
+  expect(screen.getByLabelText("Project configuration JSON")).toHaveValue(
+    '{"defaults":{"openai_model":"unsaved"}}',
+  );
+  fireEvent.click(
+    screen.getByRole("button", { name: "Save project configuration" }),
+  );
+  await screen.findByText("Configuration changed; reload before saving");
+  expect(parents).toEqual(["a1"]);
+  fireEvent.click(
+    screen.getByRole("button", { name: "Discard edits and load latest" }),
+  );
+  expect(
+    (screen.getByLabelText("Project configuration JSON") as HTMLTextAreaElement)
+      .value,
+  ).toContain("external-change");
+});
+it("does not let a delayed project creation replace a later selected project or its draft", async () => {
+  let finish!: (r: Response) => void;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: string, options?: RequestInit) => {
+      if (input.endsWith("/auth/session")) return json({ csrf: "test" });
+      if (input === "/api/v1/projects" && options?.method === "POST")
+        return new Promise<Response>((resolve) => {
+          finish = resolve;
+        });
+      if (input === "/api/v1/projects") return json(projects);
+      if (
+        input.endsWith("/repositories") ||
+        input.endsWith("/secrets") ||
+        input.endsWith("/config/revisions")
+      )
+        return json([]);
+      return json({});
+    }),
+  );
+  mount("/projects");
+  await screen.findByLabelText("Project name");
+  fireEvent.change(screen.getByLabelText("Project name"), {
+    target: { value: "Created" },
+  });
+  fireEvent.change(screen.getByLabelText("Project slug"), {
+    target: { value: "created" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Create project" }));
+  await waitFor(() => expect(finish).toBeDefined());
+  fireEvent.change(screen.getByLabelText("Project"), {
+    target: { value: "b" },
+  });
+  await screen.findByLabelText("Repository alias");
+  fireEvent.change(screen.getByLabelText("Repository alias"), {
+    target: { value: "beta-draft" },
+  });
+  await act(async () =>
+    finish(json({ id: "created", name: "Created", slug: "created" })),
+  );
+  expect(screen.getByLabelText("Project")).toHaveValue("b");
+  expect(screen.getByLabelText("Repository alias")).toHaveValue("beta-draft");
+});
+it("keeps preview repository identity stable when a new earlier alias is created", async () => {
+  let added = false;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: string, options?: RequestInit) => {
+      if (input.endsWith("/auth/session")) return json({ csrf: "test" });
+      if (input === "/api/v1/projects") return json(projects);
+      if (input.endsWith("/config/effective"))
+        return json({
+          repository_id: "z",
+          repository_revision_id: "z1",
+          factory_revision_id: "f1",
+          settings: { openai_model: "zulu-model" },
+        });
+      if (input.endsWith("/repositories") && options?.method === "POST") {
+        added = true;
+        return json({ id: "alpha" });
+      }
+      if (input.endsWith("/repositories"))
+        return json([
+          ...(added
+            ? [
+                {
+                  id: "alpha",
+                  alias: "alpha",
+                  owner: "a",
+                  name: "a",
+                  revision_id: "a1",
+                  overrides: {},
+                },
+              ]
+            : []),
+          {
+            id: "z",
+            alias: "zulu",
+            owner: "z",
+            name: "z",
+            revision_id: "z1",
+            overrides: {},
+          },
+        ]);
+      return json([]);
+    }),
+  );
+  mount();
+  await screen.findByRole("button", { name: "zulu" });
+  fireEvent.click(
+    screen.getByRole("button", { name: "Preview effective configuration" }),
+  );
+  await screen.findByText(/zulu-model/);
+  fireEvent.change(screen.getByLabelText("Repository alias"), {
+    target: { value: "alpha" },
+  });
+  fireEvent.change(screen.getByLabelText("GitHub owner"), {
+    target: { value: "a" },
+  });
+  fireEvent.change(screen.getByLabelText("Repository name"), {
+    target: { value: "a" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Save repository" }));
+  await screen.findByRole("button", { name: "alpha" });
+  expect(screen.getByLabelText("Preview repository")).toHaveDisplayValue(
+    "zulu",
+  );
+});
+it("discards old effective results when a repository revision changes during preview", async () => {
+  let revision = "z1";
+  let head = "f1";
+  let finish!: (r: Response) => void;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: string) => {
+      if (input.endsWith("/auth/session")) return json({ csrf: "test" });
+      if (input === "/api/v1/projects") return json(projects);
+      if (input.endsWith("/config/revisions")) return json([{ id: head }]);
+      if (input.endsWith("/config/effective"))
+        return new Promise<Response>((resolve) => {
+          finish = resolve;
+        });
+      if (input.endsWith("/repositories"))
+        return json([
+          {
+            id: "z",
+            alias: "zulu",
+            owner: "z",
+            name: "z",
+            revision_id: revision,
+            overrides: {},
+          },
+        ]);
+      return json([]);
+    }),
+  );
+  const client = mount();
+  await screen.findByRole("button", { name: "zulu" });
+  fireEvent.click(
+    screen.getByRole("button", { name: "Preview effective configuration" }),
+  );
+  await waitFor(() => expect(finish).toBeDefined());
+  revision = "z2";
+  await act(async () => {
+    await client.invalidateQueries({
+      queryKey: ["project", "a", "/repositories"],
+    });
+  });
+  await screen.findByText("revision z2");
+  await act(async () =>
+    finish(
+      json({
+        repository_id: "z",
+        repository_revision_id: "z1",
+        factory_revision_id: "f1",
+        settings: { openai_model: "old-result" },
+      }),
+    ),
+  );
+  expect(screen.queryByText(/old-result/)).not.toBeInTheDocument();
+  fireEvent.click(
+    screen.getByRole("button", { name: "Preview effective configuration" }),
+  );
+  await act(async () =>
+    finish(
+      json({
+        repository_id: "z",
+        repository_revision_id: "z2",
+        factory_revision_id: "f1",
+        settings: { openai_model: "current-result" },
+      }),
+    ),
+  );
+  expect(screen.getByText(/current-result/)).toBeInTheDocument();
+  head = "f2";
+  await act(async () => {
+    await client.invalidateQueries({
+      queryKey: ["project", "a", "/config/revisions"],
+    });
+  });
+  await waitFor(() =>
+    expect(screen.queryByText(/current-result/)).not.toBeInTheDocument(),
+  );
 });
