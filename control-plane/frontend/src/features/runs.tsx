@@ -1,3 +1,9 @@
+export {
+  ProjectRunsPage,
+  ProjectRunPage,
+  ProjectJobPage,
+  ProjectWorkerPage,
+} from "./project-runs";
 import { useQuery } from "@tanstack/react-query";
 import { Clock3, Search, Workflow } from "lucide-react";
 import { useState } from "react";

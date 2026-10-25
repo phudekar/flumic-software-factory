@@ -6,7 +6,13 @@ from pydantic import BaseModel, ConfigDict, Field
 from factory.configuration import read_configuration, profile_fragment
 from sqlalchemy import select, desc, text
 from app.projects import project_parameter, request_scope, require_owned
-from app.database import Revision, WorkerConfiguration, Worker, Audit, DEFAULT_PROJECT_ID
+from app.database import (
+    Revision,
+    WorkerConfiguration,
+    Worker,
+    Audit,
+    DEFAULT_PROJECT_ID,
+)
 
 
 def bootstrap(db, config, project_id=DEFAULT_PROJECT_ID):
@@ -18,7 +24,11 @@ def bootstrap(db, config, project_id=DEFAULT_PROJECT_ID):
         .order_by(desc(Revision.created_at))
         .limit(1)
     )
-    if not db.scalar(select(WorkerConfiguration.id).where(WorkerConfiguration.project_id == project_id).limit(1)):
+    if not db.scalar(
+        select(WorkerConfiguration.id)
+        .where(WorkerConfiguration.project_id == project_id)
+        .limit(1)
+    ):
         paths = sorted((config.root / "config/worker-profiles").glob("*.yaml"))
         if not paths:
             raise ValueError("Bootstrap worker profile files are missing")
@@ -65,7 +75,9 @@ def bootstrap(db, config, project_id=DEFAULT_PROJECT_ID):
         return
     for worker in db.scalars(
         select(Worker).where(
-            Worker.config_id.is_(None), Worker.desired_state != "removed"
+            Worker.config_id.is_(None),
+            Worker.desired_state != "removed",
+            Worker.protocol == "legacy",
         )
     ):
         attach_imported_profile(db, config, worker)
@@ -132,15 +144,16 @@ class FactoryEdit(BaseModel):
 
 def install(app, sessions, config, row):
     router = APIRouter()
+
     @router.get("/worker-profiles")
     @router.get("/worker-configs")
     def configurations(request: Request):
         with sessions() as db:
             scope = request_scope(request, db)
             items = db.scalars(
-                select(WorkerConfiguration).where(WorkerConfiguration.project_id == scope.project_id).order_by(
-                    desc(WorkerConfiguration.created_at)
-                )
+                select(WorkerConfiguration)
+                .where(WorkerConfiguration.project_id == scope.project_id)
+                .order_by(desc(WorkerConfiguration.created_at))
             ).all()
             return [row(item) for item in items]
 
@@ -150,7 +163,9 @@ def install(app, sessions, config, row):
             scope = request_scope(request, db)
             factory = db.scalar(
                 select(Revision)
-                .where(Revision.scope == "factory", Revision.project_id == scope.project_id)
+                .where(
+                    Revision.scope == "factory", Revision.project_id == scope.project_id
+                )
                 .order_by(desc(Revision.created_at))
                 .limit(1)
             )
@@ -194,7 +209,9 @@ def install(app, sessions, config, row):
             parent = db.get(
                 WorkerConfiguration, body.parent_id or body.cloned_from or ""
             )
-            if (body.parent_id or body.cloned_from) and (parent is None or parent.project_id != scope.project_id):
+            if (body.parent_id or body.cloned_from) and (
+                parent is None or parent.project_id != scope.project_id
+            ):
                 raise HTTPException(404, "Source configuration not found")
             if body.parent_id:
                 if db.bind.dialect.name == "postgresql":
@@ -204,7 +221,10 @@ def install(app, sessions, config, row):
                     )
                 latest = db.scalar(
                     select(WorkerConfiguration)
-                    .where(WorkerConfiguration.family_id == parent.family_id, WorkerConfiguration.project_id == scope.project_id)
+                    .where(
+                        WorkerConfiguration.family_id == parent.family_id,
+                        WorkerConfiguration.project_id == scope.project_id,
+                    )
                     .order_by(desc(WorkerConfiguration.created_at))
                     .limit(1)
                 )
@@ -231,7 +251,9 @@ def install(app, sessions, config, row):
             scope = request_scope(request, db)
             revision = db.scalar(
                 select(Revision)
-                .where(Revision.scope == "factory", Revision.project_id == scope.project_id)
+                .where(
+                    Revision.scope == "factory", Revision.project_id == scope.project_id
+                )
                 .order_by(desc(Revision.created_at))
                 .limit(1)
             )
@@ -249,7 +271,9 @@ def install(app, sessions, config, row):
             require_owned(db, scope, Revision, body.parent_id)
             latest = db.scalar(
                 select(Revision)
-                .where(Revision.scope == "factory", Revision.project_id == scope.project_id)
+                .where(
+                    Revision.scope == "factory", Revision.project_id == scope.project_id
+                )
                 .order_by(desc(Revision.created_at))
                 .with_for_update()
                 .limit(1)
@@ -273,4 +297,8 @@ def install(app, sessions, config, row):
             return {"id": revision.id, "document": config.factory_view(document)}
 
     app.include_router(router, prefix="/api/v1")
-    app.include_router(router, prefix="/api/v1/projects/{project_id}", dependencies=[Depends(project_parameter)])
+    app.include_router(
+        router,
+        prefix="/api/v1/projects/{project_id}",
+        dependencies=[Depends(project_parameter)],
+    )

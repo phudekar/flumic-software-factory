@@ -1448,3 +1448,29 @@ pre {
 .project-space .panel {
   margin-bottom: 24px;
 }
+
+.workflow-stage {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 18px;
+  margin: 18px 0;
+}
+.workflow-stage h3 {
+  margin-top: 0;
+}
+.workflow-attempt {
+  border-left: 2px solid var(--green);
+  padding: 10px 14px;
+  margin: 12px 0;
+  overflow-wrap: anywhere;
+}
+.project-space [role="alert"] {
+  white-space: pre-wrap;
+}
+.project-space details {
+  margin: 12px 0;
+}
+.project-space summary {
+  cursor: pointer;
+  color: var(--muted);
+}

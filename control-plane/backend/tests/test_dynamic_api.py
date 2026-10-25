@@ -1249,6 +1249,49 @@ class DynamicApiTests(unittest.TestCase):
                 assignment_deadline(db, row, self.settings) - row.started_at, 300
             )
 
+    def test_run_detail_exposes_pinned_dag_context_and_owned_attempt_worker_links(self):
+        scope, repo, definition = self.arrange()
+        response = self.launch(scope, definition)
+        run_id = response.json()["id"]
+        detail = self.client.get(
+            f"/api/v1/projects/{scope.project_id}/workflow-runs/{run_id}"
+        ).json()
+        self.assertEqual(detail["definition_id"], definition["id"])
+        stage = detail["stages"][0]
+        self.assertEqual(stage["id"], "echo-0")
+        self.assertEqual(stage["executor"], "builtin@1")
+        self.assertEqual(stage["repository_id"], repo)
+        self.assertEqual(stage["settings"]["openai_model"], "model-before")
+        self.assertNotIn("secret_versions", stage)
+        self.assertNotIn("private input", str(detail))
+        attempt = detail["attempts"][0]
+        self.assertIsNone(attempt["worker_id"])
+        self.assertIsNone(attempt["job_id"])
+        self.assertEqual(stage["after"], [])
+        self.assertEqual(detail["default_repository"], "backend")
+
+    def test_operator_job_detail_distinguishes_cancellation_intent_from_terminal_receipt(
+        self,
+    ):
+        import test_docker_jobs as jobs
+
+        case = jobs.JobBrokerTests("test_same_key_durable_reattach_and_digest_conflict")
+        case.__dict__.update(self.__dict__)
+        case.arrange()
+        receipt = case.submit()
+        case.broker.cancel(case.scope, receipt.job_id)
+        response = self.client.get(
+            f"/api/v1/projects/{case.scope.project_id}/jobs/{receipt.job_id}"
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertTrue(response.json()["cancel_requested"])
+        self.assertNotEqual(response.json()["state"], "cancelled")
+        detail = self.client.get(
+            f"/api/v1/projects/{case.scope.project_id}/workflow-runs/{case.run.id}"
+        ).json()
+        self.assertEqual(detail["attempts"][0]["job_id"], receipt.job_id)
+        self.assertIsNotNone(detail["attempts"][0]["worker_id"])
+
 
 class DynamicMigrationTests(unittest.TestCase):
     def test_populated_upgrade_backfills_started_authority_and_roundtrips(self):

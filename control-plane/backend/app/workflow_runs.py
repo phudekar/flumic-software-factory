@@ -11,6 +11,7 @@ from app.database import (
     DynamicDispatch,
     RuntimeJob,
     ProjectFollowup,
+    Assignment,
 )
 from app.projects import ProjectScope, require_owned, request_scope, project_parameter
 from app.workflow_state import WorkflowState, transition_lock
@@ -293,6 +294,8 @@ class DynamicRuntime:
             for key in ("id", "project_id", "snapshot_id", "state", "created_at")
         }
         result["revision_id"] = pin["workflow_revision_id"]
+        result["definition_id"] = pin["definition_id"]
+        result["name"] = pin["definition"]["name"]
         dispatch = db.scalar(
             select(DynamicDispatch).where(
                 DynamicDispatch.project_id == scope.project_id,
@@ -310,6 +313,47 @@ class DynamicRuntime:
             else {"state": "pending", "engine_id": None, "error": None}
         )
         if detail:
+            import json
+
+            result["default_repository"] = pin["definition"]["default_repository"]
+            result["stages"] = []
+            for stage in pin["definition"]["stages"]:
+                metadata = pin["stages"][stage["id"]]
+                result["stages"].append(
+                    {
+                        **{
+                            key: stage[key]
+                            for key in (
+                                "id",
+                                "after",
+                                "when",
+                                "inputs",
+                                "timeout_seconds",
+                                "retries",
+                            )
+                        },
+                        **{
+                            key: metadata[key]
+                            for key in (
+                                "repository_id",
+                                "repository_alias",
+                                "repository_revision_id",
+                                "config_revision_id",
+                                "pool_id",
+                                "profile",
+                                "role",
+                                "executor",
+                                "action",
+                            )
+                        },
+                        "settings": json.loads(metadata["settings_json"]),
+                        **{
+                            key: stage[key]
+                            for key in ("image", "command", "network", "limits")
+                            if key in stage
+                        },
+                    }
+                )
             result["followups"] = []
             for item, waiting in db.execute(
                 select(ProjectFollowup, DynamicDispatch)
@@ -342,14 +386,27 @@ class DynamicRuntime:
                 result["followups"].append(entry)
             result["attempts"] = [
                 {
-                    key: getattr(item, key)
-                    for key in (
-                        "id",
-                        "stage_id",
-                        "generation",
-                        "state",
-                        "assignment_id",
-                    )
+                    **{
+                        key: getattr(item, key)
+                        for key in (
+                            "id",
+                            "stage_id",
+                            "generation",
+                            "state",
+                            "assignment_id",
+                        )
+                    },
+                    "worker_id": require_owned(
+                        db, scope, Assignment, item.assignment_id
+                    ).worker_id
+                    if item.assignment_id
+                    else None,
+                    "job_id": db.scalar(
+                        select(RuntimeJob.id).where(
+                            RuntimeJob.project_id == scope.project_id,
+                            RuntimeJob.execution_id == item.id,
+                        )
+                    ),
                 }
                 for item in db.scalars(
                     select(StageAttempt)
@@ -484,9 +541,12 @@ def install(app, sessions, settings, config):
     )
     def job(identifier: str, request: Request):
         with sessions() as db:
-            return runtime.broker._receipt(
-                require_owned(db, request_scope(request, db), RuntimeJob, identifier)
-            ).model_dump()
+            item = require_owned(db, request_scope(request, db), RuntimeJob, identifier)
+            return {
+                **runtime.broker._receipt(item).model_dump(),
+                "cancel_requested": item.cancel_requested,
+                "error": item.error,
+            }
 
     @app.post(
         "/api/v1/projects/{project_id}/workflow-runs",

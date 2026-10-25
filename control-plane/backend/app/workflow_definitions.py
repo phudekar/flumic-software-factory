@@ -242,6 +242,38 @@ def install(app, sessions, config, settings):
             )
         }
 
+    @app.get(
+        "/api/v1/projects/{project_id}/workflow-catalog",
+        dependencies=[Depends(project_parameter)],
+    )
+    def catalog(request: Request):
+        from factory.workflows.action_schemas import CATALOG
+
+        with sessions() as db:
+            request_scope(request, db)
+        return {
+            "definition_schema": WorkflowDefinition.model_json_schema(),
+            "actions": [
+                {
+                    "id": action.id,
+                    "role": action.role,
+                    "input_schema": action.arguments.model_json_schema()
+                    if action.arguments
+                    else {"type": "object"},
+                    "output_schema": action.output.model_json_schema()
+                    if action.output
+                    else {"type": "object"},
+                }
+                for action in CATALOG.values()
+            ],
+            "executors": [
+                {"id": "builtin", "available": True, "version": "builtin@1"},
+                {"id": "docker", "available": True, "version": "docker@1"},
+                {"id": "kubernetes", "available": False},
+                {"id": "function", "available": False},
+            ],
+        }
+
     @app.post(
         "/api/v1/projects/{project_id}/workflow-definitions/validate",
         dependencies=[Depends(project_parameter)],

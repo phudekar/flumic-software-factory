@@ -384,6 +384,30 @@ class WorkflowDefinitionTests(unittest.TestCase):
                         connection.execute(text('DROP SCHEMA "' + schema + '" CASCADE'))
                     admin.dispose()
 
+    def test_scoped_catalog_exposes_versioned_schemas_and_unavailable_future_executors(
+        self,
+    ):
+        project, base, *_ = self.setup_graph()
+        response = self.client.get(base + "/workflow-catalog")
+        self.assertEqual(response.status_code, 200, response.text)
+        catalog = response.json()
+        actions = {a["id"]: a for a in catalog["actions"]}
+        self.assertIn("command", actions["issue.load@1"]["input_schema"]["properties"])
+        self.assertIn("schema_version", catalog["definition_schema"]["properties"])
+        self.assertEqual(
+            {e["id"] for e in catalog["executors"] if e["available"]},
+            {"builtin", "docker"},
+        )
+        self.assertFalse(
+            next(e for e in catalog["executors"] if e["id"] == "kubernetes")[
+                "available"
+            ]
+        )
+        self.assertEqual(
+            self.client.get("/api/v1/projects/missing/workflow-catalog").status_code,
+            404,
+        )
+
 
 class SQLitePublicationRaceTests(unittest.TestCase):
     setup_graph = WorkflowDefinitionTests.setup_graph
@@ -395,9 +419,14 @@ class SQLitePublicationRaceTests(unittest.TestCase):
         from unittest.mock import patch
 
         self.sqlite_dir = tempfile.TemporaryDirectory()
-        with patch.dict(os.environ, {
-            "CONTROL_TEST_DATABASE_URL": "sqlite:///" + self.sqlite_dir.name + "/race.db"
-        }):
+        with patch.dict(
+            os.environ,
+            {
+                "CONTROL_TEST_DATABASE_URL": "sqlite:///"
+                + self.sqlite_dir.name
+                + "/race.db"
+            },
+        ):
             fixtures.ControlPlaneTests.setUp(self)
 
     def tearDown(self):
@@ -434,7 +463,11 @@ class SQLitePublicationRaceTests(unittest.TestCase):
                 codes = list(threads.map(update, ["one", "two"]))
         self.assertEqual(sorted(codes), [200, 409])
         with self.sessions() as db:
-            revisions = list(db.scalars(select(models.WorkflowRevision).where(
-                models.WorkflowRevision.definition_id == published["id"]
-            )))
+            revisions = list(
+                db.scalars(
+                    select(models.WorkflowRevision).where(
+                        models.WorkflowRevision.definition_id == published["id"]
+                    )
+                )
+            )
             self.assertEqual(len(revisions), 2)

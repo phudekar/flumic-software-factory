@@ -8,6 +8,7 @@ import {
   PageTitle,
   Section,
 } from "../components/ui";
+import { useProjectData } from "../project-context";
 import { useData } from "../hooks";
 
 export function UsagePage() {
@@ -77,5 +78,41 @@ export function UsagePage() {
         unreported cache writes, tool fees, and invoices can differ.
       </div>
     </>
+  );
+}
+
+export function ProjectAccounting({ query }: { query: string }) {
+  const data = useProjectData<Usage>("/usage?" + query),
+    value = data.data;
+  return (
+    <Section title="Project AI accounting">
+      <div className="editor-body">
+        <Failure error={data.error} />
+        <p>
+          Input tokens:{" "}
+          {value?.input_tokens == null ? "Unknown" : count(value.input_tokens)}{" "}
+          · Output tokens:{" "}
+          {value?.output_tokens == null
+            ? "Unknown"
+            : count(value.output_tokens)}
+        </p>
+        <p>
+          Estimated cost: <strong>{money(value?.estimated_usd)}</strong> ·
+          Reported cost: <strong>{money(value?.reported_usd)}</strong>
+        </p>
+        <p>
+          {count(value?.calls)} accounting calls ·{" "}
+          {count(value?.unpriced_calls)} unpriced ·{" "}
+          {count(value?.missing_usage_calls)} missing usage.{" "}
+          {value?.truncated
+            ? "Limited to 10,000 retained events."
+            : "Retained events only, up to 10,000."}
+        </p>
+        <small>
+          Known subtotals only. Estimated and reported costs are separate and
+          are never added. CPU/memory do not imply token usage or AI cost.
+        </small>
+      </div>
+    </Section>
   );
 }

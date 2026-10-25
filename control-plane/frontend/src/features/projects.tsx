@@ -1,3 +1,14 @@
+import {
+  WorkflowDefinitionsPage,
+  DefinitionEditorPage,
+  DefinitionRevisionPage,
+} from "./workflow-definitions";
+import {
+  ProjectRunsPage,
+  ProjectRunPage,
+  ProjectJobPage,
+  ProjectWorkerPage,
+} from "./runs";
 import { useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -165,6 +176,8 @@ function ScopedPages() {
     <div className="project-space">
       <nav className="tabs">
         {[
+          ["workflows", "Workflows"],
+          ["runs", "Workflow runs"],
           ["repositories", "Repositories"],
           ["credentials", "Credentials"],
           ["config", "Project configuration"],
@@ -179,6 +192,20 @@ function ScopedPages() {
       <Failure error={project.error} />
       <Routes>
         <Route index element={<Navigate to="repositories" replace />} />
+        <Route path="workflows" element={<WorkflowDefinitionsPage />} />
+        <Route path="workflows/new" element={<DefinitionEditorPage />} />
+        <Route
+          path="workflows/:definitionId"
+          element={<DefinitionEditorPage />}
+        />
+        <Route
+          path="workflow-revisions/:revisionId"
+          element={<DefinitionRevisionPage />}
+        />
+        <Route path="runs" element={<ProjectRunsPage />} />
+        <Route path="runs/:runId" element={<ProjectRunPage />} />
+        <Route path="jobs/:jobId" element={<ProjectJobPage />} />
+        <Route path="workers/:workerId" element={<ProjectWorkerPage />} />
         <Route path="repositories" element={<Repositories />} />
         <Route path="credentials" element={<Credentials />} />
         <Route path="config" element={<ProjectConfiguration />} />
