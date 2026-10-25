@@ -6,6 +6,7 @@ export class ApiError extends Error {
   constructor(
     message: string,
     public readonly status: number,
+    public readonly detail?: unknown,
   ) {
     super(message);
   }
@@ -43,6 +44,7 @@ export async function api<T>(
         ? error.detail
         : "Please check the submitted values.",
       response.status,
+      error.detail,
     );
   }
   return response.json();

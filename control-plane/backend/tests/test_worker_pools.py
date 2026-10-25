@@ -458,3 +458,21 @@ class WorkerPoolTests(unittest.TestCase):
         self.assertEqual(item["missing_actions"], ["issue.load@1"])
         self.assertEqual(item["missing_executors"], [])
         self.assertEqual(item["capability_state"], "partial")
+
+    def test_api_restart_does_not_treat_shared_pool_revision_as_legacy_configuration(
+        self,
+    ):
+        from fastapi.testclient import TestClient
+
+        pool = self.pool("restart-pool")
+        worker, _ = self.worker(pool)
+        app = fixtures.create_app(
+            self.settings, self.sessions, self.runtime, self.workflow
+        )
+        with TestClient(app) as client:
+            self.assertEqual(client.get("/api/v1/health").status_code, 200)
+        with self.sessions() as db:
+            row = db.get(models.Worker, worker)
+            self.assertIsNone(row.config_id)
+            self.assertEqual(row.revision_id, pool["id"])
+            self.assertEqual(row.protocol, "shared-v1")

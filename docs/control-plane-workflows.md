@@ -1,6 +1,6 @@
 # Workflow controls
 
-The Workflows page lists only factory-owned workflow definitions through the
+The legacy Workflows page at `/workflows` lists only factory-owned workflow definitions through the
 workflow-engine adapter. Trigger creates a run; Pause and Resume affect a
 workflow definition across its workers, not individual active tasks or Docker
 containers. The local Hatchet server reports native pause state for all eleven
@@ -37,3 +37,118 @@ behavior. Test adapter scoping, pause semantics, input validation, idempotency,
 uncertain responses, audit and UI controls with mocks; read-only production
 checks confirm the list and capability status. Back up the DB before deploying
 the additive migration. No paid workflows are launched as deployment validation.
+
+
+## Project workflow authoring and execution
+
+Choose a project in the sidebar, then open its **Workflows** tab. These
+`/projects/<project UUID>/...` routes manage data-defined graphs; the unscoped
+legacy engine controls described above remain separate. Configure repository
+connections and authorize shared worker pools first. No workflow starts merely
+because a definition is validated or published.
+
+### Create, validate and publish a graph
+
+1. Select **New workflow**. **Insert starter using project repository and pool**
+   inserts an echo example using an available repository and authorized compatible
+   pool. If none exist, the placeholders must be replaced after configuration.
+2. Edit YAML or JSON. Declare `schema_version: 1`, a unique `name`, repository
+   aliases, `default_repository`, and stages. Each stage declares its pool, role,
+   executor and inputs. Builtins require an exact version such as `core.echo@1`.
+   Docker stages require a digest-pinned image, argv command and a pool advertising
+   `docker@1` and `docker.run@1`.
+3. Use `after: [load]` to establish a direct dependency. Reference its output with
+   `value: {$ref: stages.load.output}`. Run inputs use `{$ref: input.message}`.
+   Missing parents, cycles, invalid bindings, foreign repository aliases and
+   unsupported capabilities are rejected by validation.
+4. Select **Validate definition**. Diagnostics retain field paths, such as
+   `stages.0.inputs`, without replacing your source. The expandable action catalog
+   shows input/output schemas, required roles and the full workflow schema.
+5. Select **Publish revision**. Publication creates an immutable version. Updates
+   submit the editor's captured parent revision; a stale parent returns a conflict
+   and preserves your draft. A newer head does not silently replace dirty text.
+   **Discard edits and load latest** deliberately resets the editor.
+
+Kubernetes and function executors are explicitly unavailable in v1. They cannot be
+activated by spelling a new executor in YAML. See the [stage and binding
+reference](workflow-development.md#data-defined-workflow-revisions).
+
+![Project workflow YAML editor with schema validation and immutable publication](images/control-plane-project-workflow-editor.png)
+
+The editor screenshot uses an isolated example project and deterministic test data.
+
+### Run an immutable revision
+
+Open **View or run this saved revision**, or choose a revision in **Immutable
+revision history**. The saved document is read-only. The run form remains attached
+to that exact revision even if someone publishes another head.
+
+Confirm the definition's default repository, provide **Run input JSON**, and supply
+**Follow-up bindings JSON** when needed. The selection confirms the repository
+already declared in the saved definition; changing it requires a new publication.
+Follow-up bindings map repository connection UUIDs to workflow-kind revision UUIDs:
+
+```json
+{
+  "<repository-connection-id>": {
+    "issue": "<issue-revision-id>",
+    "feedback": "<feedback-revision-id>",
+    "verify": "<verification-revision-id>"
+  }
+}
+```
+
+Non-echo builtins require the appropriate project-owned bindings. The API validates
+all references and pins the launch context. Missing bindings, another project's
+repository UUID, revoked grants or an undrained legacy repository owner prevent
+launch. Echo-only/custom Docker graphs can omit the map. The form reuses its
+idempotency key when retrying an unchanged request after an ambiguous transport
+failure; editing the payload creates a new request identity.
+
+A `202` receipt means **accepted**, not completed. Start the
+[`dynamic-runtime` service](project-runtime-api.md#deployment-and-activation) and
+compatible shared workers before expecting progress. Publication or UI refresh
+does not load new code into a worker image.
+
+### Inspect dependencies, attempts and jobs
+
+The project's **Workflow runs** tab lists the latest 50 canonical run records.
+Run detail shows the pinned workflow/factory/repository revisions, snapshot,
+dispatch state and engine identity. Each stage lists direct dependencies, input
+references, conditions, role/pool, executor, timeout and configured retries.
+Inspect the pinned effective settings rather than today's editable defaults.
+
+Attempt generations display their actual states, including skipped stages and
+retries. **Inspect attempt** filters captured history and accounting by execution.
+Worker links open a project-qualified view of the shared infrastructure while
+keeping history scoped to the selected project. Follow-up child links retain that
+project too; the engine ID is displayed independently of the canonical run ID.
+
+Docker job links show broker state, deadline, exit code, OOM result, cancellation
+intent and captured stdout/stderr. Streams are bounded by the broker and the view
+shows at most 65,536 characters per stream, with truncation indicated. No result
+or exit code is displayed as success while capture remains unavailable.
+
+**Request cancellation** records intent. A `cancelling` receipt does not prove that
+an action or container stopped; inspect the canonical run/job terminal state.
+Automatic retries follow the pinned stage policy. There is no manual stage-retry
+button that bypasses assignment or external-effect reconciliation.
+
+![Project workflow run with pinned dependencies, repositories and stage attempts](images/control-plane-project-workflow-run.png)
+
+The run screenshot shows a queued mixed builtin/Docker graph in the same isolated
+example deployment; queued attempts have not executed.
+
+### Model history and accounting
+
+Run/attempt views support stage/execution, worker, provider and model filters.
+They show the latest 200 matching events and bounded logs. Job views scope history
+to the job execution. Exchange reads use project-owned endpoints and retain the
+existing seven-day expiration and audit policy; metadata-only or disabled capture
+can leave no content to open.
+
+Estimated and reported costs remain separate known subtotals, and parent summaries
+are excluded from aggregate totals. Unknown tokens or prices stay unknown rather
+than becoming zero. CPU/memory and logs never imply AI usage; a custom Docker action
+must report supported usage records explicitly. See [capture, retention and
+accounting](project-observability.md).
