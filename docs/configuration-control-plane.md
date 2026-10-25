@@ -146,3 +146,76 @@ Stopping and starting a managed process fetches its linked saved profile again, 
 Back up the PostgreSQL data, `.env.control-plane` encryption key and durable `data/control-plane` files together. The default named DB volume survives normal Compose down/up, but volume deletion discards saved state; `CONTROL_DB_DATA_PATH` must keep pointing to the intended durable directory/volume. Snapshots and build progress use the host `data/control-plane` mount, separate from PostgreSQL. Worker `/data` also holds the configured worker state/checkout paths and needs its own persistence plan.
 
 Fernet protects captured conversations, which are stored with a seven-day expiration timestamp; normal event payloads are redacted separately. Losing/changing the key prevents decryption of existing ciphertext and changes newly derived worker tokens. Existing runtime tokens/DB hashes may still agree with each other until a runtime is reconfigured; replacing the key is not a complete token rotation procedure. There is no automatic re-encryption/rotation workflow here. Preserve the original key for recovery and coordinate any deliberate migration across API, reconciler, saved credentials and managed runtimes.
+
+## Managing projects in the Control Pane
+
+Open **Projects** to create a project with a unique lowercase slug (for example,
+`platform-services`). Select it in the sidebar. Project pages use
+`/projects/<project UUID>/...`; repository lists, credentials, configuration and
+pool membership are loaded under that project's API scope. Switching projects
+clears local editors and cancels outstanding reads. An already accepted save may
+still complete for its original project; it cannot populate the newly selected
+project's form.
+
+### Repository aliases and credential references
+
+In **Repositories**, connect each GitHub repository using an alias such as
+`backend` or `web`, its owner and repository name. Aliases belong to the selected
+project and are the references used by workflow bindings. Edit a connection to
+publish another immutable repository revision. Conflicting revisions require a
+reload; existing runs keep their original pins.
+
+Use **Credentials** to create an encrypted GitHub, OpenAI or Anthropic credential
+version, scoped to the project or a particular repository. The UI displays only
+version references, never stored secret values. Choose a non-revoked GitHub
+reference on the repository connection; provider grants are selected by workflow
+action bindings. Revoking a version prevents future grant resolution and can
+prevent unfinished actions that still need it from starting. Use a new credential
+version and update references deliberately when rotating a credential.
+
+Repository behavior overrides are JSON objects, for example:
+
+```json
+{
+  "openai_model": "gpt-4.1",
+  "tasks": { "plan_issue": { "retries": 2 } }
+}
+```
+
+Identity, infrastructure and inline credentials are not behavior overrides. Use
+**Effective configuration preview** with an alias and profile (`simple` or
+`developer`) to inspect the saved project defaults merged with the saved
+repository revision. Save overrides before previewing them. This preview does not
+include a particular workflow or stage's additional overrides. Selection follows
+the repository identity, so connecting another alias cannot silently switch the
+preview. A changed saved repository or configuration revision clears the result;
+late responses for the older revision are ignored.
+
+### Project defaults and shared workers
+
+**Project configuration** edits the full validated project configuration document
+and shows its saved revision IDs. The editor retains the revision on which its
+draft was based. If another operator publishes while you are editing, your JSON
+is preserved and saving against the earlier parent produces a conflict. Use
+**Discard edits and load latest** deliberately to replace the draft. New runs pin
+the configuration revision; edits
+do not rewrite an active run. These project defaults are independent of worker
+pool images and slots. The **Legacy profiles** link and existing unscoped sidebar
+screens continue to refer to the default legacy project and its saved profile
+history, regardless of the project selector.
+
+**Shared worker pools** lists deployment-wide pools and this project's membership.
+Authorize a pool to make it available to this project, or remove membership to
+prevent subsequent assignments from using it. Pools can serve multiple projects;
+changing membership does not move a worker or copy project behavior into its
+image. Pool creation and worker lifecycle remain infrastructure operations through
+the [runtime APIs](project-runtime-api.md).
+
+Select a required action and executor version to see eligible *registered* normal
+and durable slots. An unloaded, unsupported or partially loaded worker is shown
+explicitly, with missing action/executor versions. Eligibility uses the selected
+capability pair, project membership and desired worker state; it does not assert
+that a process is alive or that those slots are free. Heartbeats may be unknown.
+Check runtime health and current assignments before relying on capacity. An image
+that lacks a required version needs the appropriate rebuild/recreation; changing
+project settings cannot load new code into it.

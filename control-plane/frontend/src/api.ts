@@ -13,10 +13,15 @@ export class ApiError extends Error {
 export async function api<T>(
   path: string,
   body?: unknown,
-  options?: { idempotencyKey?: string },
+  options?: {
+    idempotencyKey?: string;
+    signal?: AbortSignal;
+    method?: "POST" | "PUT";
+  },
 ): Promise<T> {
   const response = await fetch("/api/v1" + path, {
-    method: body === undefined ? "GET" : "POST",
+    method: body === undefined ? "GET" : (options?.method ?? "POST"),
+    signal: options?.signal,
     credentials: "same-origin",
     headers: {
       "Content-Type": "application/json",

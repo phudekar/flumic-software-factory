@@ -409,3 +409,52 @@ class WorkerPoolTests(unittest.TestCase):
                 )
                 self.assertEqual(receipt.state, "completed")
                 self.assertNotIn(project, receipt.model_dump_json())
+
+    def test_project_pool_view_reports_authorization_and_loaded_capabilities(self):
+        a, _ = self.project("pool-view-a")
+        b, _ = self.project("pool-view-b")
+        pool = self.pool()
+        self.client.put(
+            f"/api/v1/projects/{a}/worker-pools/{pool['id']}", json={"enabled": True}
+        )
+        worker, _ = self.worker(pool)
+        cold = self.client.post(
+            f"/api/v1/worker-pools/{pool['id']}/workers", json={"name": "cold-worker"}
+        ).json()["id"]
+        response = self.client.get(f"/api/v1/projects/{a}/worker-pools")
+        self.assertEqual(response.status_code, 200, response.text)
+        item = response.json()[0]
+        self.assertTrue(item["authorized"])
+        states = {w["id"]: w for w in item["workers"]}
+        self.assertEqual(states[worker]["capability_state"], "loaded")
+        self.assertEqual(states[cold]["capability_state"], "unloaded")
+        self.assertNotIn("credential_hash", states[worker])
+        self.assertFalse(
+            self.client.get(f"/api/v1/projects/{b}/worker-pools").json()[0][
+                "authorized"
+            ]
+        )
+        self.assertEqual(
+            self.client.get("/api/v1/projects/not-real/worker-pools").status_code, 404
+        )
+
+    def test_project_pool_view_exposes_missing_versions_without_claiming_live_capacity(
+        self,
+    ):
+        project, _ = self.project("pool-version-view")
+        pool = self.client.post(
+            "/api/v1/worker-pools",
+            json={
+                "name": "versions",
+                "role": "simple",
+                "actions": ["core.echo@1", "issue.load@1"],
+            },
+        ).json()
+        worker, _ = self.worker(pool)
+        item = self.client.get(f"/api/v1/projects/{project}/worker-pools").json()[0][
+            "workers"
+        ][0]
+        self.assertEqual(item["id"], worker)
+        self.assertEqual(item["missing_actions"], ["issue.load@1"])
+        self.assertEqual(item["missing_executors"], [])
+        self.assertEqual(item["capability_state"], "partial")

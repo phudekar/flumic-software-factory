@@ -89,6 +89,12 @@ export function WorkersPage() {
           </button>
         }
       />
+      <p>
+        Worker instances are deployment infrastructure.{" "}
+        <Link to="/projects">Choose a project</Link> to inspect shared pool
+        membership and loaded action versions; legacy worker profiles remain
+        available here.
+      </p>
       <Failure error={error || data.error} />
       {data.data?.warnings.map((x) => (
         <div key={x} className="notice">

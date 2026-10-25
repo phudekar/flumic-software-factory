@@ -18,6 +18,11 @@ import {
 import { useEffect, useState } from "react";
 import { Link, NavLink, Route, Routes } from "react-router-dom";
 import { api, setCsrf } from "../api";
+import {
+  ProjectPages,
+  ProjectsPage,
+  ProjectSelector,
+} from "../features/projects";
 import { Empty } from "../components/ui";
 import { Login } from "../features/auth";
 import { Configuration } from "../features/configuration";
@@ -77,8 +82,15 @@ export function App() {
           </div>
           <ChevronRight size={14} />
         </div>
-        <span className="nav-label">WORKSPACE</span>
-        <nav>
+        <ProjectSelector />
+        <nav aria-label="Projects">
+          <NavLink to="/projects">
+            <Box size={17} />
+            Projects
+          </NavLink>
+        </nav>
+        <span className="nav-label">LEGACY VIEWS & INFRASTRUCTURE</span>
+        <nav aria-label="Default legacy project">
           {[
             ["/", "Overview", Activity],
             ["/workers", "Workers", Server],
@@ -129,8 +141,7 @@ export function App() {
       <main>
         <header className="topbar">
           <span>
-            Workspace <ChevronRight size={12} />{" "}
-            <strong>Flumic AI</strong>
+            Workspace <ChevronRight size={12} /> <strong>Flumic AI</strong>
           </span>
           <div>
             <span className="environment">
@@ -148,6 +159,8 @@ export function App() {
         </header>
         <div className="content">
           <Routes>
+            <Route path="/projects" element={<ProjectsPage />} />
+            <Route path="/projects/:projectId/*" element={<ProjectPages />} />
             <Route path="/" element={<Overview />} />
             <Route path="/workers" element={<WorkersPage />} />
             <Route path="/workers/:id" element={<WorkerPage />} />
