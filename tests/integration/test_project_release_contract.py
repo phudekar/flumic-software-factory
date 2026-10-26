@@ -176,6 +176,7 @@ class LiveProjectReleaseContract(unittest.TestCase):
             if key
             not in {
                 "GITHUB_TOKEN",
+                "GITLAB_TOKEN",
                 "OPENAI_API_KEY",
                 "DEVELOPER_OPENAI_API_KEY",
                 "ANTHROPIC_API_KEY",

@@ -40,6 +40,7 @@ class ReleaseHarnessSafetyTests(unittest.TestCase):
                     os.environ,
                     {
                         "CONTROL_TEST_DATABASE_URL": "private-db",
+                        "GITLAB_TOKEN": "private-source-token",
                         "CONTROL_MIGRATION_TEST_URL": "private-migration",
                     },
                 ),
@@ -56,7 +57,7 @@ class ReleaseHarnessSafetyTests(unittest.TestCase):
             ):
                 harness.process("simple")
             env = spawn.call_args.kwargs["env"]
-            for key in ("CONTROL_TEST_DATABASE_URL", "CONTROL_MIGRATION_TEST_URL"):
+            for key in ("CONTROL_TEST_DATABASE_URL", "CONTROL_MIGRATION_TEST_URL", "GITLAB_TOKEN"):
                 self.assertFalse(
                     key in env, key + " leaked into shared worker environment"
                 )
