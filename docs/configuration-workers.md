@@ -246,3 +246,27 @@ Commands inherit the container environment, network, permissions and mounts; mak
 ### `startup_timeout_seconds`
 
 **Profile; code/shipped default:** `600`; integer `1–3600` (booleans rejected). Bounds only the startup shell process. Example: `startup_timeout_seconds: 120` aborts startup if that script exceeds two minutes. No script means no hook execution, so this timeout does not delay registration. It does not affect API requests, coding subprocesses, Hatchet task execution, or control-plane bootstrap fetching. Process cleanup/output reader joining can add a small amount of time after the subprocess deadline. See [startup hook](../worker/factory/startup.py).
+
+## Repository provider metadata (GitLab release qualification pending)
+
+### `repository_provider`
+
+**Repository authority; code default:** `github`. Allowed values: `github` or `gitlab`. Chooses the installed repository adapter and source credential purpose. Example standalone YAML: `repository_provider: gitlab`. Shared runs derive this from the selected repository revision; behavior overrides cannot switch it. A GitLab run requires a worker that advertises GitLab capability. Old workers with no provider declaration remain GitHub-only. Existing GitHub snapshots omit this new default to preserve their wire format. In legacy mode, changing the provider requires restarting the affected worker and deliberately registering its provider-qualified workflows. GitLab support remains qualification pending; self-managed hosts are excluded.
+
+### `repository_host`
+
+**Repository authority; code default:** `''` (resolved from the provider). Only `github.com` and `gitlab.com` are allowed for their matching provider. Example: `repository_host: gitlab.com`. This is an identity and outbound-host restriction, not a configurable proxy or arbitrary API URL. The Control Pane derives the fixed host from the saved connection. A mismatched provider/host fails validation before source operations. GitLab HTTPS redirects are refused.
+
+### `gitlab_project_id`
+
+**Repository authority; code default:** `null`. GitLab requires a strictly positive integer, for example `gitlab_project_id: 12345678`; GitHub must not supply it. The Control Pane resolves the real ID with the selected connection's GitLab credential, appends a validated immutable repository revision, and pins it into new runs. Do not guess an ID or use an issue/MR IID. This stable ID scopes source requests, state and claims even if namespaces change. A path reused by a different numeric project is rejected; create a new connection for that project. Current-path validation blocks publication and trigger acceptance until a rename is reconciled.
+
+### `repository_check_policy_json`
+
+**Pinned repository policy; code default:** `'{}'`. A JSON string configuring GitLab verification. Example standalone YAML:
+
+```yaml
+repository_check_policy_json: '{"required_pipeline_sources":["push","merge_request_event"],"required_status_names":["security"]}'
+```
+
+The empty object requires the `push` pipeline source and no named external statuses. The Control Pane uses the structured `check_policy` field on the connection; workers receive its serialized value in their run pin. Every configured pipeline source must have a successful pipeline for the exact commit SHA and target ref, including required nonoptional jobs and accessible same-project children. Optional failures may be ignored; skipped jobs alone do not prove execution, and a blocking manual job keeps verification pending. Required external status names must also succeed for that SHA/ref. Missing, inaccessible, cross-project child or truncated checks fail closed. Each list must contain unique names; pipeline sources cannot be empty and pipeline sources are limited to 16 entries and external status names to 32 entries. Increasing requirements can keep verification pending until the source supplies every required proof. Later policy edits affect new runs; an already accepted run retains its prior policy.

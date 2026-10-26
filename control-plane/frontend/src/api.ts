@@ -179,3 +179,45 @@ export interface WorkerDocument {
     { model?: string | null; additional_system_prompt?: string }
   >;
 }
+
+export interface RepositoryCheckPolicy {
+  required_pipeline_sources: string[];
+  required_status_names: string[];
+}
+export interface RepositoryConnection {
+  id: string;
+  alias: string;
+  provider?: "github" | "gitlab";
+  host?: string;
+  owner: string;
+  name: string;
+  revision_id: string;
+  credential_id?: string | null;
+  overrides: Record<string, unknown>;
+  validated?: boolean;
+  identity?: {
+    provider: string;
+    project_id?: number;
+    owner: string;
+    name: string;
+  } | null;
+  check_policy?: RepositoryCheckPolicy;
+}
+
+export interface RepositoryTrigger {
+  id: string;
+  project_id: string;
+  repository_id: string;
+  definition_id: string;
+  event_kind: "issue-ready" | "feedback" | "verify";
+  enabled: boolean;
+  revision_id: string;
+  token_version_id: string | null;
+  configuration: {
+    require_ready_label: boolean;
+    input_defaults: Record<string, unknown>;
+    followups: Record<string, Record<"issue" | "feedback" | "verify", string>>;
+  };
+  webhook_url: string;
+  last_error?: string | null;
+}

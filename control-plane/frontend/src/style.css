@@ -1474,3 +1474,12 @@ pre {
   cursor: pointer;
   color: var(--muted);
 }
+
+.project-space .checkbox-label {
+  flex-direction: row;
+  align-items: center;
+}
+.project-space .checkbox-label input {
+  flex: 0 0 auto;
+  margin: 0;
+}

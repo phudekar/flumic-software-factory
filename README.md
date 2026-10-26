@@ -307,7 +307,7 @@ before enabling automation on sensitive repositories.
 
 ## Coming soon
 
-- **GitLab-based workflows:** planned support for issue-to-merge-request development flows on GitLab.
+- **GitLab-based workflows:** GitLab.com integration is in progress and pending live release qualification. See [connection, trigger and CI configuration](docs/gitlab.md).
 - **Kubernetes orchestration:** planned support for running and orchestrating workflows and workers on Kubernetes.
 
 These capabilities are planned and are not available in the current release.

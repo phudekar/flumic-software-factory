@@ -108,10 +108,10 @@ Each command must exit 0; inspect actual output and record counts in this plan's
 
 **Interfaces:** `RepositoryTrigger` stores project/repository/event kind/definition ID/enabled/readiness policy plus encrypted versioned webhook token separate from action secrets. `TriggerReceipt` stores dedup identity, accepted workflow revision/run pin and outcome. Operator endpoints under `/api/v1/projects/{project}/repository-triggers`; external webhook under `/api/v1/hooks/gitlab/{binding_id}`. `accept_event(binding_id, normalized_event) -> receipt` is shared by webhook and bounded polling; dispatch uses existing durable run intents.
 
-- [ ] Test constant-time token verification, bounded payload, numeric project mismatch, disabled/stale/foreign binding, safe errors/redaction, duplicate/reordered events, webhook/poll race and controller crash after acceptance. Assert one durable pinned launch, no arbitrary workflow selection, no grant forwarding and fresh-read eligibility.
-- [ ] Test missing webhook delivery recovers through polling and legacy GitLab event registration doesn't rename existing GitHub workflows. Trigger token rotation/revocation must be explicit and must not modify accepted run pins.
-- [ ] Run tests; expect absent trigger/event routes and tables. Implement minimal owned binding CRUD, token authentication, normalization, transactional receipts, dispatch/poll recovery and independently scoped cursors. Polling obtains credentials only within each repository scope.
-- [ ] Run worker/backend SQLite+PostgreSQL suites and serialization/migration checks; expect pass. Commit `feat: accept durable GitLab events and polling triggers (refs #16)`.
+- [x] Test constant-time token verification, bounded payload, numeric project mismatch, disabled/stale/foreign binding, safe errors/redaction, duplicate/reordered events, webhook/poll race and controller crash after acceptance. Assert one durable pinned launch, no arbitrary workflow selection, no grant forwarding and fresh-read eligibility.
+- [x] Test missing webhook delivery recovers through polling and legacy GitLab event registration doesn't rename existing GitHub workflows. Trigger token rotation/revocation must be explicit and must not modify accepted run pins.
+- [x] Run tests; expect absent trigger/event routes and tables. Implement minimal owned binding CRUD, token authentication, normalization, transactional receipts, dispatch/poll recovery and independently scoped cursors. Polling obtains credentials only within each repository scope.
+- [x] Run worker/backend SQLite+PostgreSQL suites and serialization/migration checks; expect pass. Commit `feat: accept durable GitLab events and polling triggers (refs #16)`.
 
 ### Task 6: Control Pane configuration and operator documentation
 
