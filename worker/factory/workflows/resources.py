@@ -1,23 +1,27 @@
 """Canonical external-resource identity shared by workers and trusted state."""
 
-import re
+from factory.domain.repositories import RepositoryIdentity
 
 
-def canonical_repository(host, owner, name):
-    if host.lower() != "github.com" or any(
-        not re.fullmatch(r"[A-Za-z0-9_.-]{1,100}", value) or value in {".", ".."}
-        for value in (owner, name)
-    ):
-        raise ValueError("Unsupported canonical GitHub repository")
-    return f"github.com/{owner.lower()}/{name.lower()}"
+def canonical_repository(host, owner, name, *, project_id=None):
+    provider = {"github.com": "github", "gitlab.com": "gitlab"}.get(host.lower())
+    if provider is None:
+        raise ValueError("Unsupported canonical repository host")
+    return RepositoryIdentity(
+        provider=provider, host=host, owner=owner, name=name, project_id=project_id
+    ).canonical_key
 
 
-def canonical_resource(host, owner, name, kind="repository", number=None):
-    repository = canonical_repository(host, owner, name)
+def canonical_resource(
+    host, owner, name, kind="repository", number=None, *, project_id=None
+):
+    repository = canonical_repository(host, owner, name, project_id=project_id)
     if kind == "repository" and number is None:
         return repository
     if kind not in {"issue", "pull"} or type(number) is not int or number < 1:
         raise ValueError("Expected a positive canonical issue/pull number")
-    # GitHub issues and PRs share an issue number namespace. They must not acquire
-    # two independent locks for the same external work item.
-    return repository + "/issue/" + str(number)
+    # GitHub issue/PR numbers share a namespace. GitLab issue/MR IIDs do not.
+    resource = (
+        "merge-request" if host.lower() == "gitlab.com" and kind == "pull" else "issue"
+    )
+    return repository + "/" + resource + "/" + str(number)

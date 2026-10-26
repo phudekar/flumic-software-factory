@@ -3,7 +3,14 @@
 import json
 from types import MappingProxyType
 from typing import Literal, Annotated
-from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    PrivateAttr,
+    model_validator,
+    model_serializer,
+)
 
 
 class ActionExecutionError(RuntimeError):
@@ -109,7 +116,51 @@ class ActionContext(Contract):
     settings_json: str = Field(repr=False, exclude=True)
     followup_bindings_json: str = Field(default="{}", repr=False, exclude=True)
     secret_versions: tuple[str, ...] = ()
+    repository_identity_json: str = Field(default="", repr=False)
+    repository_check_policy_json: str = Field(default="{}", repr=False)
     _credentials: dict = PrivateAttr(default_factory=dict)
+
+    @model_serializer(mode="wrap")
+    def serialize_compatible_context(self, handler):
+        value = handler(self)
+        # Old shared workers reject unknown fields. Do not add new metadata to
+        # the historical GitHub wire shape unless a launch explicitly pins it.
+        if not self.repository_identity_json:
+            value.pop("repository_identity_json", None)
+        if self.repository_check_policy_json == "{}":
+            value.pop("repository_check_policy_json", None)
+        return value
+
+    @model_validator(mode="after")
+    def validate_repository_metadata(self):
+        from factory.domain.repositories import (
+            RepositoryIdentity,
+            RepositoryCheckPolicy,
+        )
+
+        if self.repository_identity_json:
+            RepositoryIdentity.model_validate_json(self.repository_identity_json)
+        RepositoryCheckPolicy.model_validate_json(self.repository_check_policy_json)
+        return self
+
+    @property
+    def repository_identity(self):
+        from factory.domain.repositories import RepositoryIdentity
+
+        if self.repository_identity_json:
+            return RepositoryIdentity.model_validate_json(self.repository_identity_json)
+        owner, name = self.settings.repository.split("/")
+        return RepositoryIdentity(
+            provider="github", host="github.com", owner=owner, name=name
+        )
+
+    @property
+    def repository_check_policy(self):
+        from factory.domain.repositories import RepositoryCheckPolicy
+
+        return RepositoryCheckPolicy.model_validate_json(
+            self.repository_check_policy_json
+        )
 
     def with_credentials(self, credentials):
         result = self.model_copy()
