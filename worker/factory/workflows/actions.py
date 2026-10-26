@@ -16,7 +16,7 @@ def minimum_purposes(action, settings):
         raise ValueError("Unknown action version")
     if action in {"core.echo@1", "workflow.record@1"}:
         return ()
-    purposes = {"github"}
+    purposes = {settings.repository_provider}
     planner_needed = action in {"issue.plan@1", "issue.triage@1", "change.review@1"}
     if action == "pull.feedback@1":
         planner_needed = (
@@ -137,13 +137,24 @@ _HANDLERS = MappingProxyType(
 )
 
 
-def _pull_scope(value, repository):
+def _pull_scope(value, repository, *, identity=None):
     if value.pull_url:
         url = urlsplit(value.pull_url)
+        provider = identity.provider if identity is not None else "github"
+        host = "gitlab.com" if provider == "gitlab" else "github.com"
+        path = (
+            f"/{repository}/-/merge_requests/{value.pull_number}"
+            if provider == "gitlab"
+            else f"/{repository}/pull/{value.pull_number}"
+        )
         if (
             url.scheme != "https"
-            or url.netloc.lower() != "github.com"
-            or url.path.lower() != f"/{repository}/pull/{value.pull_number}".lower()
+            or url.netloc.lower() != host
+            or (
+                url.path.lower() != path.lower()
+                if provider == "github"
+                else url.path != path
+            )
             or url.query
             or url.fragment
         ):
@@ -213,9 +224,13 @@ class ActionCatalog:
             ):
                 raise ValueError("Upstream output belongs to another issue")
         if action in {"pull.feedback@1", "pull.verify@1"}:
-            _pull_scope(args.command, settings.repository)
+            _pull_scope(
+                args.command, settings.repository, identity=context.repository_identity
+            )
         if action == "change.review@1" and args.publish.pull_number is not None:
-            _pull_scope(args.publish, settings.repository)
+            _pull_scope(
+                args.publish, settings.repository, identity=context.repository_identity
+            )
         for purpose in self.purposes(action, settings):
             context.credential(purpose)
         common = {

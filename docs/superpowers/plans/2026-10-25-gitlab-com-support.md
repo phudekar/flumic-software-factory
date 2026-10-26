@@ -60,11 +60,11 @@ Each command must exit 0; inspect actual output and record counts in this plan's
 
 **Interfaces:** Produce immutable `RepositoryIdentity(provider, host, owner, name, project_id=None)` with `path`, `canonical_key` and `credential_purpose`; `RepositoryCheckPolicy(required_pipeline_sources=('push',), required_status_names=())`. ActionContext carries a serialized validated repository identity and check policy, with old GitHub context defaults. Existing `canonical_repository` / `canonical_resource` remain backwards compatible; optional GitLab numeric project identity is mandatory for executable GitLab keys.
 
-- [ ] Write `test_github_canonical_bytes_unchanged`, `test_gitlab_nested_namespace_and_numeric_identity`, `test_issue_mr_iid_collision_is_not_same_claim`, `test_host_provider_mismatch_and_traversal_rejected`, `test_old_context_defaults_to_github`. Assert GitHub issue/pull #7 still share their old canonical key, GitLab issue #7/MR !7 differ, reused path/project ID differs, and secret-bearing URL inputs fail.
-- [ ] Run `env -u PYTHONPATH "$PY" -m unittest discover -s tests -p test_repository_identity.py -v`; expect missing contracts/new behavior failures.
-- [ ] Implement only these identity/check-policy/context contracts and compatibility helpers. Do not activate GitLab through configuration alone.
-- [ ] Rerun focused tests and full worker suite; expect all pass, existing serialized GitHub definitions unchanged.
-- [ ] Commit `feat: define provider-qualified repository identity (refs #16)`.
+- [x] Write `test_github_canonical_bytes_unchanged`, `test_gitlab_nested_namespace_and_numeric_identity`, `test_issue_mr_iid_collision_is_not_same_claim`, `test_host_provider_mismatch_and_traversal_rejected`, `test_old_context_defaults_to_github`. Assert GitHub issue/pull #7 still share their old canonical key, GitLab issue #7/MR !7 differ, reused path/project ID differs, and secret-bearing URL inputs fail.
+- [x] Run `env -u PYTHONPATH "$PY" -m unittest discover -s tests -p test_repository_identity.py -v`; expect missing contracts/new behavior failures.
+- [x] Implement only these identity/check-policy/context contracts and compatibility helpers. Do not activate GitLab through configuration alone.
+- [x] Rerun focused tests and full worker suite; expect all pass, existing serialized GitHub definitions unchanged.
+- [x] Commit `feat: define provider-qualified repository identity (refs #16)`.
 
 ### Task 2: GitLab HTTP mapping and guarded publication transport
 
@@ -72,12 +72,12 @@ Each command must exit 0; inspect actual output and record counts in this plan's
 
 **Interfaces:** `GitLabClient(repository: str, *, project_id: int, token: str, max_file_bytes: int, check_policy: RepositoryCheckPolicy)` satisfies `application.ports.Repository`; `GitPublisher.publish(*, remote, branch, expected_head, changes, marker, credentials) -> str` returns validated commit OID. GitLab REST transport may be injected in tests; production API root remains fixed `https://gitlab.com/api/v4`.
 
-- [ ] Add wire-contract tests for issues/notes/labels, inventory/files/archive pagination and bounds, nested path quoting, MR draft/state/diff normalization, related-plan-task markers, token-header redaction and rejected external redirects. Assert IID versus global ID mapping explicitly.
-- [ ] Add real local bare-Git tests `test_exact_head_lease_rejects_human_advance`, `test_exact_head_lease_rejects_human_reset`, `test_create_branch_race_preserves_other_commit`, `test_lost_push_response_recovers_only_full_expected_tree`, `test_credentials_not_in_argv_remote_or_errors`. Use deterministic local repos, no network/auth tokens.
-- [ ] Run each new test module via `unittest discover -s tests -p <filename> -v`; expect missing adapter/transport failures before implementation.
-- [ ] Implement bounded REST queries/metadata operations and isolated Git publication. Disable global Git config/hooks/credential helpers, arbitrary protocols and unsafe checkout side effects. Enforce allowed paths/content, expected parent/tree and explicit old-OID lease. Handle server ambiguity through evidence rather than unconditional replay.
-- [ ] Rerun focused tests plus `tests/test_github_client.py` and full worker suite; expect all pass. Verify no mutable global token/config.
-- [ ] Commit `feat: implement GitLab repository and guarded publication (refs #16)`.
+- [x] Add wire-contract tests for issues/notes/labels, inventory/files/archive pagination and bounds, nested path quoting, MR draft/state/diff normalization, related-plan-task markers, token-header redaction and rejected external redirects. Assert IID versus global ID mapping explicitly.
+- [x] Add real local bare-Git tests `test_exact_head_lease_rejects_human_advance`, `test_exact_head_lease_rejects_human_reset`, `test_create_branch_race_preserves_other_commit`, `test_lost_push_response_recovers_only_full_expected_tree`, `test_credentials_not_in_argv_remote_or_errors`. Use deterministic local repos, no network/auth tokens.
+- [x] Run each new test module via `unittest discover -s tests -p <filename> -v`; expect missing adapter/transport failures before implementation.
+- [x] Implement bounded REST queries/metadata operations and isolated Git publication. Disable global Git config/hooks/credential helpers, arbitrary protocols and unsafe checkout side effects. Enforce allowed paths/content, expected parent/tree and explicit old-OID lease. Handle server ambiguity through evidence rather than unconditional replay.
+- [x] Rerun focused tests plus `tests/test_github_client.py` and full worker suite; expect all pass. Verify no mutable global token/config.
+- [x] Commit `feat: implement GitLab repository and guarded publication (refs #16)`.
 
 ### Task 3: Shared service composition, feedback, checks and legacy behavior
 
@@ -85,11 +85,11 @@ Each command must exit 0; inspect actual output and record counts in this plan's
 
 **Interfaces:** Explicit repository factory selects installed GitHub/GitLab adapters from Task 1 identity; minimum source-host credential purpose comes from pinned identity. GitLab adapter implements feedback cursor/marker, draft publication/recovery and `verify_commit_checks(sha)` using Task 1 pinned policy. Preserve existing builtin public schemas/@1 semantics for old pins; version new schemas if compatibility cannot be retained.
 
-- [ ] Test issue→plan→draft MR→feedback commit→merge observation→checks through actual FactoryService and ActionCatalog with deterministic AI and GitLab HTTP/Git fixtures. Assert shared business policy, related plan tasks, closed-unmerged separation, feedback head invalidation and duplicate mutation recovery.
-- [ ] Test required `push` default, multiple sources/ref/SHA, latest pipeline/status selection, child/downstream evidence, manual/skipped/absent/inaccessible checks, optional jobs and failing external contexts. Only required qualifying exact-commit evidence succeeds.
-- [ ] Test explicit provider composition for managed and legacy bootstrap, GitHub defaults/names/IDs preserved, no GitLab fallback to environment grants, and wrong-host output URL rejected by action scope.
-- [ ] Run new tests; expect missing composition/policy behavior failures. Implement adapters/composition/capability translations, not a second workflow service.
-- [ ] Run focused tests and full worker suite; expect pass with no GitHub regression. Commit `feat: run shared workflows against GitLab (refs #16)`.
+- [x] Test issue→plan→draft MR→feedback commit→merge observation→checks through actual FactoryService and ActionCatalog with deterministic AI and GitLab HTTP/Git fixtures. Assert shared business policy, related plan tasks, closed-unmerged separation, feedback head invalidation and duplicate mutation recovery.
+- [x] Test required `push` default, multiple sources/ref/SHA, latest pipeline/status selection, child/downstream evidence, manual/skipped/absent/inaccessible checks, optional jobs and failing external contexts. Only required qualifying exact-commit evidence succeeds.
+- [x] Test explicit provider composition for managed and legacy bootstrap, GitHub defaults/names/IDs preserved, no GitLab fallback to environment grants, and wrong-host output URL rejected by action scope.
+- [x] Run new tests; expect missing composition/policy behavior failures. Implement adapters/composition/capability translations, not a second workflow service.
+- [x] Run focused tests and full worker suite; expect pass with no GitHub regression. Commit `feat: run shared workflows against GitLab (refs #16)`.
 
 ### Task 4: Project repository validation, scoped grants and durable ownership
 

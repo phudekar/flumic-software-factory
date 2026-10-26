@@ -277,8 +277,7 @@ class GitLabClient:
                 raise RepositoryError("GitLab diff contains invalid paths")
             result.append(
                 {
-                    "filename": path,
-                    "previous_filename": value["old_path"],
+                    "path": path,
                     "patch": value.get("diff") or "",
                     "status": "removed"
                     if value.get("deleted_file")
@@ -661,3 +660,8 @@ class GitLabClient:
                 )
                 return
         self._request("POST", path, body={"body": summary.rstrip() + "\n\n" + marker})
+
+    def verify_commit_checks(self, sha, *, ref=None):
+        from factory.adapters.gitlab_checks import verify_checks
+
+        return verify_checks(self, sha, ref=ref)

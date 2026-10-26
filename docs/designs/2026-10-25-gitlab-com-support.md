@@ -1,6 +1,6 @@
 # GitLab.com support — issue #16
 
-Status: design approved by the user; implementation plan under review. GitLab.com first is the
+Status: design and implementation plan approved by the user; implementation underway. GitLab.com first is the
 user's requirement. Reusing the shared repository layer is the user's selected
 approach. Other choices below are proposed implementation decisions.
 

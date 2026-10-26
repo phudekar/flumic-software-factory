@@ -182,6 +182,16 @@ class ActionContext(Contract):
         from factory.configuration import Labels, TaskSettings
 
         values = json.loads(self.settings_json)
+        if self.repository_identity_json:
+            identity = self.repository_identity
+            if values.get("repository") != identity.path:
+                raise ValueError("Settings repository differs from pinned identity")
+            values.update(
+                repository_provider=identity.provider,
+                repository_host=identity.host,
+                gitlab_project_id=identity.project_id,
+                repository_check_policy_json=self.repository_check_policy_json,
+            )
         if "labels" in values:
             values["labels"] = Labels.model_validate(values["labels"])
         if "tasks" in values:

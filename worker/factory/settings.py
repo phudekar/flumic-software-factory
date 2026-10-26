@@ -26,6 +26,10 @@ def parse_max_patch_iterations(value: str) -> int:
 @dataclass(frozen=True)
 class Settings:
     repository: str = "phudekar/software-factory-test"
+    repository_provider: str = "github"
+    repository_host: str = ""
+    gitlab_project_id: int | None = None
+    repository_check_policy_json: str = "{}"
     worker_type: str = "simple"
     developer_agent: str = "api"
     orchestrator: str = "hatchet"
@@ -88,8 +92,23 @@ class Settings:
         )
 
     def __post_init__(self):
-        if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", self.repository):
-            raise ValueError("GITHUB_REPOSITORY must be in owner/name form")
+        from factory.domain.repositories import (
+            RepositoryIdentity,
+            RepositoryCheckPolicy,
+        )
+
+        owner, _, name = self.repository.rpartition("/")
+        RepositoryIdentity(
+            provider=self.repository_provider,
+            host=self.repository_host
+            or {"github": "github.com", "gitlab": "gitlab.com"}.get(
+                self.repository_provider, ""
+            ),
+            owner=owner,
+            name=name,
+            project_id=self.gitlab_project_id,
+        )
+        RepositoryCheckPolicy.model_validate_json(self.repository_check_policy_json)
         if self.worker_type not in {"simple", "developer"}:
             raise ValueError("WORKER_TYPE must be 'simple' or 'developer'")
         if self.hatchet_tls_strategy not in {"tls", "none", "mtls"}:
@@ -194,7 +213,15 @@ class Settings:
         env = os.environ if env is None else env
         agent = env.get("DEVELOPER_AGENT", "api")
         return cls(
-            repository=env.get("GITHUB_REPOSITORY", cls.repository),
+            repository=env.get("GITLAB_REPOSITORY", "")
+            if env.get("REPOSITORY_PROVIDER", "github") == "gitlab"
+            else env.get("GITHUB_REPOSITORY", cls.repository),
+            repository_provider=env.get("REPOSITORY_PROVIDER", "github"),
+            repository_host=env.get("REPOSITORY_HOST", ""),
+            gitlab_project_id=int(env.get("GITLAB_PROJECT_ID", "0"))
+            if env.get("REPOSITORY_PROVIDER") == "gitlab"
+            else None,
+            repository_check_policy_json=env.get("GITLAB_CHECK_POLICY_JSON", "{}"),
             worker_type=env.get("WORKER_TYPE", cls.worker_type),
             developer_agent=agent,
             orchestrator=env.get("ORCHESTRATOR", cls.orchestrator),

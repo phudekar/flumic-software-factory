@@ -399,3 +399,12 @@ class GitLabClientTests(unittest.TestCase):
         self.assertIn(
             "conversation=3", self.client._request.call_args.kwargs["body"]["body"]
         )
+
+    def test_diff_uses_application_path_key(self):
+        self.client._request.return_value = [
+            {"old_path": "a.py", "new_path": "a.py", "diff": "@@ diff"}
+        ]
+        self.assertEqual(
+            self.client.get_pull_request_files(7),
+            [{"path": "a.py", "patch": "@@ diff", "status": "modified"}],
+        )
