@@ -150,6 +150,8 @@ def create_app(settings=None, sessions=None, runtime=None, workflow=None):
     from app.project_context import install as install_project_context
 
     install_project_context(app, sessions, settings)
+    from app.repository_validation import install as install_repository_validation
+    install_repository_validation(app, sessions, settings, row)
     from app.worker_pools import install as install_worker_pools
 
     install_worker_pools(app, sessions, settings)

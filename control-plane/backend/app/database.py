@@ -57,7 +57,7 @@ class RepositoryConnection(Base):
     alias: Mapped[str] = mapped_column(String(100))
     provider: Mapped[str] = mapped_column(String(20), default="github")
     host: Mapped[str] = mapped_column(String(240), default="github.com")
-    owner: Mapped[str] = mapped_column(String(100))
+    owner: Mapped[str] = mapped_column(String(1024))
     name: Mapped[str] = mapped_column(String(100))
     overrides: Mapped[dict] = mapped_column(JSON, default=dict)
     credential_id: Mapped[str | None] = mapped_column(String(36))

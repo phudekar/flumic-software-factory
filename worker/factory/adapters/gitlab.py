@@ -467,16 +467,27 @@ class GitLabClient:
         )
         return "factory-patch:" + hashlib.sha256(content.encode()).hexdigest()
 
+    def _publication_project(self):
+        project = self._request("GET", "")
+        expected_url = "https://gitlab.com/" + self.repository + ".git"
+        if (
+            type(project.get("id")) is not int
+            or project["id"] != self.project_id
+            or project.get("path_with_namespace") != self.repository
+            or project.get("http_url_to_repo", expected_url) != expected_url
+            or not project.get("default_branch")
+        ):
+            raise RepositoryError(
+                "Pinned GitLab project path changed; reconcile before publication"
+            )
+        return project
+
     def create_draft_pull_request(
         self, *, issue_number, title, body, branch, changes, expected_base_sha=None
     ):
         assert_safe_text(title, body, *(change.content for change in changes))
         self._number(issue_number)
-        project = self._request("GET", "")
-        if project.get("id") != self.project_id or not project.get("default_branch"):
-            raise RepositoryError(
-                "GitLab project identity or default branch unavailable"
-            )
+        project = self._publication_project()
         current = self._branch_head(branch)
         base = (
             expected_base_sha
@@ -497,6 +508,7 @@ class GitLabClient:
             marker=marker,
             credentials={"gitlab": self._token},
         )
+        self._publication_project()
         existing = self.find_issue_pull_request(issue_number)
         if existing:
             if existing["head"]["ref"] != branch or marker not in existing["body"]:
@@ -522,6 +534,7 @@ class GitLabClient:
     def update_pull_request_branch(
         self, *, branch, issue_number, feedback_cursor, changes, expected_base_sha=None
     ):
+        self._publication_project()
         self._number(issue_number)
         base = expected_base_sha or self._branch_head(branch)
         if not base:
@@ -538,7 +551,7 @@ class GitLabClient:
             + ";".join(cursor)
             + " -->"
         )
-        return self.publisher.publish(
+        result = self.publisher.publish(
             remote="https://gitlab.com/" + self.repository + ".git",
             branch=branch,
             expected_head=base,
@@ -546,6 +559,8 @@ class GitLabClient:
             marker=marker,
             credentials={"gitlab": self._token},
         )
+        self._publication_project()
+        return result
 
     def get_pull_comments(self, number):
         return [

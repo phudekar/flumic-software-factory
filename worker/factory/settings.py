@@ -242,3 +242,22 @@ class Settings:
             observer_factory=env.get("OBSERVER_FACTORY", cls.observer_factory),
             state_factory=env.get("STATE_FACTORY", cls.state_factory),
         )
+
+
+def compatible_settings(values):
+    """Do not add optional source metadata to the historical GitHub wire shape."""
+    result = dict(values)
+    if (
+        result.get("repository_provider", "github") == "github"
+        and result.get("repository_host", "") in {"", "github.com"}
+        and result.get("gitlab_project_id") is None
+        and result.get("repository_check_policy_json", "{}") == "{}"
+    ):
+        for key in (
+            "repository_provider",
+            "repository_host",
+            "gitlab_project_id",
+            "repository_check_policy_json",
+        ):
+            result.pop(key, None)
+    return result

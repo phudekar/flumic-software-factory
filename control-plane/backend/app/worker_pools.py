@@ -4,6 +4,7 @@ import hashlib
 import hmac
 import json
 import time
+from typing import Literal
 from fastapi import Depends, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select, func
@@ -55,6 +56,9 @@ class MembershipEdit(BaseModel):
 class Registration(BaseModel):
     model_config = ConfigDict(extra="forbid")
     protocol: str
+    providers: list[Literal["github", "gitlab"]] = Field(
+        default_factory=lambda: ["github"], min_length=1, max_length=2
+    )
     pool_id: str
     role: str
     executors: list[str] = Field(max_length=8)
@@ -181,6 +185,14 @@ def eligibility(db, worker, assignment):
     ):
         raise HTTPException(409, "Worker is not eligible for assignment")
     caps = worker.capabilities
+    repository = require_owned(
+        db,
+        ProjectScope(assignment.project_id),
+        RepositoryConnection,
+        assignment.repository_id,
+    )
+    if repository.provider not in caps.get("providers", ["github"]):
+        raise HTTPException(409, "Worker lacks the repository provider implementation")
     if (
         caps.get("role") != assignment.role
         or assignment.role != pool.profile["role"]

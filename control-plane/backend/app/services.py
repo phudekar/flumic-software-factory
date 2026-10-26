@@ -69,16 +69,54 @@ class Configurations:
             path.write_text(yaml.safe_dump(document))
             return load_settings(path, profile)
 
-    def effective(self, document, profile, repository, workflow=None, stage=None, *, limits=None):
+    def effective(
+        self, document, profile, repository, workflow=None, stage=None, *, limits=None
+    ):
         """Compile behavior precedence after resolving project profile defaults.
 
         Limits come from trusted deployment/pool policy, never the HTTP body.
         This also provides the resolver used by future pinned run contexts.
         """
+        merged = self._behavior_snapshot(
+            document,
+            profile,
+            (repository.get("overrides", {}), workflow or {}, stage or {}),
+        )
+        merged["defaults"]["repository"] = (
+            repository["owner"] + "/" + repository["name"]
+        )
+        provider = repository.get("provider", "github")
+        identity = repository.get("identity") or {}
+        merged["defaults"].update(
+            repository_provider=provider,
+            repository_host=repository.get("host", "github.com"),
+            gitlab_project_id=identity.get("project_id")
+            if provider == "gitlab"
+            else None,
+            repository_check_policy_json=json.dumps(repository.get("check_policy", {}))
+            if provider == "gitlab"
+            else "{}",
+        )
+        self.validate(merged)
+        resolved = self.resolve(merged, profile)
+        for key, maximum in (limits or {}).items():
+            value = getattr(resolved, key, None)
+            if (
+                not isinstance(value, (int, float))
+                or isinstance(value, bool)
+                or value > maximum
+            ):
+                raise ValueError(
+                    "Effective configuration exceeds execution pool limits"
+                )
+        return resolved
+
+    def _behavior_snapshot(self, document, profile, layers):
         from copy import deepcopy
         from app.projects import validate_overrides
+
         merged = self.snapshot(document, profile, "preview", "preview")
-        for layer in (repository.get("overrides", {}), workflow or {}, stage or {}):
+        for layer in layers:
             validate_overrides(layer)
             for key, value in layer.items():
                 if key == "tasks":
@@ -86,20 +124,18 @@ class Configurations:
                         merged["tasks"].setdefault(task, {}).update(deepcopy(values))
                 else:
                     merged["defaults"][key] = deepcopy(value)
-        merged["defaults"]["repository"] = repository["owner"] + "/" + repository["name"]
-        self.validate(merged)
-        resolved = self.resolve(merged, profile)
-        for key, maximum in (limits or {}).items():
-            value = getattr(resolved, key, None)
-            if not isinstance(value, (int, float)) or isinstance(value, bool) or value > maximum:
-                raise ValueError("Effective configuration exceeds execution pool limits")
-        return resolved
+        return merged
+
+    def validate_repository_behavior(self, document, profile, overrides):
+        return self.validate(self._behavior_snapshot(document, profile, (overrides,)))
 
     def snapshot(self, document, profile, name, revision):
         from dataclasses import asdict
 
         settings = self.resolve(document, profile)
-        values = asdict(settings)
+        from factory.settings import compatible_settings
+
+        values = compatible_settings(asdict(settings))
         values["labels"] = settings.labels.model_dump()
         values["tasks"] = {
             key: value.model_dump() for key, value in settings.tasks.items()

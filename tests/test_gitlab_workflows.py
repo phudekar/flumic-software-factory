@@ -346,3 +346,61 @@ class GitLabCompositionTests(unittest.TestCase):
             with self.assertRaises(OperationBusy):
                 with renamed.claim("new/name:issue:7", "stage"):
                     pass
+
+    def test_gitlab_wait_uses_only_pinned_source_grant_and_url_scope(self):
+        from contextlib import contextmanager
+        from factory.workflows.project_waits import check_project_wait
+        from factory.domain.models import PullInput
+
+        context = self.context().with_credentials(
+            {"gitlab": "source-only", "openai": "never-deliver-model"}
+        )
+        captured = []
+        service = Mock()
+        service.pull_wait_status.return_value = "merged"
+
+        @contextmanager
+        def factory(scoped, **kwargs):
+            captured.append(dict(scoped.credentials))
+            yield service
+
+        command = PullInput(
+            repository="g/sub/r",
+            issue_number=2,
+            pull_number=7,
+            pull_url="https://gitlab.com/g/sub/r/-/merge_requests/7",
+            branch="factory",
+        )
+        status = check_project_wait(
+            context,
+            "review",
+            command,
+            dispatch=Mock(),
+            state=Mock(),
+            service_factory=factory,
+        )
+        self.assertEqual(status.state, "merged")
+        self.assertEqual(captured, [{"gitlab": "source-only"}])
+
+    def test_shared_registration_reports_only_locally_installed_provider_support(self):
+        from factory.shared_worker import SharedSettings, SharedControl
+
+        control = SharedControl(
+            SharedSettings(
+                pool_id="pool", worker_id="worker", worker_name="worker", role="simple"
+            ),
+            {
+                "FACTORY_CONTROL_ENDPOINT": "http://127.0.0.1:1",
+                "FACTORY_CONTROL_TOKEN": "fixture",
+            },
+        )
+        self.addCleanup(control.shutdown)
+        control.request = Mock(return_value={})
+        with patch("shutil.which", return_value=None):
+            control.register()
+        self.assertEqual(control.request.call_args.args[1]["providers"], ["github"])
+        with patch("shutil.which", return_value="/usr/bin/git"):
+            control.register()
+        self.assertEqual(
+            control.request.call_args.args[1]["providers"], ["github", "gitlab"]
+        )

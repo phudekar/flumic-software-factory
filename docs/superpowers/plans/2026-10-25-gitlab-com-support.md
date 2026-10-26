@@ -97,10 +97,10 @@ Each command must exit 0; inspect actual output and record counts in this plan's
 
 **Interfaces:** Project repository revision document contains Task 1 identity/check policy, including validated numeric `project_id` for GitLab. Add authenticated project-owned `POST /api/v1/projects/{project}/repositories/{repository}/validate` using saved credentials and parent revision. Validation publishes a new immutable resolved revision; stale parents return conflict. Launch/context pinning consumes this revision, never remotely re-resolves another project by path mid-run. `gitlab` secret purpose participates in existing rotation/revocation/replay/redaction rules.
 
-- [ ] Add HTTP/DB tests for nested GitLab namespace, validation parent race, wrong/revoked/foreign grants, numeric identity mismatch, renamed/reused paths, pin after edits, mixed aliases and issue/MR IID claim separation. Assert unresolved GitLab revisions cannot launch, old GitHub contexts still launch, Docker grants stay explicit.
-- [ ] Test legacy/dynamic takeover on provider-qualified identity without automatic stop/restart; preserve populated old IDs, claim strings, histories and revision documents.
-- [ ] Run focused backend tests with isolated SQLite fixture; expect provider/secret/identity rejection failures. Implement owned validation/pinning and context transport using Task 1 contracts. Any additive migration must preserve GitHub bytes/defaults and be reversible on disposable fixtures.
-- [ ] Run full backend SQLite and PostgreSQL ownership/migration/concurrency suites plus worker contracts; expect pass. Commit `feat: pin project-scoped GitLab repositories and grants (refs #16)`.
+- [x] Add HTTP/DB tests for nested GitLab namespace, validation parent race, wrong/revoked/foreign grants, numeric identity mismatch, renamed/reused paths, pin after edits, mixed aliases and issue/MR IID claim separation. Assert unresolved GitLab revisions cannot launch, old GitHub contexts still launch, Docker grants stay explicit.
+- [x] Test legacy/dynamic takeover on provider-qualified identity without automatic stop/restart; preserve populated old IDs, claim strings, histories and revision documents.
+- [x] Run focused backend tests with isolated SQLite fixture; expect provider/secret/identity rejection failures. Implement owned validation/pinning and context transport using Task 1 contracts. Any additive migration must preserve GitHub bytes/defaults and be reversible on disposable fixtures.
+- [x] Run full backend SQLite and PostgreSQL ownership/migration/concurrency suites plus worker contracts; expect pass. Commit `feat: pin project-scoped GitLab repositories and grants (refs #16)`.
 
 ### Task 5: Authenticated events, durable trigger acceptance and polling
 

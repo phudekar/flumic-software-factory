@@ -31,14 +31,13 @@ _SUPPORTED_SOURCES = frozenset(
 )
 
 
-class RepositoryIdentity(BaseModel):
+class RepositoryLocation(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     provider: Literal["github", "gitlab"]
     host: StrictStr
     owner: Annotated[StrictStr, Field(min_length=1, max_length=1024)]
     name: StrictStr
-    project_id: Annotated[StrictInt, Field(gt=0, le=2**63 - 1)] | None = None
 
     @field_validator("host")
     @classmethod
@@ -54,18 +53,29 @@ class RepositoryIdentity(BaseModel):
             not _SEGMENT.fullmatch(part) or part in {".", ".."} for part in parts
         ):
             raise ValueError("Invalid repository namespace or project name")
-        if self.provider == "github":
-            if len(parts) != 2 or self.project_id is not None:
-                raise ValueError(
-                    "GitHub identity requires owner/name without GitLab ID"
-                )
-        elif self.project_id is None:
-            raise ValueError("Executable GitLab identity requires numeric project ID")
+        if self.provider == "github" and len(parts) != 2:
+            raise ValueError("GitHub identity requires owner/name")
         return self
 
     @property
     def path(self):
         return self.owner + "/" + self.name
+
+    @property
+    def credential_purpose(self):
+        return self.provider
+
+
+class RepositoryIdentity(RepositoryLocation):
+    project_id: Annotated[StrictInt, Field(gt=0, le=2**63 - 1)] | None = None
+
+    @model_validator(mode="after")
+    def validate_resolved_identity(self):
+        if self.provider == "github" and self.project_id is not None:
+            raise ValueError("GitHub identity cannot carry a GitLab project ID")
+        if self.provider == "gitlab" and self.project_id is None:
+            raise ValueError("Executable GitLab identity requires numeric project ID")
+        return self
 
     @property
     def canonical_key(self):

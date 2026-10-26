@@ -131,6 +131,8 @@ class SharedControl:
             self.infrastructure.shutdown()
 
     def register(self):
+        import shutil
+
         settings = self.settings
         actions = sorted(
             action
@@ -144,6 +146,9 @@ class SharedControl:
             "/api/v1/shared-worker/register",
             {
                 "protocol": settings.protocol,
+                "providers": ["github", "gitlab"]
+                if shutil.which("git")
+                else ["github"],
                 "pool_id": settings.pool_id,
                 "role": settings.role,
                 "normal_slots": settings.normal_slots,

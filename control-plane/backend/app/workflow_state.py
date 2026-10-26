@@ -123,14 +123,27 @@ def transition_lock(db):
 
 def repository_key(document):
     return canonical_repository(
-        document.get("host", "github.com"), document["owner"], document["name"]
+        document.get("host", "github.com"),
+        document["owner"],
+        document["name"],
+        project_id=(document.get("identity") or {}).get("project_id"),
+    )
+
+
+def legacy_repository_key(config, document, profile):
+    settings = config.resolve(document, profile)
+    owner, _, name = settings.repository.rpartition("/")
+    return canonical_repository(
+        settings.repository_host
+        or ("gitlab.com" if settings.repository_provider == "gitlab" else "github.com"),
+        owner,
+        name,
+        project_id=settings.gitlab_project_id,
     )
 
 
 def legacy_guard(db, config, document, profile):
-    value = config.resolve(document, profile).repository
-    owner, name = value.split("/", 1)
-    key = canonical_repository("github.com", owner, name)
+    key = legacy_repository_key(config, document, profile)
     mode = db.get(RepositoryExecutionMode, key)
     if mode and mode.mode == "dynamic":
         raise HTTPException(
@@ -346,6 +359,10 @@ class WorkflowState:
             assignment_id=assignment_id,
             namespace=f"{run.project_id}/{metadata['repository_id']}",
             settings_json=metadata["settings_json"],
+            repository_identity_json=metadata.get("repository_identity_json", ""),
+            repository_check_policy_json=metadata.get(
+                "repository_check_policy_json", "{}"
+            ),
             factory_run_id=correlation.factory_run_id or run.id,
             trace_context=correlation.trace_context,
             followup_bindings_json=metadata.get("followup_bindings_json", "{}"),
@@ -454,7 +471,7 @@ class WorkflowState:
         db.flush()
         return ready
 
-    def _capacity(self, db, stage, project_id):
+    def _capacity(self, db, stage, project_id, provider="github"):
         if db.get(ProjectPool, (project_id, stage.pool_id)) is None:
             return False
         pool = db.get(WorkerPool, stage.pool_id)
@@ -475,6 +492,7 @@ class WorkflowState:
             pool.profile["normal_slots"]
             for worker in workers
             if worker.capabilities.get("role") == stage.role
+            and provider in worker.capabilities.get("providers", ["github"])
             and action in worker.capabilities.get("actions", [])
             and stage.executor + "@1" in worker.capabilities.get("executors", [])
         )
@@ -606,7 +624,12 @@ class WorkflowState:
                     if run.project_id != project or run.state != "running":
                         continue
                     for ready in self._ready(db, run):
-                        if self._capacity(db, ready[0], project):
+                        if self._capacity(
+                            db,
+                            ready[0],
+                            project,
+                            ready[4].get("repository_provider", "github"),
+                        ):
                             candidate = ready
                             break
                     if candidate:
@@ -889,8 +912,13 @@ class WorkflowState:
             if value["id"] == metadata["repository_id"]
         )
         root = repository_key(repository)
+        kinds = (
+            r"(?:issue|merge-request)"
+            if repository.get("provider", "github") == "gitlab"
+            else "issue"
+        )
         if resource != root and not re.fullmatch(
-            re.escape(root) + r"/issue/[1-9][0-9]*", resource
+            re.escape(root) + "/" + kinds + r"/[1-9][0-9]*", resource
         ):
             raise HTTPException(404, "Resource is outside the pinned repository")
         for existing in db.scalars(select(ExternalResourceClaim)):
@@ -920,18 +948,30 @@ class WorkflowState:
         with self.sessions.begin() as db:
             transition_lock(db)
             repository = require_owned(db, scope, RepositoryConnection, repository_id)
-            root = canonical_repository(
-                repository.host, repository.owner, repository.name
+            from app.database import RepositoryRevision
+
+            revision = require_owned(
+                db, scope, RepositoryRevision, repository.revision_id
             )
+            if repository.provider == "gitlab" and not revision.document.get(
+                "identity"
+            ):
+                raise HTTPException(
+                    409, "Validate GitLab repository identity before takeover"
+                )
+            root = repository_key(revision.document)
             for worker in db.scalars(select(Worker).where(Worker.protocol == "legacy")):
                 revision = db.get(Revision, worker.revision_id)
                 if revision is None:
                     raise HTTPException(
                         409, "Legacy worker configuration is unavailable"
                     )
-                settings = self.config.resolve(revision.document, worker.profile)
-                owner, name = settings.repository.split("/", 1)
-                if canonical_repository("github.com", owner, name) != root:
+                if (
+                    legacy_repository_key(
+                        self.config, revision.document, worker.profile
+                    )
+                    != root
+                ):
                     continue
                 pending = db.scalar(
                     select(Operation.id).where(

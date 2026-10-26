@@ -21,6 +21,7 @@ from app.projects import (
     effective_configuration,
 )
 from app.project_context import encrypt, decrypt, require_secret
+from factory.settings import compatible_settings
 from app.worker_pools import pool_record, membership
 from factory.workflows.definitions import (
     WorkflowDefinition,
@@ -141,16 +142,17 @@ def prepare_definition(db, scope, config, document, *, allow_bridge=False, froze
                 422, "Project behavior profile does not match stage role"
             )
         grants = {**graph.secrets, **stage.secrets}
-        github = repository["document"].get("credential_id")
-        if github:
-            if "github" in grants and grants["github"] != github:
+        source = repository["document"].get("provider", "github")
+        credential = repository["document"].get("credential_id")
+        if credential:
+            if source in grants and grants[source] != credential:
                 raise HTTPException(
-                    422, "GitHub grant must match the selected repository revision"
+                    422, "Source-host grant must match selected repository revision"
                 )
-            grants["github"] = github
-        elif "github" in grants:
+            grants[source] = credential
+        elif source in grants:
             raise HTTPException(
-                422, "Configure the GitHub grant on the repository connection"
+                422, "Configure source-host grant on repository connection"
             )
         for purpose, identity in grants.items():
             require_secret(db, scope, identity, purpose, repository["id"])
@@ -164,7 +166,22 @@ def prepare_definition(db, scope, config, document, *, allow_bridge=False, froze
             "role": stage.role,
             "executor": executor,
             "action": action,
-            "settings_json": json.dumps(jsonable_encoder(settings), allow_nan=False),
+            "settings_json": json.dumps(
+                compatible_settings(jsonable_encoder(settings)), allow_nan=False
+            ),
+            **(
+                {
+                    "repository_provider": source,
+                    "repository_identity_json": json.dumps(
+                        repository["document"]["identity"], allow_nan=False
+                    ),
+                    "repository_check_policy_json": json.dumps(
+                        repository["document"].get("check_policy", {}), allow_nan=False
+                    ),
+                }
+                if source == "gitlab"
+                else {}
+            ),
             "secret_versions": grants,
         }
     return graph, {

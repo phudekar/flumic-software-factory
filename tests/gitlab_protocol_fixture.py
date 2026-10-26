@@ -65,7 +65,11 @@ class GitLabProtocolFixture:
         if method != "GET":
             self.writes.append((method, path, deepcopy(body)))
         if path == "":
-            return {"id": 123, "default_branch": "main"}
+            return {
+                "id": 123,
+                "path_with_namespace": "owner/repo",
+                "default_branch": "main",
+            }
         if path.startswith("/repository/branches/"):
             branch = unquote(path.removeprefix("/repository/branches/"))
             if branch not in self.branches:

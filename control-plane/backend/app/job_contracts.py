@@ -46,7 +46,7 @@ class JobLaunch(Contract):
     @field_validator("credentials")
     @classmethod
     def grants(cls, value):
-        if set(value) - {"github", "openai", "anthropic"} or any(
+        if set(value) - {"github", "gitlab", "openai", "anthropic"} or any(
             not v or len(v) > 16384 for v in value.values()
         ):
             raise ValueError("Invalid job credential purposes")

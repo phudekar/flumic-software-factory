@@ -95,7 +95,7 @@ class JobBroker:
             if hashed(inputs) != item.input_digest:
                 raise HTTPException(409, "Job inputs do not match admitted execution")
             # Docker gets only purposes explicitly declared on the graph/stage;
-            # it never inherits the repository's ambient GitHub credential.
+            # it never inherits the repository's ambient source-host credential.
             requested = {**graph.secrets, **stage.secrets}
             grants = {
                 purpose: metadata["secret_versions"][purpose] for purpose in requested

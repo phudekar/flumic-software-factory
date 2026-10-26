@@ -47,7 +47,7 @@ class Stage(Schema):
     retries: int = Field(default=0, ge=0, le=3)
     retry_delay_seconds: int = Field(default=0, ge=0, le=3600)
     overrides: dict = Field(default_factory=dict)
-    secrets: dict[Literal["github", "openai", "anthropic"], Identity] = Field(
+    secrets: dict[Literal["github", "gitlab", "openai", "anthropic"], Identity] = Field(
         default_factory=dict
     )
 
@@ -97,7 +97,7 @@ class WorkflowDefinition(Schema):
     repositories: list[Slug] = Field(min_length=1, max_length=64)
     default_repository: Slug
     defaults: dict = Field(default_factory=dict)
-    secrets: dict[Literal["github", "openai", "anthropic"], Identity] = Field(
+    secrets: dict[Literal["github", "gitlab", "openai", "anthropic"], Identity] = Field(
         default_factory=dict
     )
     stages: list[

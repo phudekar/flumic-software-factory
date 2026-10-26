@@ -275,7 +275,16 @@ class GitLabClientTests(unittest.TestCase):
         self.client.resolve_revision = Mock(return_value="a" * 40)
         self.client.find_issue_pull_request = Mock(return_value=None)
         self.client._request.side_effect = [
-            {"id": 123, "default_branch": "main"},
+            {
+                "id": 123,
+                "path_with_namespace": "group/sub/repo",
+                "default_branch": "main",
+            },
+            {
+                "id": 123,
+                "path_with_namespace": "group/sub/repo",
+                "default_branch": "main",
+            },
             {
                 "id": 88,
                 "iid": 9,
@@ -309,6 +318,11 @@ class GitLabClientTests(unittest.TestCase):
         self.assertEqual(body["source_branch"], "factory")
 
     def test_feedback_update_uses_original_expected_head(self):
+        self.client._request.return_value = {
+            "id": 123,
+            "path_with_namespace": "group/sub/repo",
+            "default_branch": "main",
+        }
         self.client.publisher = Mock()
         self.client.publisher.publish.return_value = "c" * 40
         self.client._branch_head = Mock(return_value="b" * 40)
@@ -408,3 +422,34 @@ class GitLabClientTests(unittest.TestCase):
             self.client.get_pull_request_files(7),
             [{"path": "a.py", "patch": "@@ diff", "status": "modified"}],
         )
+
+    def test_renamed_repository_is_rejected_before_any_git_publication(self):
+        from factory.domain.models import FileChange, RepositoryError
+
+        self.client.publisher = Mock()
+        self.client._branch_head = Mock(return_value="a" * 40)
+        self.client.find_issue_pull_request = Mock(return_value=None)
+        self.client._request.return_value = {
+            "id": 123,
+            "path_with_namespace": "renamed/project",
+            "default_branch": "main",
+        }
+        with self.assertRaises(RepositoryError):
+            self.client.create_draft_pull_request(
+                issue_number=7,
+                title="Change",
+                body="Body",
+                branch="factory",
+                changes=[FileChange(path="a.py", content="print(1)")],
+                expected_base_sha="a" * 40,
+            )
+        self.client.publisher.publish.assert_not_called()
+        with self.assertRaises(RepositoryError):
+            self.client.update_pull_request_branch(
+                branch="factory",
+                issue_number=7,
+                feedback_cursor={},
+                changes=[FileChange(path="a.py", content="print(1)")],
+                expected_base_sha="a" * 40,
+            )
+        self.client.publisher.publish.assert_not_called()

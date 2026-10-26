@@ -140,3 +140,12 @@ class GuardrailTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class GitLabCredentialGuardrailTests(unittest.TestCase):
+    def test_gitlab_access_token_pattern_is_blocked_without_echoing_value(self):
+        value = "glpat-" + "x" * 32
+        with self.assertRaises(SensitiveContentBlocked) as blocked:
+            assert_safe_text("Unexpected credential: " + value)
+        self.assertIn("gitlab-token", blocked.exception.categories)
+        self.assertNotIn(value, str(blocked.exception))
