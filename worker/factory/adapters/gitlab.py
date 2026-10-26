@@ -44,6 +44,8 @@ class GitLabClient:
         token,
         max_file_bytes=MAX_SOURCE_FILE_BYTES,
         check_policy=None,
+        timeout_seconds=30,
+        max_pages=100,
     ):
         owner, _, name = repository.rpartition("/")
         self.identity = RepositoryIdentity(
@@ -64,6 +66,11 @@ class GitLabClient:
             or not 0 < max_file_bytes <= MAX_RESPONSE_BYTES
         ):
             raise ValueError("Invalid source file byte limit")
+        if type(timeout_seconds) not in (int, float) or not 0 < timeout_seconds <= 30:
+            raise ValueError("Invalid GitLab request timeout")
+        if type(max_pages) is not int or not 1 <= max_pages <= 100:
+            raise ValueError("Invalid GitLab page budget")
+        self.timeout_seconds, self.max_pages = timeout_seconds, max_pages
         self.repository = self.identity.path
         self.project_id = project_id
         self._token = token
@@ -90,7 +97,7 @@ class GitLabClient:
         limit = MAX_ARCHIVE_BYTES if raw else MAX_RESPONSE_BYTES
         try:
             with build_opener(NoGitLabRedirects()).open(
-                request, timeout=30
+                request, timeout=self.timeout_seconds
             ) as response:
                 payload = response.read(limit + 1)
         except HTTPError as error:
@@ -114,7 +121,7 @@ class GitLabClient:
 
     def _pages(self, path, *, query=None):
         result = []
-        for page in range(1, 101):
+        for page in range(1, self.max_pages + 1):
             values = self._request(
                 "GET", path, query={**(query or {}), "page": page, "per_page": 100}
             )

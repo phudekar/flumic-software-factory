@@ -453,3 +453,30 @@ class GitLabClientTests(unittest.TestCase):
                 expected_base_sha="a" * 40,
             )
         self.client.publisher.publish.assert_not_called()
+
+
+class GitLabReadBudgetTests(unittest.TestCase):
+    def test_explicit_timeout_and_page_budget_are_bounded(self):
+        from factory.adapters.gitlab import GitLabClient
+        from factory.domain.models import RepositoryError
+
+        client = GitLabClient(
+            "group/repo",
+            project_id=123,
+            token="fixture",
+            timeout_seconds=5,
+            max_pages=2,
+        )
+        client._request = Mock(return_value=[{"id": n} for n in range(100)])
+        with self.assertRaises(RepositoryError):
+            client._pages("/issues")
+        self.assertEqual(client._request.call_count, 2)
+        self.assertEqual(client.timeout_seconds, 5)
+        for extra in (
+            {"timeout_seconds": 0},
+            {"timeout_seconds": 31},
+            {"max_pages": 0},
+            {"max_pages": 101},
+        ):
+            with self.assertRaises(ValueError):
+                GitLabClient("group/repo", project_id=123, token="fixture", **extra)

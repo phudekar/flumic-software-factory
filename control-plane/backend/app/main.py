@@ -3,6 +3,7 @@
 from contextlib import asynccontextmanager
 from collections import defaultdict
 import json
+import re
 import secrets
 import time
 import uuid
@@ -158,6 +159,9 @@ def create_app(settings=None, sessions=None, runtime=None, workflow=None):
     from app.workflow_definitions import install as install_workflow_definitions
 
     install_workflow_definitions(app, sessions, config, settings)
+    from app.repository_triggers import install as install_repository_triggers
+
+    install_repository_triggers(app, sessions, settings, config)
 
     def runtime_adapter():
         nonlocal runtime
@@ -210,6 +214,12 @@ def create_app(settings=None, sessions=None, runtime=None, workflow=None):
         if (
             request.url.path.startswith("/api/")
             and not request.url.path.startswith("/api/v1/shared-worker/")
+            and not (
+                request.method == "POST"
+                and re.fullmatch(
+                    r"/api/v1/hooks/gitlab/[0-9a-f-]{36}", request.url.path
+                )
+            )
             and request.url.path
             not in {
                 "/api/v1/auth/login",

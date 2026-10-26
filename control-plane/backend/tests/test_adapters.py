@@ -352,3 +352,53 @@ class AdapterTests(unittest.TestCase):
                 worker, {"protocol": "shared-v1", "role": "simple"}, "control-token"
             )
         container.remove.assert_not_called()
+
+    def test_legacy_gitlab_container_receives_only_its_source_host_token(self):
+        import os
+        import tempfile
+        from types import SimpleNamespace
+        from unittest.mock import patch
+
+        with tempfile.TemporaryDirectory() as directory:
+            settings = SimpleNamespace(
+                snapshot_root=Path(directory),
+                host_root=Path("/host"),
+                worker_endpoint="http://control",
+            )
+            worker = SimpleNamespace(
+                id="legacy-gitlab",
+                name="legacy-gitlab",
+                profile="simple",
+                revision_id="revision",
+                protocol="legacy",
+            )
+            config = Mock()
+            config.snapshot.return_value = {
+                "version": 1,
+                "defaults": {"worker_type": "simple", "repository_provider": "gitlab"},
+                "workers": {"simple": {}},
+                "tasks": {},
+            }
+            client = Mock()
+            client.containers.list.return_value = []
+            runtime = DockerRuntime(settings, config, client)
+            with patch.dict(
+                os.environ,
+                {
+                    "HATCHET_CLIENT_TOKEN": "infra",
+                    "GITLAB_TOKEN": "gitlab-fixture",
+                    "GITHUB_TOKEN": "never-forward-github",
+                },
+                clear=True,
+            ):
+                runtime.create(worker, {}, "control", image="fixture-image")
+            env = client.containers.create.call_args.kwargs["environment"]
+            self.assertEqual(env["GITLAB_TOKEN"], "gitlab-fixture")
+            self.assertNotIn("GITHUB_TOKEN", env)
+            with patch.dict(
+                os.environ,
+                {"HATCHET_CLIENT_TOKEN": "infra", "GITHUB_TOKEN": "wrong-source"},
+                clear=True,
+            ):
+                with self.assertRaises(ValueError):
+                    runtime.create(worker, {}, "control", image="fixture-image")
