@@ -61,3 +61,38 @@ Planned-task relationships use normal GitLab issue links plus explicit factory p
 ## Live release qualification
 
 Local protocol fixtures and isolated SQL tests qualify deterministic contracts. They do not establish live GitLab compatibility. The final harness must use the designated disposable GitLab.com project, a fake model, real HTTP/Git operations, a real runner/pipeline, duplicate delivery/recovery cases, and explicit source mutation/cleanup approval. It must not restart existing workers or make paid model calls. The configured test project is `pradiphudekar/software-factory-test`; neither this designation nor an `.env` token authorizes writes by itself.
+
+### Opt-in contract configuration
+
+The executable contract is [`tests/integration/test_gitlab_contract.py`](../tests/integration/test_gitlab_contract.py). Without `FLUMIC_LIVE_GITLAB=1` it skips. With that opt-in but missing pins, credentials or either write approval, it fails before mutation. Its safety tests include a complete protocol-fixture dry run with network access forbidden; that dry run qualifies the harness, not live GitLab support.
+
+| Environment variable | Required value / effect |
+| --- | --- |
+| `FLUMIC_LIVE_GITLAB` | `1` to opt in. |
+| `FLUMIC_GITLAB_ALLOW_WRITES` | `1` only after approving the disposable project's resource mutations. |
+| `FLUMIC_GITLAB_ALLOW_DEFAULT_BRANCH_CHANGES` | `1` only after approving the temporary CI/default-branch commits below. |
+| `FLUMIC_GITLAB_PROJECT_PATH` | Exact namespace/project, for example `pradiphudekar/software-factory-test`. |
+| `FLUMIC_GITLAB_PROJECT_ID` | The independently verified positive numeric project ID. |
+| `FLUMIC_GITLAB_DEFAULT_BRANCH` | The exact current default branch, for example `main`. |
+| `FLUMIC_GITLAB_DEFAULT_SHA` | Full approved default-branch commit SHA. A moved head stops the run; never use `HEAD` or dynamically bypass the pin. |
+| `GITLAB_TOKEN` | API/Git source credential injected privately into the test process. The harness never reads `.env` itself. |
+| `FLUMIC_LIVE_EVIDENCE_DIR` | Optional local directory for atomically updated public inventory JSON. Only this allowlisted JSON is suitable for CI artifacts. |
+
+Once the pins and approvals are supplied privately, run:
+
+```sh
+PYTHONPATH=tests:worker python -m unittest integration.test_gitlab_harness_safety -v
+PYTHONPATH=tests:worker python -m unittest integration.test_gitlab_contract -v
+```
+
+The live run requires the standard `.gitlab-ci.yml` path and an available runner. It makes these bounded changes:
+
+- Save the original CI configuration in process memory and temporarily create/replace `.gitlab-ci.yml` on the default branch with a Python print-only job. It does not check out or execute repository code, call a model provider, or print environment variables.
+- Create one marked parent issue, one linked child issue, six uniquely named labels and one draft MR. The application creates its normal `hatchet/issue-<new-child-iid>` source branch. All titles/owned bodies carry a unique contract marker.
+- Publish a fake coding patch to a unique Python fixture file; simulate losing the successful MR response and verify recovery without another coding call or publication. Review it, add one human-style feedback note, publish one incremental patch, and verify a repeated feedback scan does not repeat coding.
+- Advance the source branch with a second unique fixture file and prove a stale ref lease cannot overwrite that head. Run its real `push` pipeline, merge the MR into the default branch, and verify the exact merged commit/ref using the real pipeline before closing the child issue. Normally this produces no more than six push pipelines across preparation, publication, feedback, race, merge and restoration. GitLab runner compute/quota usage still applies.
+- Restore the previous CI file (or delete the temporary one), remove the two owned fixture files with a new default-branch commit, and attempt deletion of the marked issues/MR, unique labels and owned source ref. The default branch retains the preparation/merge/restoration history; cleanup never resets Git history. Existing repository files must end with their original contents.
+
+Do not edit the test project concurrently with qualification. Cleanup verifies project identity, owned markers, expected branch heads and per-file last-commit IDs. It refuses to delete the default/unowned refs, overwrite an advanced human branch, or restore files whose ownership changed. Each cleanup operation is attempted independently; an ownership or availability failure leaves a public inventory for manual review and makes the contract fail. Abrupt process termination can still leave owned resources, so inventory is updated throughout the run. No automatic cleanup touches unrelated issues, MRs, labels, files or workers.
+
+GitHub Actions provides **Run live GitLab.com qualification** and a separate **Approve temporary CI/default-branch commits** checkbox on the manually dispatched Tests workflow. Both default to false. Configure `FLUMIC_RELEASE_GITLAB_TOKEN` as a secret, and `FLUMIC_RELEASE_GITLAB_PROJECT_PATH`, `..._PROJECT_ID`, `..._DEFAULT_BRANCH`, and `..._DEFAULT_SHA` as repository variables for an approved disposable project. The job uploads only `output/gitlab-evidence/gitlab-contract-*.json`, containing resource IDs, commit/ref proof, dependency versions and cleanup status. It never uploads source configuration, tokens, headers, grants, spools or raw logs. Re-pin the SHA deliberately before a later live run because cleanup appends a commit.

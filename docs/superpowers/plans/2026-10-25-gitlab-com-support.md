@@ -119,10 +119,10 @@ Each command must exit 0; inspect actual output and record counts in this plan's
 
 **Interfaces:** Typed owned repository validation/trigger endpoints from Tasks 4–5; project-qualified query keys and captured mutation scope. UI shows provider-correct namespace/project/credential labels, immutable resolved ID/check policy, trigger enabled state and token-rotation controls. Secret values never enter cached query responses; new webhook token displayed once through established credential patterns.
 
-- [ ] Test mixed GitHub/GitLab project connections, nested namespaces, secret-purpose filtering, validation/conflict errors, pin display and required CI policy. Test project switch/delayed mutations and trigger creation/rotation without stale token/data leakage.
-- [ ] Run new frontend tests; expect unavailable fields/routes/components. Implement these workflows using existing forms and conflict handling.
-- [ ] Document GitLab.com setup, exact token permissions, Git dependency, trigger/poll/webhook setup, examples, related-task semantics, CI policy, publication uncertainty and live test requirements. Keep status planned until Task 7 real-host gate passes; no speculative supported claims.
-- [ ] Run frontend tests/build and docs build/link/route coverage checks; expect pass. Browser smoke on isolated fixture data if UI changes need it; no real secret screenshots. Commit `feat: configure GitLab repositories and triggers in Control Pane (refs #16)`.
+- [x] Test mixed GitHub/GitLab project connections, nested namespaces, secret-purpose filtering, validation/conflict errors, pin display and required CI policy. Test project switch/delayed mutations and trigger creation/rotation without stale token/data leakage.
+- [x] Run new frontend tests; expect unavailable fields/routes/components. Implement these workflows using existing forms and conflict handling.
+- [x] Document GitLab.com setup, exact token permissions, Git dependency, trigger/poll/webhook setup, examples, related-task semantics, CI policy, publication uncertainty and live test requirements. Keep status planned until Task 7 real-host gate passes; no speculative supported claims.
+- [x] Run frontend tests/build and docs build/link/route coverage checks; expect pass. Browser smoke on isolated fixture data if UI changes need it; no real secret screenshots. Commit `feat: configure GitLab repositories and triggers in Control Pane (refs #16)`.
 
 ### Task 7: End-to-end release evidence, review and merge
 

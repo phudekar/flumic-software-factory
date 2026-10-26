@@ -14,6 +14,15 @@ on:
         type: boolean
         default: false
 
+      run_gitlab_contracts:
+        description: Run live GitLab.com qualification against a pinned disposable project
+        type: boolean
+        default: false
+      allow_gitlab_default_branch_changes:
+        description: Approve temporary CI/default-branch commits and their guarded cleanup in the disposable GitLab project
+        type: boolean
+        default: false
+
 permissions:
   contents: read
 
@@ -175,3 +184,40 @@ jobs:
             output/runtime-evidence/flumic-contract-*/effects.jsonl
             output/runtime-evidence/flumic-contract-*/entries.jsonl
             output/runtime-evidence/flumic-contract-*/frontiers.jsonl
+
+
+  gitlab-contracts:
+    name: Opt-in live GitLab.com contracts
+    if: github.event_name == 'workflow_dispatch' && inputs.run_gitlab_contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      PYTHONPATH: tests:worker
+      FLUMIC_LIVE_GITLAB: '1'
+      FLUMIC_GITLAB_ALLOW_WRITES: '1'
+      FLUMIC_GITLAB_ALLOW_DEFAULT_BRANCH_CHANGES: ${{ inputs.allow_gitlab_default_branch_changes && '1' || '0' }}
+      FLUMIC_GITLAB_PROJECT_PATH: ${{ vars.FLUMIC_RELEASE_GITLAB_PROJECT_PATH }}
+      FLUMIC_GITLAB_PROJECT_ID: ${{ vars.FLUMIC_RELEASE_GITLAB_PROJECT_ID }}
+      FLUMIC_GITLAB_DEFAULT_BRANCH: ${{ vars.FLUMIC_RELEASE_GITLAB_DEFAULT_BRANCH }}
+      FLUMIC_GITLAB_DEFAULT_SHA: ${{ vars.FLUMIC_RELEASE_GITLAB_DEFAULT_SHA }}
+      GITLAB_TOKEN: ${{ secrets.FLUMIC_RELEASE_GITLAB_TOKEN }}
+      FLUMIC_LIVE_EVIDENCE_DIR: output/gitlab-evidence
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+          cache: pip
+          cache-dependency-path: worker/requirements.txt
+      - run: python -m pip install -r worker/requirements.txt
+      - name: Require explicit scoped mutation configuration
+        run: python -c 'import os; from integration.gitlab_live_fixture import LiveGitLabConfig; LiveGitLabConfig.from_env(os.environ)'
+      - name: Qualify real GitLab HTTP, Git publication and CI
+        run: python -m unittest integration.test_gitlab_contract -v
+      - name: Upload public GitLab protocol inventory only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gitlab-protocol-evidence
+          if-no-files-found: ignore
+          path: output/gitlab-evidence/gitlab-contract-*.json
