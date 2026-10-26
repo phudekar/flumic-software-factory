@@ -64,7 +64,7 @@ when starting, and the current runtime does not provide graceful drain guarantee
 | Domain models and patch policy | Change contracts, path/file limits, completeness and content validation | Shared checks remain consistent as coding backends change; model choice does not redefine what the application can publish. | API coding and CLI coding return the same completed-patch contract. Publication policy is not an OS/network sandbox, and trusted adapters must protect extra data they load. |
 | Agent adapters | Planner/reviewer/coder implementations and context capabilities | Planning, review and coding can be chosen independently; model and prompt overrides can vary by task. | Use direct API planning/review with Codex or Claude coding, or implement a trusted coding port for a remote service. Custom managed factories require registry approval and installed code. |
 | Repository adapter | Issues, source snapshots, commits, PRs, review/merge state | Source-host integration is kept at an application boundary rather than scattered throughout model/orchestration code. | GitHub is currently wired at composition. Planned GitLab support needs adapter, event/merge-request semantics and wiring; it is not a supported `repository_provider` switch today. |
-| Execution-state adapter | Prepared plans/patches, cursors, issue claims and recovery | The application can reconcile retries using recorded progress, with state operations behind a port. | Legacy Python workflows use shared SQLite and file locks on one host. The new internal dynamic runtime uses project-scoped encrypted state and canonical claims in PostgreSQL; its coordinator adapter is echo-tested on Hatchet, and the executable catalog composes existing application operations per pinned context. Project-scoped APIs and assignment-authenticated transports activate the runtime through a fixed control service; see the [runtime API guide](project-runtime-api.md). |
+| Execution-state adapter | Prepared plans/patches, cursors, issue claims and recovery | The application can reconcile retries using recorded progress, with state operations behind a port. | Legacy Python workflows use shared SQLite and file locks on one host. The new internal dynamic runtime uses project-scoped encrypted state and canonical claims in PostgreSQL; its coordinator adapter is qualified with mixed builtin/Docker graphs on real Hatchet and shared workers, and the executable catalog composes existing application operations per pinned context. Project-scoped APIs and assignment-authenticated transports activate the runtime through a fixed control service; see the [runtime API guide](project-runtime-api.md). |
 | Observation adapters | Operation/model context, logs, retained events and optional OTLP export | Instrumentation can change without rewriting development operations; execution policy stays separate from the monitoring vendor. | Use structured logging alone, managed Control Plane reporting, or optional SigNoz telemetry. Captured call content depends on policy; CLI accounting is not a complete internal transcript. |
 | Composition root + validated configuration | Constructing dependencies, selecting trusted implementations and resolving settings | Wiring stays explicit, and configuration changes can tune established behavior without editing the application service. | Change a task model/prompt through a saved profile, or load an approved installed factory. Configuration cannot create a new Python stage or make an unimplemented runtime available. |
 
@@ -271,7 +271,7 @@ they are not automatically reopened or assigned another implementation branch.
 To add a production orchestrator, implement factory dispatch requests, wire the
 application operations into its task model, and add a bootstrap selection. The
 adapter owns durability, retries, routing, scheduling, timeout, and cancellation
-semantics. There is no universal workflow DSL to emulate across engines.
+semantics. The internal data-defined workflow schema targets the implemented Hatchet runtime; it does not promise equivalent semantics on arbitrary workflow engines.
 
 A local adapter proves the application can execute without Hatchet. In a copy
 of `worker-config.yaml`, set `defaults.orchestrator: local` and
@@ -325,9 +325,7 @@ stale revisions, duplicated feedback, independent factories, clean imports, and
 Hatchet SDK workflow serialization without a server. Token-budget tests require
 the normal tiktoken vocabulary cache on first use.
 
-Production alternatives to Hatchet, distributed database adapters, other vendor
-telemetry integrations, per-task containers, richer change artifacts, parent issue
-aggregation, plan revisions, and cancellation workflows are extension work.
+The project runtime supports one-time Docker action containers, immutable workflow revisions and canonical cancellation/deadlines. See [rollout and qualification](project-runtime-operations.md) for the tested boundaries. Alternative workflow engines, Kubernetes, remote functions and other vendor telemetry integrations remain extension work.
 The built-in CLI execution still uses the existing unprivileged subprocess
 boundary and shared provider home. No live deployment, paid agent run, or GitHub
 mutation is part of the automated validation.

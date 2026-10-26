@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1110" viewBox="0 0 1600 1110" role="img" aria-labelledby="title description">
 <title id="title">Flumic AI layered architecture</title>
-<desc id="description">Six responsibility layers: developer experience with React UI; Control Plane with API, profiles and reconciler; Hatchet workflow orchestration; simple and developer worker execution with shared application and domain policy; repository, model, state and telemetry adapters; Docker and separate PostgreSQL control data and SQLite execution state. Observability spans the layers with logs, metrics, traces and model accounting. Arrows indicate conceptual dependencies, not a synchronous request sequence. GitLab and Kubernetes are planned.</desc>
+<desc id="description">Six responsibility layers: developer experience with React UI; Control Plane with API, profiles and reconciler; Hatchet workflow orchestration; simple and developer worker execution with shared application and domain policy; repository, model, state and telemetry adapters; Docker and PostgreSQL control and dynamic execution data plus legacy SQLite state. Observability spans the layers with logs, metrics, traces and model accounting. Arrows indicate conceptual dependencies, not a synchronous request sequence. GitLab and Kubernetes are planned.</desc>
 <defs><marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="m0 0 8 4-8 4Z" fill="#82e4bd"/></marker>
 <symbol id="monitor" viewBox="0 0 32 34"><rect x="3" y="4" width="26" height="19" rx="2"/><path d="M16 23v5m-6 0h12"/></symbol>
 <symbol id="sliders" viewBox="0 0 32 34"><path d="M3 7h8m6 0h12M3 16h17m6 0h3M3 25h5m6 0h15"/><circle cx="14" cy="7" r="3"/><circle cx="23" cy="16" r="3"/><circle cx="11" cy="25" r="3"/></symbol>
@@ -42,7 +42,7 @@
 <rect x="305" y="157" width="1015" height="84" rx="10" fill="#11263b" stroke="#315270"/>
 <use href="#monitor" x="322" y="180" width="38" height="38" class="icon"/>
 <text x="374" y="193" class="card">React Control UI</text>
-<text x="374" y="218" class="small">Operator configuration, lifecycle controls and execution views</text>
+<text x="374" y="218" class="small">Projects, workflows, configuration and execution views</text>
 <rect x="40" y="285" width="1300" height="118" rx="13" fill="#101f30" stroke="#29425d"/>
 <path d="M280 285v118" stroke="#29425d"/>
 <text x="65" y="315" class="number">02</text>
@@ -55,12 +55,12 @@
 <text x="374" y="363" class="small">Auth + queries + commands</text>
 <rect x="620" y="302" width="340" height="84" rx="10" fill="#11263b" stroke="#315270"/>
 <use href="#layers" x="637" y="325" width="38" height="38" class="icon"/>
-<text x="689" y="338" class="card">Profiles + revisions</text>
-<text x="689" y="363" class="small">Saved configuration + snapshots</text>
+<text x="689" y="338" class="card">Projects + revisions</text>
+<text x="689" y="363" class="small">Pinned workflows + configuration</text>
 <rect x="975" y="302" width="345" height="84" rx="10" fill="#11263b" stroke="#315270"/>
 <use href="#reconcile" x="992" y="325" width="38" height="38" class="icon"/>
 <text x="1044" y="338" class="card">Reconciler</text>
-<text x="1044" y="363" class="small">Durable lifecycle operations</text>
+<text x="1044" y="363" class="small">Worker lifecycle + job broker</text>
 <rect x="40" y="430" width="1300" height="118" rx="13" fill="#101f30" stroke="#29425d"/>
 <path d="M280 430v118" stroke="#29425d"/>
 <text x="65" y="460" class="number">03</text>
@@ -123,11 +123,11 @@
 <rect x="555" y="882" width="365" height="84" rx="10" fill="#11263b" stroke="#315270"/>
 <use href="#db" x="572" y="905" width="38" height="38" class="icon"/>
 <text x="624" y="918" class="card">PostgreSQL</text>
-<text x="624" y="943" class="small">Control data + lifecycle receipts</text>
+<text x="624" y="943" class="small">Runs, claims + history</text>
 <rect x="935" y="882" width="385" height="84" rx="10" fill="#11263b" stroke="#315270"/>
 <use href="#db" x="952" y="905" width="38" height="38" class="icon"/>
 <text x="1004" y="918" class="card">SQLite + file locks</text>
-<text x="1004" y="943" class="small">Execution state + issue claims</text>
+<text x="1004" y="943" class="small">Legacy state + issue claims</text>
 <rect x="1380" y="140" width="180" height="843" rx="14" fill="#10251f" stroke="#82e4bd" stroke-width="2"/>
 <text x="1470" y="183" class="layer" text-anchor="middle">Observability</text>
 <use href="#metrics" x="1446" y="235" width="48" height="48" class="icon"/>
@@ -141,5 +141,5 @@
 <use href="#cost" x="1446" y="795" width="48" height="48" class="icon"/>
 <text x="1470" y="874" class="sub" text-anchor="middle">Cost estimates</text>
 <text x="43" y="1030" class="sub">Layer arrows show conceptual dependencies, not a single request path. Workers share the application core.</text>
-<text x="43" y="1067" class="sub">Current: GitHub + Docker + shared single-host state. Coming soon: GitLab workflows + Kubernetes orchestration.</text>
+<text x="43" y="1067" class="sub">Current: GitHub + Docker + project-scoped PostgreSQL. Planned: GitLab, Kubernetes and remote functions.</text>
 </svg>

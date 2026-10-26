@@ -13,7 +13,7 @@ Flumic AI separates operator control, workflow scheduling and development operat
 
 From top to bottom: developer experience → Control Plane → workflow orchestration → worker execution → integration adapters → infrastructure and persistence. The observability rail spans the layers for logs, metrics, traces and model accounting. The arrows show conceptual responsibilities and dependencies, not a synchronous sequence that every request follows.
 
-The application core is code shared by both worker roles; it is not an extra worker service. PostgreSQL stores Control Plane data while SQLite and local locks coordinate worker execution. The detailed guide explains the actual command, bootstrap and execution paths.
+The application core is code shared by both worker roles; it is not an extra worker service. PostgreSQL stores Control Plane data, project-qualified dynamic execution state and claims. Legacy static workers retain SQLite and local locks. The detailed guide explains the actual command, bootstrap and execution paths.
 
 ## Three architectural responsibilities
 
@@ -23,7 +23,7 @@ The application core is code shared by both worker roles; it is not an extra wor
 | Workflow execution | Hatchet, simple/developer worker roles and application operations | Tune task policies and scale roles independently; keep scheduler code separate from development operations. |
 | Integration and policy | Agent/repository/state/observer ports, adapters and shared domain policy | Select model implementations and observation tools while retaining typed contracts and common publication checks. |
 
-A concrete implementation behind a port is still required: the current system uses GitHub, Docker and shared single-host execution state. GitLab workflows and Kubernetes orchestration are planned; they are not enabled by changing a provider name.
+A concrete implementation behind a port is still required: the current system uses GitHub, PostgreSQL and Docker, with a single trusted Docker broker host. GitLab workflows and Kubernetes orchestration are planned; they are not enabled by changing a provider name.
 
 ## Go deeper
 

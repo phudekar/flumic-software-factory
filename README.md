@@ -134,8 +134,9 @@ Field-by-field guides explain execution effects, valid values and examples:
 
 Back up the control database and encryption key together. PostgreSQL uses a named
 volume by default; see [host database storage](docs/control-plane.md#host-database-storage)
-for an optional host directory. All workers must share the factory SQLite state
-and locks on one host.
+for an optional host directory. Legacy static workers must share the factory SQLite
+state and locks on one host. Project workflows store scoped execution state and
+claims in PostgreSQL; Docker actions use the trusted broker host.
 
 ### Repository configuration
 
@@ -291,8 +292,9 @@ healthcheck also makes a small billable completion request.
 
 The current deployment supports local Docker and a trusted administrator.
 The API/reconciler have Docker socket access. Multi-user roles and Kubernetes
-execution are not implemented. PostgreSQL for the control plane does not remove
-the worker SQLite/file-lock requirement for a shared single host.
+execution are not implemented. Legacy static workers still require shared local
+SQLite/file locks. Project workflows use PostgreSQL state and a trusted Docker
+broker host; see [runtime rollout and limits](docs/project-runtime-operations.md).
 
 ### What data reaches model providers?
 
@@ -316,16 +318,16 @@ The [project and dynamic-workflow implementation roadmap](docs/project-workflow-
 tracks multi-repository projects, shared worker pools, and built-in/Docker actions
 as GitHub issues. Project/repository APIs, shared pool foundations, immutable
 definition publication and the internal run-state/admission service are implemented.
-The durable coordinator adapter is implemented with live echo replay/cancellation tests.
+The durable coordinator adapter is implemented with live replay, mixed builtin/Docker execution, cancellation and deadline tests.
 The executable builtin catalog, pinned project follow-ups and recipe helpers are also implemented.
 The [durable one-time Docker broker](docs/docker-action-jobs.md) integrates through
-[project run and worker APIs](docs/project-runtime-api.md). Project/workflow UI remains in progress; see [runtime status and limits](docs/control-plane.md#durable-run-state-and-admission).
+[project run and worker APIs](docs/project-runtime-api.md). The Control Pane provides project management, workflow publication and pinned-run inspection; see [runtime status and limits](docs/control-plane.md#durable-run-state-and-admission).
 
 Use the runtime API guide to activate the fixed control service, seed workflows and
 launch pinned runs.
 [Project-scoped history, traces and AI accounting](docs/project-observability.md)
 now follow authoritative assignments, including delayed spool delivery and explicit
-Docker usage reports. Project management and workflow editing UI remain in progress. Kubernetes and remote function executors remain planned.
+Docker usage reports. See [rollout, recovery and release qualification](docs/project-runtime-operations.md) for configuration ownership, action-image contracts and infrastructure test boundaries. GitLab, Kubernetes and remote function executors remain planned.
 
 ## Website and documentation
 
