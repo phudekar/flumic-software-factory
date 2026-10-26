@@ -224,7 +224,9 @@ def install(app, sessions, settings, config):
         try:
             payload = GitLabWebhook.model_validate_json(bytes(raw))
             event = normalize_webhook(
-                payload, delivery_id=request.headers.get("x-gitlab-event-uuid")
+                payload,
+                delivery_id=request.headers.get("webhook-id")
+                or request.headers.get("idempotency-key"),
             )
         except (ValueError, TypeError, RecursionError):
             raise HTTPException(422, "Invalid GitLab webhook payload") from None

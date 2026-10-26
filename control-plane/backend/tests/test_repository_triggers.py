@@ -353,7 +353,8 @@ class RepositoryTriggersTests(unittest.TestCase):
                 url,
                 headers={
                     "X-Gitlab-Token": created["webhook_token"],
-                    "X-Gitlab-Event-UUID": "delivery-id",
+                    "webhook-id": "delivery-id",
+                    "X-Gitlab-Event-UUID": "shared-recursive-event",
                 },
                 json=payload,
             )
@@ -793,3 +794,40 @@ class RepositoryTriggersTests(unittest.TestCase):
                 created["id"], event.model_copy(update={"event_id": "merged"})
             )
             self.assertEqual(merged["status"], "accepted")
+
+    def test_recursive_event_correlation_uuid_does_not_collide_deliveries(self):
+        self.client.headers.pop("Idempotency-Key", None)
+        _, _, _, created = self.setup_binding()
+        url = "/api/v1/hooks/gitlab/" + created["id"]
+        payload = {
+            "object_kind": "issue",
+            "project": {"id": 123, "path_with_namespace": "alpha/backend"},
+            "object_attributes": {"iid": 7, "action": "open"},
+        }
+        headers = {
+            "X-Gitlab-Token": created["webhook_token"],
+            "X-Gitlab-Event-UUID": "one-recursive-chain",
+        }
+        with patch.object(
+            self.app.state.repository_triggers,
+            "accept_event",
+            return_value={"status": "ignored"},
+        ) as accept:
+            self.assertEqual(
+                self.client.post(url, headers=headers, json=payload).status_code, 202
+            )
+            first = accept.call_args.args[1].event_id
+            payload["object_attributes"]["action"] = "update"
+            self.assertEqual(
+                self.client.post(url, headers=headers, json=payload).status_code, 202
+            )
+            self.assertNotEqual(accept.call_args.args[1].event_id, first)
+            self.assertEqual(
+                self.client.post(
+                    url,
+                    headers={**headers, "Idempotency-Key": "legacy-message-id"},
+                    json=payload,
+                ).status_code,
+                202,
+            )
+            self.assertEqual(accept.call_args.args[1].event_id, "legacy-message-id")
