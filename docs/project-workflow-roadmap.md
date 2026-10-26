@@ -1,6 +1,6 @@
 # Projects and dynamic workflows roadmap
 
-This roadmap includes implemented foundations and remaining runtime/UI work. GitHub issues are the source of truth for current status; an issue is closed only after its acceptance criteria and verification evidence pass.
+This roadmap includes implemented project/runtime/UI capabilities and planned integration extensions. GitHub issues are the source of truth for current status; an issue is closed only after its acceptance criteria and verification evidence pass.
 
 - [Delivery epic](https://github.com/phudekar/flumic-software-factory/issues/1)
 - [Implementation milestone](https://github.com/phudekar/flumic-software-factory/milestone/1)
