@@ -1,6 +1,6 @@
 # GitLab.com support — issue #16
 
-Status: proposed design; implementation awaits approval. GitLab.com first is the
+Status: design approved by the user; implementation plan under review. GitLab.com first is the
 user's requirement. Reusing the shared repository layer is the user's selected
 approach. Other choices below are proposed implementation decisions.
 
@@ -214,6 +214,6 @@ leave a run waiting for operator correction rather than marking it complete.
 
 ## Approval
 
-Pending user approval of this design. No implementation code has been changed.
+Approved by the user (“sounds good”). No implementation code has been changed.
 
 Additional references: https://git-scm.com/docs/git-push ; https://docs.gitlab.com/api/pipelines/
