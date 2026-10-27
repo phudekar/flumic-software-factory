@@ -62,8 +62,11 @@ def check_project_wait(
     if not isinstance(command, IssueInput if kind == "discussion" else PullInput):
         raise ValueError("Wait command type does not match request kind")
     if kind == "review":
-        _pull_scope(command, context.settings.repository)
-    scoped = context.with_credentials({"github": context.credential("github")})
+        _pull_scope(
+            command, context.settings.repository, identity=context.repository_identity
+        )
+    source = context.repository_identity.credential_purpose
+    scoped = context.with_credentials({source: context.credential(source)})
     command = command.model_copy(
         update={
             "factory_run_id": context.factory_run_id or context.run_id,

@@ -27,10 +27,11 @@ Flumic AI turns issue requirements into draft pull requests through explicit, ob
 
 ## Coming soon
 
-- **GitLab-based workflows:** planned issue-to-merge-request collaboration on GitLab.
+GitLab.com issue-to-merge-request workflows are available; see [GitLab setup](/flumic-software-factory/handbook/gitlab/).
+
 - **Kubernetes workflow and worker orchestration:** planned support for Kubernetes-based execution and operations.
 
-Both are planned capabilities, not current deployment options. Release timing and final scope are not committed. Current setup instructions remain GitHub- and Docker-based with Hatchet orchestration.
+Kubernetes is planned. Release timing and final scope are not committed. Current deployments use GitHub or GitLab.com and Docker with Hatchet orchestration.
 
 ## Scope today
 

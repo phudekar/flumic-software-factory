@@ -518,9 +518,7 @@ class FactoryService:
             )
 
         marker = f"<!-- hatchet-issue-agent-review-{result.pull_number} -->"
-        if any(
-            marker in body for body in github.get_issue_comments(result.pull_number)
-        ):
+        if any(marker in body for body in github.get_pull_comments(result.pull_number)):
             self._mark_pull_reviewed(github, result.pull_number)
             logger.info(
                 "Pull-request review already posted and labeled: repository=%s "
@@ -587,7 +585,7 @@ class FactoryService:
             current_files=current_files,
         )
         comment = _format_pull_request_review(review)
-        github.comment_once(
+        github.comment_pull_once(
             result.pull_number,
             marker=marker,
             comment=comment,
@@ -646,7 +644,13 @@ class FactoryService:
             r"[0-9a-f]{40}", merge_sha
         ):
             raise RepositoryError("Merged pull request has no valid merge commit")
-        github.verify_commit_checks(merge_sha)
+        target_ref = (pull.get("base") or {}).get("ref")
+        if target_ref:
+            github.verify_commit_checks(merge_sha, ref=target_ref)
+        else:
+            # Retain the historical Github adapter contract for older/fake
+            # responses; GitLab refuses to verify without an explicit target.
+            github.verify_commit_checks(merge_sha)
         github.comment_once(
             input.issue_number,
             marker="<!-- hatchet-issue-agent-merged -->",
@@ -917,7 +921,7 @@ class FactoryService:
 
     def _mark_pull_reviewed(self, github: Repository, pull_number: int) -> None:
         github.ensure_label(self.labels.pr_reviewed)
-        github.add_label(pull_number, self.labels.pr_reviewed)
+        github.add_pull_label(pull_number, self.labels.pr_reviewed)
 
     def _generate_code_patch(
         self,

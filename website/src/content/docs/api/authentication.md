@@ -30,3 +30,7 @@ Send the cookie on authenticated requests. Mutations require the returned token 
 Middleware 401/403 responses can have empty bodies. Validation failures use a generic `detail` message; ValueErrors are redacted. Some list routes return warnings with empty items when Docker/Hatchet is unavailable, so HTTP 200 does not imply healthy integrations.
 
 [All endpoint contracts](/flumic-software-factory/reference/api/) · [Request recipes](/flumic-software-factory/api/recipes/)
+
+## GitLab webhook authentication
+
+`POST /api/v1/hooks/gitlab/{binding_id}` authenticates using the binding's `X-Gitlab-Token`, not the administrator cookie or CSRF token. Create or rotate the token through the project-owned operator APIs; plaintext is returned once. The receiver bounds the body to 1 MiB and rechecks token/configuration versions before acceptance. Prefer GitLab's stable `webhook-id` (or legacy `Idempotency-Key`) for delivery deduplication; absent those headers, the receiver uses a content digest. Recursive event correlation IDs do not select a workflow. See [GitLab setup](../../handbook/gitlab/) for configuration, current limitations and release status.

@@ -34,6 +34,7 @@ class LiveHatchetContract(unittest.IsolatedAsyncioTestCase):
         self.tasks, _ = register(self.client, self.root, self.namespace)
         self.processes = []
         self.logs = []
+        self.owned_runs = []
         self.decoy = self.worker("decoy")
         self.control = self.worker("control")
         self.action = self.worker("action")
@@ -57,6 +58,19 @@ class LiveHatchetContract(unittest.IsolatedAsyncioTestCase):
         return process
 
     async def asyncTearDown(self):
+        cleanup_errors = []
+        for identifier in getattr(self, "owned_runs", []):
+            try:
+                status = await self.client.runs.aio_get_status(identifier)
+                status = str(getattr(status, "value", status))
+            except Exception:
+                status = "unknown"
+            if status in {"COMPLETED", "FAILED", "CANCELLED"}:
+                continue
+            try:
+                await self.client.runs.aio_cancel(identifier)
+            except Exception:
+                cleanup_errors.append(identifier)
         for process in self.processes:
             if process.poll() is None:
                 process.terminate()
@@ -76,6 +90,10 @@ class LiveHatchetContract(unittest.IsolatedAsyncioTestCase):
                 self.root, Path(destination) / self.namespace, dirs_exist_ok=True
             )
         self.temp.cleanup()
+        if cleanup_errors:
+            self.fail(
+                "Could not cancel " + str(len(cleanup_errors)) + " owned fixture run(s)"
+            )
 
     async def wait_file(self, path, timeout=90):
         deadline = time.monotonic() + timeout
@@ -92,8 +110,10 @@ class LiveHatchetContract(unittest.IsolatedAsyncioTestCase):
         for marker in markers:
             (folder / marker).touch()
         ref = await self.tasks.coordinator.aio_run(
-            RunInvocation(project_id="echo-only", run_id=run), wait_for_result=False
+            RunInvocation(project_id=self.namespace, run_id=run), wait_for_result=False
         )
+        self.owned_runs.append(ref.workflow_run_id)
+        (self.root / "owned-runs.json").write_text(json.dumps(self.owned_runs))
         return folder, ref
 
     async def test_parent_restart_reattaches_completed_child(self):

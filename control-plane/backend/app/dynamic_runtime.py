@@ -82,11 +82,19 @@ def main():
     stopped = threading.Event()
     thread = threading.Thread(target=pump, args=(runtime, engine, stopped), daemon=True)
     thread.start()
+    from app.trigger_runtime import TriggerRuntime
+
+    triggers = TriggerRuntime(sessions, settings, config)
+    trigger_thread = threading.Thread(
+        target=triggers.poll, args=(stopped,), daemon=True
+    )
+    trigger_thread.start()
     try:
         build_runtime_worker(client, runtime, settings).start()
     finally:
         stopped.set()
         thread.join(timeout=5)
+        trigger_thread.join(timeout=5)
 
 
 if __name__ == "__main__":

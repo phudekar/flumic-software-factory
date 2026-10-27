@@ -18,8 +18,41 @@ def load_factory(path):
     return factory
 
 
+def repository_adapter(identity, *, token, max_file_bytes, check_policy):
+    if identity.provider == "github":
+        from github_client import GitHubClient
+
+        return GitHubClient(identity.path, token=token, max_file_bytes=max_file_bytes)
+    from factory.adapters.gitlab import GitLabClient
+
+    return GitLabClient(
+        identity.path,
+        project_id=identity.project_id,
+        token=token,
+        max_file_bytes=max_file_bytes,
+        check_policy=check_policy,
+    )
+
+
+def settings_identity(settings):
+    from factory.domain.repositories import RepositoryIdentity
+
+    owner, _, name = settings.repository.rpartition("/")
+    return RepositoryIdentity(
+        provider=settings.repository_provider,
+        host=settings.repository_host
+        or {"github": "github.com", "gitlab": "gitlab.com"}[
+            settings.repository_provider
+        ],
+        owner=owner,
+        name=name,
+        project_id=settings.gitlab_project_id,
+    )
+
+
 def build_service(settings, dispatch):
-    from github_client import GitHubClient
+    from factory.domain.repositories import RepositoryCheckPolicy
+    from factory.adapters.repository_state import source_scoped_state
 
     coding_path = (
         settings.coding_factory
@@ -36,10 +69,25 @@ def build_service(settings, dispatch):
         from factory.adapters.control import ControlObserver
 
         observer = ControlObserver(observer, settings)
+
+    def repository_client(repository):
+        if repository != settings.repository:
+            raise ValueError("Repository differs from worker configuration")
+        return repository_adapter(
+            settings_identity(settings),
+            token=os.environ.get("GITLAB_TOKEN", "")
+            if settings.repository_provider == "gitlab"
+            else None,
+            max_file_bytes=settings.max_file_bytes,
+            check_policy=RepositoryCheckPolicy.model_validate_json(
+                settings.repository_check_policy_json
+            ),
+        )
+
     # The conditional is at composition only; use cases know capabilities, not names.
     return FactoryService(
         repository=settings.repository,
-        repositories=partial(GitHubClient, max_file_bytes=settings.max_file_bytes),
+        repositories=repository_client,
         planner=partial(load_factory(settings.planner_factory), settings),
         reviewer=partial(load_factory(settings.reviewer_factory), settings),
         coding_agent=partial(load_factory(coding_path), settings),
@@ -49,7 +97,9 @@ def build_service(settings, dispatch):
             max_files=settings.max_patch_iterations * settings.max_files_per_iteration,
             max_file_bytes=settings.max_file_bytes,
         ),
-        state=load_factory(settings.state_factory)(settings),
+        state=source_scoped_state(
+            load_factory(settings.state_factory)(settings), settings_identity(settings)
+        ),
         observer=observer,
         labels=settings.labels,
         task_settings=settings.task,
@@ -66,7 +116,6 @@ def action_service(context, *, dispatch, state, observer=None, workspace_root=No
     """
     from pathlib import Path
     from tempfile import TemporaryDirectory
-    from github_client import GitHubClient
     from factory.adapters.telemetry import LoggingObserver
     from factory.workflows.redaction import secret_scope, redact
 
@@ -99,10 +148,12 @@ def action_service(context, *, dispatch, state, observer=None, workspace_root=No
         def repository_client(repository):
             if repository != settings.repository:
                 raise ValueError("Repository does not match action context")
-            return GitHubClient(
-                repository,
+            identity = context.repository_identity
+            return repository_adapter(
+                identity,
                 max_file_bytes=settings.max_file_bytes,
-                token=credentials.get("github", ""),
+                token=credentials.get(identity.credential_purpose, ""),
+                check_policy=context.repository_check_policy,
             )
 
         try:

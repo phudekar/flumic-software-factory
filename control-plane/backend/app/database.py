@@ -57,7 +57,7 @@ class RepositoryConnection(Base):
     alias: Mapped[str] = mapped_column(String(100))
     provider: Mapped[str] = mapped_column(String(20), default="github")
     host: Mapped[str] = mapped_column(String(240), default="github.com")
-    owner: Mapped[str] = mapped_column(String(100))
+    owner: Mapped[str] = mapped_column(String(1024))
     name: Mapped[str] = mapped_column(String(100))
     overrides: Mapped[dict] = mapped_column(JSON, default=dict)
     credential_id: Mapped[str | None] = mapped_column(String(36))
@@ -586,3 +586,159 @@ class ProjectFollowup(ProjectOwned, Base):
     state: Mapped[str] = mapped_column(String(20), default="pending")
     result_run_id: Mapped[str | None] = mapped_column(String(36))
     error: Mapped[str | None] = mapped_column(String(120))
+
+
+class RepositoryTrigger(ProjectOwned, Base):
+    __tablename__ = "repository_triggers"
+    __table_args__ = (
+        UniqueConstraint("project_id", "id", name="uq_trigger_owner"),
+        ForeignKeyConstraint(
+            ["project_id", "repository_id"],
+            ["repository_connections.project_id", "repository_connections.id"],
+            name="fk_trigger_repository",
+        ),
+        ForeignKeyConstraint(
+            ["project_id", "definition_id"],
+            ["workflow_definitions.project_id", "workflow_definitions.id"],
+            name="fk_trigger_definition",
+        ),
+        ForeignKeyConstraint(
+            ["project_id", "id", "current_token_id"],
+            [
+                "repository_trigger_tokens.project_id",
+                "repository_trigger_tokens.binding_id",
+                "repository_trigger_tokens.id",
+            ],
+            name="fk_trigger_token_head",
+            use_alter=True,
+        ),
+    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=identity)
+    repository_id: Mapped[str] = mapped_column(String(36))
+    event_kind: Mapped[str] = mapped_column(String(24))
+    definition_id: Mapped[str] = mapped_column(String(36))
+    revision_id: Mapped[str] = mapped_column(String(36), default=identity)
+    configuration_ciphertext: Mapped[str] = mapped_column(Text)
+    enabled: Mapped[bool] = mapped_column(default=True)
+    current_token_id: Mapped[str | None] = mapped_column(String(36))
+    poll_cursor: Mapped[int] = mapped_column(default=0)
+    lease_owner: Mapped[str | None] = mapped_column(String(36))
+    lease_until: Mapped[float | None] = mapped_column(Float)
+    next_poll_at: Mapped[float] = mapped_column(Float, default=0)
+    last_error: Mapped[str | None] = mapped_column(String(240))
+    created_at: Mapped[float] = mapped_column(Float, default=time.time)
+    updated_at: Mapped[float] = mapped_column(Float, default=time.time)
+
+
+class TriggerToken(ProjectOwned, Base):
+    __tablename__ = "repository_trigger_tokens"
+    __table_args__ = (
+        UniqueConstraint(
+            "project_id", "binding_id", "id", name="uq_trigger_token_owner"
+        ),
+        ForeignKeyConstraint(
+            ["project_id", "binding_id"],
+            ["repository_triggers.project_id", "repository_triggers.id"],
+            name="fk_trigger_token_binding",
+        ),
+        ForeignKeyConstraint(
+            ["project_id", "binding_id", "parent_id"],
+            [
+                "repository_trigger_tokens.project_id",
+                "repository_trigger_tokens.binding_id",
+                "repository_trigger_tokens.id",
+            ],
+            name="fk_trigger_token_parent",
+        ),
+    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=identity)
+    binding_id: Mapped[str] = mapped_column(String(36))
+    parent_id: Mapped[str | None] = mapped_column(String(36))
+    ciphertext: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[float] = mapped_column(Float, default=time.time)
+    revoked_at: Mapped[float | None] = mapped_column(Float)
+
+
+class TriggerReceipt(ProjectOwned, Base):
+    __tablename__ = "repository_trigger_receipts"
+    __table_args__ = (
+        UniqueConstraint(
+            "project_id", "binding_id", "event_id", name="uq_trigger_delivery"
+        ),
+        ForeignKeyConstraint(
+            ["project_id", "binding_id"],
+            ["repository_triggers.project_id", "repository_triggers.id"],
+            name="fk_trigger_receipt_binding",
+        ),
+        ForeignKeyConstraint(
+            ["project_id", "run_id"],
+            ["workflow_runs.project_id", "workflow_runs.id"],
+            name="fk_trigger_receipt_run",
+        ),
+        ForeignKeyConstraint(
+            ["project_id", "workflow_revision_id"],
+            [
+                "workflow_definition_revisions.project_id",
+                "workflow_definition_revisions.id",
+            ],
+            name="fk_trigger_receipt_workflow",
+        ),
+        ForeignKeyConstraint(
+            ["project_id", "repository_id", "repository_revision_id"],
+            [
+                "repository_revisions.project_id",
+                "repository_revisions.repository_id",
+                "repository_revisions.id",
+            ],
+            name="fk_trigger_receipt_repository",
+        ),
+        ForeignKeyConstraint(
+            ["project_id", "binding_id", "auth_token_version"],
+            [
+                "repository_trigger_tokens.project_id",
+                "repository_trigger_tokens.binding_id",
+                "repository_trigger_tokens.id",
+            ],
+            name="fk_trigger_receipt_token",
+        ),
+    )
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    binding_id: Mapped[str] = mapped_column(String(36))
+    event_id: Mapped[str] = mapped_column(String(200))
+    payload_digest: Mapped[str] = mapped_column(String(64))
+    config_revision_id: Mapped[str] = mapped_column(String(36))
+    status: Mapped[str] = mapped_column(String(20))
+    source_key: Mapped[str | None] = mapped_column(String(120))
+    run_id: Mapped[str | None] = mapped_column(String(36))
+    workflow_revision_id: Mapped[str | None] = mapped_column(String(36))
+    repository_revision_id: Mapped[str | None] = mapped_column(String(36))
+    repository_id: Mapped[str | None] = mapped_column(String(36))
+    auth_token_version: Mapped[str | None] = mapped_column(String(36))
+    received_at: Mapped[float] = mapped_column(Float, default=time.time)
+
+
+class TriggerObservation(ProjectOwned, Base):
+    __tablename__ = "repository_trigger_observations"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["project_id", "binding_id"],
+            ["repository_triggers.project_id", "repository_triggers.id"],
+            name="fk_trigger_observation_binding",
+        ),
+        ForeignKeyConstraint(
+            ["project_id", "run_id"],
+            ["workflow_runs.project_id", "workflow_runs.id"],
+            name="fk_trigger_observation_run",
+        ),
+    )
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), primary_key=True)
+    binding_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    source_key: Mapped[str] = mapped_column(String(120), primary_key=True)
+    run_id: Mapped[str | None] = mapped_column(String(36))
+    eligible: Mapped[bool] = mapped_column(default=False)
+    last_stamp: Mapped[str] = mapped_column(String(120), default="")
+    dispatched_stamp: Mapped[str] = mapped_column(String(120), default="")
+    epoch: Mapped[int] = mapped_column(default=0)
+    last_dispatched_epoch: Mapped[int] = mapped_column(default=0)
+    remote_iid: Mapped[int] = mapped_column()
+    last_checked: Mapped[float] = mapped_column(Float, default=time.time)

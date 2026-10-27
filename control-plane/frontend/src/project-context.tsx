@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect } from "react";
+import { createContext, useContext, useEffect, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "./api";
 
@@ -37,4 +37,26 @@ export function useProjectData<T>(path: string, enabled = true) {
       api<T>(projectPath(id, path), undefined, { signal }),
     enabled,
   });
+}
+
+// A component may finish an already accepted write after navigation. Only its
+// captured project's cache is invalidated; no late result repopulates a new form.
+export function useScopedWrite() {
+  const id = useProjectId(),
+    client = useQueryClient();
+  const alive = useRef(true);
+  useEffect(() => {
+    alive.current = true;
+    return () => {
+      alive.current = false;
+    };
+  }, []);
+  return {
+    alive,
+    write: async <T,>(path: string, body: unknown, method?: "PUT") => {
+      const result = await api<T>(projectPath(id, path), body, { method });
+      await client.invalidateQueries({ queryKey: ["project", id] });
+      return result;
+    },
+  };
 }

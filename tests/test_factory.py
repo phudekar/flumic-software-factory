@@ -64,6 +64,9 @@ class FactoryTests(unittest.TestCase):
             "labels": [{"name": "agent-subtask"}],
         }
         self.repository.get_issue_comments.return_value = []
+        self.repository.get_pull_comments = self.repository.get_issue_comments
+        self.repository.comment_pull_once = self.repository.comment_once
+        self.repository.add_pull_label = self.repository.add_label
         self.repository.list_source_paths.return_value = ["src/app.py"]
         self.repository.list_repository_paths.return_value = {"src/app.py"}
         self.repository.get_source_files.return_value = {"src/app.py": "value = 0\n"}

@@ -23,6 +23,7 @@ GUIDES = {
     'docs/configuration-control-plane.md': 'Control Plane settings: effects and examples',
     'docs/worker-image-builds.md': 'Worker image builds',
     'docs/project-runtime-api.md': 'Project workflow runtime API',
+    'docs/gitlab.md': 'GitLab.com setup and workflow behavior',
     'docs/project-runtime-operations.md': 'Project runtime rollout and qualification',
     'docs/docker-action-jobs.md': 'One-time Docker actions',
     'docs/control-plane-workflows.md': 'Workflow control architecture',
@@ -141,6 +142,8 @@ for method, url, path, node, decorator in routes:
     api.append(f'## {method} {url}\n\nHandler: `{node.name}` · {source_link(path, node)}\n')
     if url in {'/api/v1/worker-bootstrap', '/api/v1/ingest'}:
         auth = 'Worker-scoped bearer token and `X-Worker-Id` headers; no administrator session.'
+    elif url.startswith('/api/v1/hooks/gitlab/'):
+        auth = 'Binding-scoped `X-Gitlab-Token`; no administrator session or CSRF. See the GitLab setup guide for token rotation, payload limits and delivery IDs.'
     elif url == '/api/v1/health':
         auth = 'Public health check; verifies database access.'
     elif url == '/api/v1/auth/login':

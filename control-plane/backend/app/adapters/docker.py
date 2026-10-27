@@ -82,11 +82,15 @@ class DockerRuntime:
             path.chmod(0o444)
         role = snapshot["defaults"]["worker_type"]
         image = image or self.prepare_image(worker, snapshot)
+        provider = snapshot["defaults"].get("repository_provider", "github")
+        if provider not in {"github", "gitlab"}:
+            raise ValueError("Unsupported legacy repository provider")
+        source_token = "GITLAB_TOKEN" if provider == "gitlab" else "GITHUB_TOKEN"
         credentials = {
             key: os.environ[key]
             for key in [
                 "HATCHET_CLIENT_TOKEN",
-                "GITHUB_TOKEN",
+                source_token,
                 "OPENAI_API_KEY",
                 "ANTHROPIC_API_KEY",
             ]
@@ -95,10 +99,10 @@ class DockerRuntime:
         if role == "developer" and os.environ.get("DEVELOPER_OPENAI_API_KEY"):
             credentials["OPENAI_API_KEY"] = os.environ["DEVELOPER_OPENAI_API_KEY"]
         if not credentials.get("HATCHET_CLIENT_TOKEN") or not credentials.get(
-            "GITHUB_TOKEN"
+            source_token
         ):
             raise ValueError(
-                "Configure Hatchet and GitHub credentials on the control-plane server"
+                "Configure Hatchet and the selected source-host credential on the control-plane server"
             )
         host = self.settings.host_root
         container = self.client.containers.create(

@@ -24,12 +24,13 @@ from app.projects import (
     effective_configuration,
 )
 from factory.workflows.contracts import ActionContext
+from factory.settings import compatible_settings
 
 
 class SecretEdit(BaseModel):
     model_config = ConfigDict(extra="forbid")
     name: str = Field(pattern=r"^[a-z][a-z0-9-]{0,99}$")
-    purpose: str = Field(pattern=r"^(github|openai|anthropic)$")
+    purpose: str = Field(pattern=r"^(github|gitlab|openai|anthropic)$")
     value: SecretStr = Field(min_length=1, max_length=16384)
     repository_id: str | None = None
     parent_id: str | None = None
@@ -119,11 +120,13 @@ def pin_context(
         db, scope, RepositoryRevision, repository_revision_id or connection.revision_id
     )
     selected = dict(grants or {})
-    if "github" in purposes:
-        selected["github"] = repo_revision.document.get("credential_id")
+    source_purpose = repo_revision.document.get("provider", "github")
+    if source_purpose in purposes:
+        selected[source_purpose] = repo_revision.document.get("credential_id")
     # Refuse both missing grants and excessive access, even if a caller asks for it.
     if set(selected) != set(purposes) or set(selected) - {
         "github",
+        "gitlab",
         "openai",
         "anthropic",
     }:
@@ -144,7 +147,21 @@ def pin_context(
         attempt=attempt,
         assignment_id=assignment_id,
         namespace=f"{scope.project_id}/{connection.id}",
-        settings_json=json.dumps(jsonable_encoder(resolved), allow_nan=False),
+        settings_json=json.dumps(
+            compatible_settings(jsonable_encoder(resolved)), allow_nan=False
+        ),
+        **(
+            {
+                "repository_identity_json": json.dumps(
+                    repo_revision.document["identity"], allow_nan=False
+                ),
+                "repository_check_policy_json": json.dumps(
+                    repo_revision.document.get("check_policy", {}), allow_nan=False
+                ),
+            }
+            if source_purpose == "gitlab"
+            else {}
+        ),
         secret_versions=tuple(selected.values()),
     )
     item = ActionContextSnapshot(

@@ -102,3 +102,47 @@ Follow-ups are encrypted, deduplicated and processed after their source attempt 
 See [Docker action contracts](docker-action-jobs.md), [configuration effects](configuration-control-plane.md) and [architecture](architecture.md) for executor limits and deployment responsibilities.
 
 For attribution, capture policy, scoped history/usage filters and durable delivery, see [project observability](project-observability.md).
+
+## GitLab repository triggers
+
+GitLab.com trigger support is under development in issue #16. The implementation must pass its disposable-project live qualification before it is treated as released support. A trigger belongs to one project and one validated repository connection; its saved workflow definition selects the graph to run. Webhook content cannot choose another project, repository or workflow.
+
+The owned `/api/v1/projects/{project_id}/repository-triggers` endpoints list and create bindings. Creation accepts:
+
+```json
+{
+  "repository_id": "<validated-gitlab-connection-id>",
+  "definition_id": "<workflow-definition-id>",
+  "event_kind": "issue-ready",
+  "enabled": true,
+  "configuration": {
+    "require_ready_label": true,
+    "input_defaults": {},
+    "followups": {
+      "<repository-connection-id>": {
+        "issue": "<issue-definition-id>",
+        "feedback": "<feedback-definition-id>",
+        "verify": "<verification-definition-id>"
+      }
+    }
+  }
+}
+```
+
+| Field | Effect |
+| --- | --- |
+| `repository_id` | Immutable connection UUID. Its verified GitLab numeric project ID is the source authority. |
+| `definition_id` | Owned definition UUID, whose default repository must match the binding. Acceptance resolves and pins its current revision. |
+| `event_kind` | Immutable `issue-ready`, `feedback`, or `verify`. Use separate bindings for each workflow. |
+| `enabled` | Disabling stops new acceptance and polling; it does not cancel accepted runs. |
+| `require_ready_label` | Defaults to `true`. Issue readiness requires the repository's configured ready label. Setting `false` permits open issues without that label; existing plan-created and PR-open labels still exclude them. |
+| `input_defaults` | Up to the configuration's 64 KiB total limit. Fresh issue/MR identity fields override these operator defaults. Keep credentials in scoped secret versions. |
+| `followups` | Definition UUIDs, rather than revision UUIDs used by manual launch. Each supplied repository requires all three roles. Acceptance freezes their current revisions into the run bundle. Required for builtin workflows that create follow-ups. |
+
+GET `/{identifier}` returns public configuration and token-version identity. PUT requires `parent_id` equal to the current configuration `revision_id`; a stale edit returns `409`. The repository and event kind cannot be changed. POST `/{identifier}/rotate-token` and `/revoke-token` require `parent_id` equal to the current `token_version_id` (`null` after revocation). Creation and rotation return `webhook_token` once. Save it directly in GitLab's webhook secret-token field; list/detail/history responses never return its plaintext. Rotation immediately invalidates the old token. Revocation stops webhook authentication; disable the binding to stop polling as well.
+
+GitLab sends POST `/api/v1/hooks/gitlab/{binding_id}` with `X-Gitlab-Token` and, when available, `webhook-id` (or legacy `Idempotency-Key`). Without a stable message ID, acceptance uses a content digest. `X-Gitlab-Event-UUID` is correlation metadata and can be shared by recursive events, so it is not used as a unique delivery ID. See [GitLab webhook headers](https://docs.gitlab.com/user/project/integrations/webhooks/). This endpoint uses the binding's token instead of administrator cookies or CSRF. The body limit is 1 MiB. Duplicate delivery IDs return their original durable receipt; reuse with different content returns `409`. An accepted receipt records a pinned run, not completed execution. GET the owned `/{identifier}/receipts` endpoint for the most recent 100 receipts.
+
+The control runtime polls one leased binding at a time, at most five listed and five previously tracked resources per scan, with a 30-second interval per binding. It uses only that connection's scoped GitLab credential. Source reads have a five-second request timeout and a two-page limit; incomplete reads fail closed and retry later. Each scan has its own receipt identity so timestamp omissions cannot prevent a fresh tracked read. Receipts accumulate in the database; there is no automatic retention policy yet.
+
+Ready issues run once per observed not-ready → ready transition. Routine comments do not rearm them. Feedback uses increasing human note IDs, retains pending feedback during an active run, and ignores system notes. Editing an existing note does not create a new note ID; add a new comment or launch manually. Verification requires a merged MR with a merge commit, and queues the verification workflow; its checks still determine success. Closed-unmerged changes never imply success. Fork merge requests are excluded. Polling cannot reconstruct a readiness toggle that occurs entirely between observations. Retry a `409` caused by an in-flight configuration/source-observation change; fresh acceptance rechecks current state and credentials.

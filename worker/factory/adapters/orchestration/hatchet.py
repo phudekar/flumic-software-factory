@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import json
 from contextlib import contextmanager
 from datetime import timedelta
 from types import SimpleNamespace
@@ -27,6 +28,10 @@ from factory.domain.models import (
     PullInput,
 )
 from factory.adapters.github_events import GitHubWebhook, normalize_webhook
+from factory.adapters.gitlab_events import (
+    GitLabWebhook,
+    normalize_webhook as normalize_gitlab,
+)
 from factory.adapters.telemetry import correlation
 from factory.application.telemetry import capture_trace, incoming_trace
 from factory.adapters.control import engine_context
@@ -34,12 +39,23 @@ from factory.adapters.control import engine_context
 ISSUE_KEY = "input.repository + ':issue:' + string(input.issue_number)"
 
 
-def issue_concurrency(*, tenant_scoped=True):
+def issue_expression(source_key=None):
+    return (
+        (json.dumps(source_key) + " + ':issue:' + string(input.issue_number)")
+        if source_key
+        else ISSUE_KEY
+    )
+
+
+def issue_concurrency(*, tenant_scoped=True, source_key=None):
     return ConcurrencyExpression(
-        expression=ISSUE_KEY,
+        expression=issue_expression(source_key),
         max_runs=1,
         limit_strategy=ConcurrencyLimitStrategy.GROUP_ROUND_ROBIN,
-        name="software-factory-work-item" if tenant_scoped else None,
+        name=(("gitlab-" + source_key.rsplit("/", 1)[-1] + "-") if source_key else "")
+        + "software-factory-work-item"
+        if tenant_scoped
+        else None,
         is_tenant_scoped=tenant_scoped,
     )
 
@@ -125,6 +141,15 @@ class HatchetDispatch:
 def build_worker(hatchet, service, settings, dispatch):
     dispatch.observer = service.observer
     SCAN_CRON = settings.scan_cron
+    gitlab = settings.repository_provider == "gitlab"
+    source_key = f"gitlab.com/project/{settings.gitlab_project_id}" if gitlab else None
+
+    def qualify(name):
+        return (
+            f"gitlab-{settings.gitlab_project_id}-" + name.replace("github", "gitlab")
+            if gitlab
+            else name
+        )
 
     def task_options(name, *, serialize_issue=False):
         task = settings.task(name)
@@ -143,7 +168,7 @@ def build_worker(hatchet, service, settings, dispatch):
         if task.concurrency is not None:
             options["concurrency"] = task.concurrency
         if serialize_issue:
-            options["concurrency"] = [issue_concurrency()]
+            options["concurrency"] = [issue_concurrency(source_key=source_key)]
             if task.concurrency is not None:
                 options["concurrency"].append(
                     ConcurrencyExpression.from_int(task.concurrency)
@@ -151,23 +176,23 @@ def build_worker(hatchet, service, settings, dispatch):
         return options
 
     issue_workflow = hatchet.workflow(
-        name="software-factory-issue-agent",
+        name=qualify("software-factory-issue-agent"),
         input_validator=IssueInput,
         concurrency=[
             # Multi-task workflows require workflow-local limits. Share the
             # tenant limit on their tasks instead, alongside standalone work.
-            issue_concurrency(tenant_scoped=False),
+            issue_concurrency(tenant_scoped=False, source_key=source_key),
             ConcurrencyExpression.from_int(settings.workflow_concurrency),
         ],
         idempotency=StatusBasedIdempotencyConfig(
-            key_expression=ISSUE_KEY,
+            key_expression=issue_expression(source_key),
             fallback_ttl=timedelta(seconds=settings.workflow_dedup_ttl_seconds),
         ),
     )
 
     @issue_workflow.task(
         **task_options("load_issue", serialize_issue=True),
-        name="load-issue",
+        name=qualify("load-issue"),
     )
     @engine_context
     def load_issue(input: IssueInput, ctx: Context) -> IssueState:
@@ -176,7 +201,7 @@ def build_worker(hatchet, service, settings, dispatch):
 
     @issue_workflow.task(
         **task_options("plan_issue", serialize_issue=True),
-        name="plan-issue-and-create-sub-issues",
+        name=qualify("plan-issue-and-create-sub-issues"),
         parents=[load_issue],
     )
     @engine_context
@@ -186,7 +211,7 @@ def build_worker(hatchet, service, settings, dispatch):
 
     @issue_workflow.task(
         **task_options("triage_issue", serialize_issue=True),
-        name="triage-issue",
+        name=qualify("triage-issue"),
         parents=[load_issue, plan_issue],
     )
     @engine_context
@@ -198,7 +223,7 @@ def build_worker(hatchet, service, settings, dispatch):
 
     @issue_workflow.task(
         **task_options("generate_and_open_draft_pr", serialize_issue=True),
-        name="generate-and-open-draft-pr",
+        name=qualify("generate-and-open-draft-pr"),
         parents=[triage_issue],
     )
     @engine_context
@@ -210,7 +235,7 @@ def build_worker(hatchet, service, settings, dispatch):
 
     @issue_workflow.task(
         **task_options("review_opened_pull_request", serialize_issue=True),
-        name="review-opened-pull-request",
+        name=qualify("review-opened-pull-request"),
         parents=[generate_and_open_draft_pr],
     )
     @engine_context
@@ -222,7 +247,7 @@ def build_worker(hatchet, service, settings, dispatch):
 
     @issue_workflow.task(
         **task_options("record_workflow_result", serialize_issue=True),
-        name="record-workflow-result",
+        name=qualify("record-workflow-result"),
         parents=[review_opened_pull_request],
     )
     @engine_context
@@ -234,7 +259,7 @@ def build_worker(hatchet, service, settings, dispatch):
 
     @hatchet.task(
         **task_options("verify_merged_pr", serialize_issue=True),
-        name="verify-merged-pr-and-close-issue",
+        name=qualify("verify-merged-pr-and-close-issue"),
         input_validator=PullInput,
     )
     @engine_context
@@ -244,7 +269,7 @@ def build_worker(hatchet, service, settings, dispatch):
 
     @hatchet.task(
         **task_options("process_pull_request_feedback", serialize_issue=True),
-        name="process-open-pull-request-feedback",
+        name=qualify("process-open-pull-request-feedback"),
         input_validator=PullInput,
     )
     @engine_context
@@ -254,7 +279,7 @@ def build_worker(hatchet, service, settings, dispatch):
 
     @hatchet.task(
         **task_options("scan_pending_issues"),
-        name="scan-pending-github-issues",
+        name=qualify("scan-pending-github-issues"),
         input_validator=EmptyModel,
         on_crons=[SCAN_CRON],
     )
@@ -265,7 +290,7 @@ def build_worker(hatchet, service, settings, dispatch):
 
     @hatchet.task(
         **task_options("scan_open_pr_feedback"),
-        name="scan-open-pr-feedback",
+        name=qualify("scan-open-pr-feedback"),
         input_validator=EmptyModel,
         on_crons=[SCAN_CRON],
     )
@@ -276,9 +301,11 @@ def build_worker(hatchet, service, settings, dispatch):
 
     @hatchet.task(
         **task_options("handle_github_issue_event"),
-        name="handle-github-issue-event",
+        name=qualify("handle-github-issue-event"),
         input_validator=GitHubWebhook,
-        on_events=[
+        on_events=[]
+        if gitlab
+        else [
             "github:issues:opened",
             "github:issues:reopened",
             "github:issues:labeled",
@@ -295,9 +322,9 @@ def build_worker(hatchet, service, settings, dispatch):
 
     @hatchet.task(
         **task_options("handle_pull_request_feedback_event"),
-        name="handle-github-pull-request-feedback-event",
+        name=qualify("handle-github-pull-request-feedback-event"),
         input_validator=GitHubWebhook,
-        on_events=PR_FEEDBACK_EVENTS,
+        on_events=[] if gitlab else PR_FEEDBACK_EVENTS,
     )
     @engine_context
     def handle_pull_request_feedback_event(
@@ -308,9 +335,9 @@ def build_worker(hatchet, service, settings, dispatch):
 
     @hatchet.task(
         **task_options("inspect_pull_request_event"),
-        name="inspect-github-pull-request-event",
+        name=qualify("inspect-github-pull-request-event"),
         input_validator=GitHubWebhook,
-        on_events=[PR_REVIEW_EVENT, PR_CLOSED_EVENT],
+        on_events=[] if gitlab else [PR_REVIEW_EVENT, PR_CLOSED_EVENT],
     )
     @engine_context
     def inspect_pull_request_event(input: GitHubWebhook, ctx: Context) -> EventResult:
@@ -319,9 +346,11 @@ def build_worker(hatchet, service, settings, dispatch):
 
     @hatchet.task(
         **task_options("trigger_issue_from_sample_event"),
-        name="trigger-issue-from-sample-event",
+        name=qualify("trigger-issue-from-sample-event"),
         input_validator=IssueInput,
-        on_events=[ISSUE_EVENT],
+        on_events=[f"gitlab:{settings.gitlab_project_id}:sample"]
+        if gitlab
+        else [ISSUE_EVENT],
     )
     @engine_context
     def trigger_issue_from_sample_event(input: IssueInput, ctx: Context) -> EventResult:
@@ -335,7 +364,7 @@ def build_worker(hatchet, service, settings, dispatch):
 
     @hatchet.durable_task(
         **task_options("wait_for_ready_for_agent"),
-        name="wait-for-ready-for-agent",
+        name=qualify("wait-for-ready-for-agent"),
         input_validator=IssueInput,
     )
     @engine_context
@@ -356,7 +385,7 @@ def build_worker(hatchet, service, settings, dispatch):
 
     @hatchet.durable_task(
         **task_options("wait_for_pull_review"),
-        name="wait-for-pr-review-and-merge",
+        name=qualify("wait-for-pr-review-and-merge"),
         input_validator=PullInput,
     )
     @engine_context
@@ -376,6 +405,32 @@ def build_worker(hatchet, service, settings, dispatch):
                     label=f"waiting for review and merge of PR {input.pull_number}",
                 )
 
+    source_workflows = []
+    if gitlab:
+
+        @hatchet.task(
+            **task_options("handle_github_issue_event"),
+            name=qualify("handle-source-event"),
+            input_validator=GitLabWebhook,
+            on_events=[
+                f"gitlab:{settings.gitlab_project_id}:{kind}"
+                for kind in ("issue", "merge_request", "note")
+            ],
+        )
+        @engine_context
+        def handle_gitlab_event(input: GitLabWebhook, ctx: Context) -> EventResult:
+            event = normalize_gitlab(input)
+            event.assert_repository(settings.repository, settings.gitlab_project_id)
+            return service.handle_event(event.as_factory_event())
+
+        source_workflows = [handle_gitlab_event]
+    else:
+        source_workflows = [
+            handle_github_issue_event,
+            inspect_pull_request_event,
+            handle_pull_request_feedback_event,
+        ]
+
     dispatch.tasks = SimpleNamespace(
         issue_workflow=issue_workflow,
         wait_for_ready_for_agent=wait_for_ready_for_agent,
@@ -386,17 +441,31 @@ def build_worker(hatchet, service, settings, dispatch):
     return hatchet.worker(
         settings.worker_name or f"software-factory-{settings.worker_type}-worker",
         labels={settings.worker_label_key: settings.worker_type},
-        workflows=[
-            issue_workflow,
-            handle_github_issue_event,
-            trigger_issue_from_sample_event,
-            scan_pending_issues,
-            wait_for_ready_for_agent,
-            wait_for_pull_review,
-            verify_merged_pr,
-            inspect_pull_request_event,
-            scan_open_pr_feedback,
-            handle_pull_request_feedback_event,
-            process_pull_request_feedback,
-        ],
+        workflows=(
+            [
+                issue_workflow,
+                handle_github_issue_event,
+                trigger_issue_from_sample_event,
+                scan_pending_issues,
+                wait_for_ready_for_agent,
+                wait_for_pull_review,
+                verify_merged_pr,
+                inspect_pull_request_event,
+                scan_open_pr_feedback,
+                handle_pull_request_feedback_event,
+                process_pull_request_feedback,
+            ]
+            if not gitlab
+            else [
+                issue_workflow,
+                *source_workflows,
+                trigger_issue_from_sample_event,
+                scan_pending_issues,
+                wait_for_ready_for_agent,
+                wait_for_pull_review,
+                verify_merged_pr,
+                scan_open_pr_feedback,
+                process_pull_request_feedback,
+            ]
+        ),
     )

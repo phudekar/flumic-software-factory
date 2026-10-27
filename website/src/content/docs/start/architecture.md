@@ -23,7 +23,7 @@ The application core is code shared by both worker roles; it is not an extra wor
 | Workflow execution | Hatchet, simple/developer worker roles and application operations | Tune task policies and scale roles independently; keep scheduler code separate from development operations. |
 | Integration and policy | Agent/repository/state/observer ports, adapters and shared domain policy | Select model implementations and observation tools while retaining typed contracts and common publication checks. |
 
-A concrete implementation behind a port is still required: the current system uses GitHub, PostgreSQL and Docker, with a single trusted Docker broker host. GitLab workflows and Kubernetes orchestration are planned; they are not enabled by changing a provider name.
+A concrete implementation behind a port is still required: the current system uses GitHub or GitLab.com, PostgreSQL and Docker, with a single trusted Docker broker host. Kubernetes orchestration is planned; they are not enabled by changing a provider name.
 
 ## Go deeper
 

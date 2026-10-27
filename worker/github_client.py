@@ -31,7 +31,11 @@ class GitHubClient:
     max_file_bytes = MAX_SOURCE_FILE_BYTES
 
     def __init__(
-        self, repository: str, *, max_file_bytes: int = MAX_SOURCE_FILE_BYTES, token: str | None = None
+        self,
+        repository: str,
+        *,
+        max_file_bytes: int = MAX_SOURCE_FILE_BYTES,
+        token: str | None = None,
     ) -> None:
         if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository):
             raise ValueError("GITHUB_REPOSITORY must be in owner/name form")
@@ -314,6 +318,15 @@ class GitHubClient:
             if len(items) < 100:
                 break
         return pulls
+
+    def get_pull_comments(self, number):
+        return self.get_issue_comments(number)
+
+    def comment_pull_once(self, number, *, marker, comment):
+        return self.comment_once(number, marker=marker, comment=comment)
+
+    def add_pull_label(self, number, label):
+        return self.add_label(number, label)
 
     def get_pull_feedback(self, pull_number: int) -> list[dict[str, Any]]:
         items: list[dict[str, Any]] = []
@@ -689,7 +702,7 @@ class GitHubClient:
             raise GitHubError("Pull request exceeds the supported review diff size")
         return files
 
-    def verify_commit_checks(self, sha: str) -> None:
+    def verify_commit_checks(self, sha: str, *, ref: str | None = None) -> None:
         checks = self._request(
             "GET",
             f"/commits/{sha}/check-runs",

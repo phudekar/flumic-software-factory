@@ -677,3 +677,168 @@ it("discards old effective results when a repository revision changes during pre
     expect(screen.queryByText(/current-result/)).not.toBeInTheDocument(),
   );
 });
+
+it("configures a nested GitLab namespace with source-specific credentials and CI policy", async () => {
+  let saved: Record<string, unknown> | undefined;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: string, options?: RequestInit) => {
+      if (input.endsWith("/auth/session")) return json({ csrf: "test" });
+      if (input === "/api/v1/projects") return json(projects);
+      if (input.endsWith("/secrets"))
+        return json([
+          {
+            id: "gl-secret",
+            name: "gitlab-source",
+            purpose: "gitlab",
+            repository_id: null,
+            revoked_at: null,
+          },
+          {
+            id: "gh-secret",
+            name: "github-source",
+            purpose: "github",
+            repository_id: null,
+            revoked_at: null,
+          },
+        ]);
+      if (input.endsWith("/repositories") && options?.method === "POST") {
+        saved = JSON.parse(String(options.body));
+        return json({ id: "new-gitlab" });
+      }
+      return json([]);
+    }),
+  );
+  mount();
+  fireEvent.change(await screen.findByLabelText("Source provider"), {
+    target: { value: "gitlab" },
+  });
+  expect(
+    screen.getByRole("option", { name: /gitlab-source/ }),
+  ).toBeInTheDocument();
+  expect(
+    screen.queryByRole("option", { name: /github-source/ }),
+  ).not.toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText("Repository alias"), {
+    target: { value: "backend" },
+  });
+  fireEvent.change(screen.getByLabelText("GitLab namespace"), {
+    target: { value: "group/subgroup" },
+  });
+  fireEvent.change(screen.getByLabelText("Repository name"), {
+    target: { value: "backend" },
+  });
+  fireEvent.change(screen.getByLabelText("GitLab credential reference"), {
+    target: { value: "gl-secret" },
+  });
+  fireEvent.change(screen.getByLabelText("Required pipeline sources"), {
+    target: { value: "push, merge_request_event" },
+  });
+  fireEvent.change(screen.getByLabelText("Required external statuses"), {
+    target: { value: "security" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Save repository" }));
+  await waitFor(() =>
+    expect(saved).toMatchObject({
+      provider: "gitlab",
+      host: "gitlab.com",
+      owner: "group/subgroup",
+      credential_id: "gl-secret",
+      check_policy: {
+        required_pipeline_sources: ["push", "merge_request_event"],
+        required_status_names: ["security"],
+      },
+    }),
+  );
+});
+
+it("validates a saved GitLab identity and displays its immutable project ID", async () => {
+  const repo = {
+    id: "gl",
+    alias: "gitlab-backend",
+    provider: "gitlab",
+    host: "gitlab.com",
+    owner: "group/subgroup",
+    name: "backend",
+    revision_id: "r1",
+    overrides: {},
+    validated: false,
+    identity: null as null | { project_id: number },
+    check_policy: {
+      required_pipeline_sources: ["push"],
+      required_status_names: [],
+    },
+  };
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: string, options?: RequestInit) => {
+      if (input.endsWith("/auth/session")) return json({ csrf: "test" });
+      if (input === "/api/v1/projects") return json(projects);
+      if (
+        input.endsWith("/repositories/gl/validate") &&
+        options?.method === "POST"
+      ) {
+        expect(JSON.parse(String(options.body))).toEqual({ parent_id: "r1" });
+        repo.validated = true;
+        repo.identity = { project_id: 123 };
+        repo.revision_id = "r2";
+        return json(repo);
+      }
+      if (input.endsWith("/repositories")) return json([repo]);
+      return json([]);
+    }),
+  );
+  mount();
+  fireEvent.click(
+    await screen.findByRole("button", { name: "gitlab-backend" }),
+  );
+  expect(screen.getByLabelText("Source provider")).toBeDisabled();
+  fireEvent.click(
+    screen.getByRole("button", { name: "Validate GitLab identity" }),
+  );
+  expect(await screen.findByText(/GitLab project ID: 123/)).toBeInTheDocument();
+});
+
+it("keeps a stale GitLab validation conflict visible without inventing an identity", async () => {
+  const repo = {
+    id: "gl",
+    alias: "gitlab-backend",
+    provider: "gitlab",
+    owner: "group/subgroup",
+    name: "backend",
+    revision_id: "r1",
+    overrides: {},
+    validated: false,
+    identity: null,
+  };
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: string) => {
+      if (input.endsWith("/auth/session")) return json({ csrf: "test" });
+      if (input === "/api/v1/projects") return json(projects);
+      if (input.endsWith("/repositories/gl/validate"))
+        return new Response(
+          JSON.stringify({
+            detail: "Repository changed; reload before validation",
+          }),
+          { status: 409, headers: { "Content-Type": "application/json" } },
+        );
+      if (input.endsWith("/repositories")) return json([repo]);
+      return json([]);
+    }),
+  );
+  mount();
+  fireEvent.click(
+    await screen.findByRole("button", { name: "gitlab-backend" }),
+  );
+  fireEvent.click(
+    screen.getByRole("button", { name: "Validate GitLab identity" }),
+  );
+  expect(
+    await screen.findByText("Repository changed; reload before validation"),
+  ).toBeInTheDocument();
+  expect(
+    screen.getByText(/GitLab identity is not validated/),
+  ).toBeInTheDocument();
+  expect(screen.queryByText(/GitLab project ID:/)).not.toBeInTheDocument();
+});

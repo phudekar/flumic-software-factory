@@ -120,7 +120,7 @@ if __name__ == "__main__":
         labels={"factory_protocol": "shared-v1", "factory_role": "control"},
         workflows=[tasks.coordinator, tasks.advance],
     ).start() if sys.argv[3] == "control" else client.worker(
-        namespace + "-action",
+        namespace + "-" + sys.argv[3],
         slots=1,
         durable_slots=1,
         labels={

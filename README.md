@@ -305,14 +305,12 @@ prove content is free of confidential data. Review generated changes, especially
 CI and infrastructure changes. Read the [security boundary](docs/issue-lifecycle.md#security-boundary-and-limitations)
 before enabling automation on sensitive repositories.
 
-## Coming soon
+## Source hosts and upcoming deployment options
 
-- **GitLab-based workflows:** planned support for issue-to-merge-request development flows on GitLab.
+- **GitLab.com workflows:** issue-to-merge-request collaboration with repository-scoped credentials, webhook/poll triggers and commit-specific CI. See [connection, trigger and CI configuration](docs/gitlab.md).
 - **Kubernetes orchestration:** planned support for running and orchestrating workflows and workers on Kubernetes.
 
-These capabilities are planned and are not available in the current release.
-Current integrations use GitHub, Hatchet and Docker on a shared host; no release
-date is committed.
+Kubernetes is planned; no release date is committed. Current integrations use GitHub or GitLab.com, Hatchet and Docker on a shared host.
 
 The [project and dynamic-workflow implementation roadmap](docs/project-workflow-roadmap.md)
 tracks multi-repository projects, shared worker pools, and built-in/Docker actions
@@ -327,7 +325,7 @@ Use the runtime API guide to activate the fixed control service, seed workflows 
 launch pinned runs.
 [Project-scoped history, traces and AI accounting](docs/project-observability.md)
 now follow authoritative assignments, including delayed spool delivery and explicit
-Docker usage reports. See [rollout, recovery and release qualification](docs/project-runtime-operations.md) for configuration ownership, action-image contracts and infrastructure test boundaries. GitLab, Kubernetes and remote function executors remain planned.
+Docker usage reports. See [rollout, recovery and release qualification](docs/project-runtime-operations.md) for configuration ownership, action-image contracts and infrastructure test boundaries. GitLab.com is supported; Kubernetes and remote function executors remain planned.
 
 ## Website and documentation
 

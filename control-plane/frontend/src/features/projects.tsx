@@ -1,3 +1,4 @@
+import { RepositoryTriggersPage } from "./repository-triggers";
 import {
   WorkflowDefinitionsPage,
   DefinitionEditorPage,
@@ -21,7 +22,7 @@ import {
   useNavigate,
   useParams,
 } from "react-router-dom";
-import { api } from "../api";
+import { api, type RepositoryConnection as Repository } from "../api";
 import { useData } from "../hooks";
 import { Failure, PageTitle, Section } from "../components/ui";
 import {
@@ -29,20 +30,12 @@ import {
   projectPath,
   useProjectData,
   useProjectId,
+  useScopedWrite,
 } from "../project-context";
 export interface Project {
   id: string;
   slug: string;
   name: string;
-}
-interface Repository {
-  id: string;
-  alias: string;
-  owner: string;
-  name: string;
-  revision_id: string;
-  credential_id?: string | null;
-  overrides: Record<string, unknown>;
 }
 interface Secret {
   id: string;
@@ -179,6 +172,7 @@ function ScopedPages() {
           ["workflows", "Workflows"],
           ["runs", "Workflow runs"],
           ["repositories", "Repositories"],
+          ["triggers", "Repository triggers"],
           ["credentials", "Credentials"],
           ["config", "Project configuration"],
           ["pools", "Shared worker pools"],
@@ -207,6 +201,7 @@ function ScopedPages() {
         <Route path="jobs/:jobId" element={<ProjectJobPage />} />
         <Route path="workers/:workerId" element={<ProjectWorkerPage />} />
         <Route path="repositories" element={<Repositories />} />
+        <Route path="triggers" element={<RepositoryTriggersPage />} />
         <Route path="credentials" element={<Credentials />} />
         <Route path="config" element={<ProjectConfiguration />} />
         <Route path="pools" element={<ProjectPools />} />
@@ -214,27 +209,6 @@ function ScopedPages() {
       </Routes>
     </div>
   );
-}
-// A component may finish an already accepted write after navigation. Only its
-// captured project's cache is invalidated; no late result repopulates a new form.
-function useScopedWrite() {
-  const id = useProjectId(),
-    client = useQueryClient();
-  const alive = useRef(true);
-  useEffect(() => {
-    alive.current = true;
-    return () => {
-      alive.current = false;
-    };
-  }, []);
-  return {
-    alive,
-    write: async <T,>(path: string, body: unknown, method?: "PUT") => {
-      const result = await api<T>(projectPath(id, path), body, { method });
-      await client.invalidateQueries({ queryKey: ["project", id] });
-      return result;
-    },
-  };
 }
 function object(source: string) {
   const value = JSON.parse(source);
@@ -246,6 +220,9 @@ function Repositories() {
   const repositories = useProjectData<Repository[]>("/repositories"),
     secrets = useProjectData<Secret[]>("/secrets");
   const [selected, setSelected] = useState<Repository | null>(null),
+    [provider, setProvider] = useState<"github" | "gitlab">("github"),
+    [pipelineSources, setPipelineSources] = useState("push"),
+    [statusNames, setStatusNames] = useState(""),
     [alias, setAlias] = useState(""),
     [owner, setOwner] = useState(""),
     [name, setName] = useState(""),
@@ -257,6 +234,13 @@ function Repositories() {
   const { write, alive } = useScopedWrite();
   function edit(repo: Repository | null) {
     setSelected(repo);
+    setProvider(repo?.provider ?? "github");
+    setPipelineSources(
+      (repo?.check_policy?.required_pipeline_sources ?? ["push"]).join(", "),
+    );
+    setStatusNames(
+      (repo?.check_policy?.required_status_names ?? []).join(", "),
+    );
     setAlias(repo?.alias ?? "");
     setOwner(repo?.owner ?? "");
     setName(repo?.name ?? "");
@@ -283,7 +267,8 @@ function Repositories() {
                     <button disabled={pending} onClick={() => edit(r)}>
                       {r.alias}
                     </button>{" "}
-                    · {r.owner}/{r.name} <small>revision {r.revision_id}</small>
+                    · {r.provider === "gitlab" ? "GitLab" : "GitHub"} ·{" "}
+                    {r.owner}/{r.name} <small>revision {r.revision_id}</small>
                   </p>
                 ))
               : "No repositories connected."}
@@ -305,6 +290,22 @@ function Repositories() {
                 "/repositories" + (selected ? "/" + selected.id : ""),
                 {
                   alias,
+                  ...(provider === "gitlab"
+                    ? {
+                        provider,
+                        host: "gitlab.com",
+                        check_policy: {
+                          required_pipeline_sources: pipelineSources
+                            .split(",")
+                            .map((v) => v.trim())
+                            .filter(Boolean),
+                          required_status_names: statusNames
+                            .split(",")
+                            .map((v) => v.trim())
+                            .filter(Boolean),
+                        },
+                      }
+                    : {}),
                   owner,
                   name,
                   credential_id: credential || null,
@@ -325,6 +326,20 @@ function Repositories() {
           }}
         >
           <label>
+            Source provider
+            <select
+              value={provider}
+              disabled={!!selected || pending}
+              onChange={(e) => {
+                setProvider(e.target.value as "github" | "gitlab");
+                setCredential("");
+              }}
+            >
+              <option value="github">GitHub.com</option>
+              <option value="gitlab">GitLab.com</option>
+            </select>
+          </label>
+          <label>
             Repository alias
             <input
               required
@@ -333,7 +348,7 @@ function Repositories() {
             />
           </label>
           <label>
-            GitHub owner
+            {provider === "gitlab" ? "GitLab namespace" : "GitHub owner"}
             <input
               required
               value={owner}
@@ -349,7 +364,9 @@ function Repositories() {
             />
           </label>
           <label>
-            GitHub credential reference
+            {provider === "gitlab"
+              ? "GitLab credential reference"
+              : "GitHub credential reference"}
             <select
               value={credential}
               onChange={(e) => setCredential(e.target.value)}
@@ -358,7 +375,7 @@ function Repositories() {
               {secrets.data
                 ?.filter(
                   (s) =>
-                    s.purpose === "github" &&
+                    s.purpose === provider &&
                     !s.revoked_at &&
                     (!s.repository_id || s.repository_id === selected?.id),
                 )
@@ -369,6 +386,72 @@ function Repositories() {
                 ))}
             </select>
           </label>
+          {provider === "gitlab" && (
+            <>
+              <p>
+                GitLab.com only. Nested namespaces such as group/subgroup are
+                supported.
+              </p>
+              <label>
+                Required pipeline sources
+                <input
+                  value={pipelineSources}
+                  onChange={(e) => setPipelineSources(e.target.value)}
+                />
+              </label>
+              <label>
+                Required external statuses
+                <input
+                  value={statusNames}
+                  onChange={(e) => setStatusNames(e.target.value)}
+                />
+              </label>
+              <small>
+                Comma-separated names. Default: push pipeline. Every required
+                source and named status must succeed for the exact commit and
+                branch.
+              </small>
+              {selected && (
+                <>
+                  <p>
+                    {selected.identity?.project_id
+                      ? `GitLab project ID: ${selected.identity.project_id}`
+                      : "GitLab identity is not validated. Save a source credential, then validate before launching."}
+                  </p>
+                  <button
+                    type="button"
+                    disabled={pending}
+                    onClick={async () => {
+                      setPending(true);
+                      setError("");
+                      setMessage("");
+                      try {
+                        const validated = await write<Repository>(
+                          "/repositories/" + selected.id + "/validate",
+                          { parent_id: selected.revision_id },
+                        );
+                        if (alive.current) {
+                          edit(validated);
+                          setMessage("GitLab identity validated.");
+                        }
+                      } catch (e) {
+                        if (alive.current) setError((e as Error).message);
+                      } finally {
+                        if (alive.current) setPending(false);
+                      }
+                    }}
+                  >
+                    Validate GitLab identity
+                  </button>
+                  <small>
+                    Validation reads the saved revision. Save form changes
+                    first. A renamed path must still resolve to the same numeric
+                    project.
+                  </small>
+                </>
+              )}
+            </>
+          )}
           <label>
             Repository behavior overrides (JSON)
             <textarea
@@ -593,7 +676,7 @@ function Credentials() {
               value={purpose}
               onChange={(e) => setPurpose(e.target.value)}
             >
-              {["github", "openai", "anthropic"].map((p) => (
+              {["github", "gitlab", "openai", "anthropic"].map((p) => (
                 <option key={p}>{p}</option>
               ))}
             </select>
