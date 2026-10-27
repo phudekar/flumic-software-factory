@@ -1,13 +1,52 @@
 """Bounded, vendor-neutral one-time job contracts."""
 
 from typing import Literal
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator, model_serializer
 from factory.workflows.contracts import Contract, UsageRecord
 from factory.workflows.definitions import DockerLimits, DockerStage
 from factory.workflows.references import json_bytes
 
 
-class JobLaunch(Contract):
+class RuntimePin(Contract):
+    target_id: str = Field(default="local-docker", pattern=r"^[a-z][a-z0-9-]{0,79}$")
+    target_revision: str = Field(default="", pattern=r"^(?:[a-f0-9]{64})?$")
+    target_snapshot: dict = Field(default_factory=dict, repr=False)
+    deadline: float | None = Field(default=None, gt=0, allow_inf_nan=False)
+
+    @model_validator(mode="after")
+    def pin(self):
+        if (
+            self.target_id != "local-docker"
+            or self.target_revision
+            or self.target_snapshot
+        ):
+            from app.runtime_targets import TargetSnapshot
+
+            snapshot = TargetSnapshot.model_validate(self.target_snapshot)
+            if (
+                snapshot.id != self.target_id
+                or snapshot.revision != self.target_revision
+            ):
+                raise ValueError("Job target pin mismatch")
+            if snapshot.kind == "kubernetes" and self.deadline is None:
+                raise ValueError("Kubernetes jobs require an absolute deadline")
+        return self
+
+    @model_serializer(mode="wrap")
+    def compatible_wire(self, handler):
+        result = handler(self)
+        for key, default in (
+            ("target_id", "local-docker"),
+            ("target_revision", ""),
+            ("target_snapshot", {}),
+            ("deadline", None),
+        ):
+            if result.get(key) == default:
+                result.pop(key, None)
+        return result
+
+
+class JobLaunch(RuntimePin):
     job_id: str = Field(pattern=r"^[a-f0-9]{64}$")
     project_id: str = Field(min_length=1, max_length=120)
     execution_id: str = Field(min_length=1, max_length=120)
@@ -53,7 +92,7 @@ class JobLaunch(Contract):
         return value
 
 
-class RuntimeJobRef(Contract):
+class RuntimeJobRef(RuntimePin):
     job_id: str = Field(pattern=r"^[a-f0-9]{64}$")
     project_id: str
     execution_id: str
@@ -77,6 +116,15 @@ class RuntimeJobState(Contract):
 
 
 class JobCapture(Contract):
+    log_stream: Literal["split", "combined"] = "split"
+
+    @model_serializer(mode="wrap")
+    def compatible_wire(self, handler):
+        result = handler(self)
+        if self.log_stream == "split":
+            result.pop("log_stream", None)
+        return result
+
     error: str | None = Field(default=None, max_length=200)
     exit_code: int | None = None
     oom: bool = False

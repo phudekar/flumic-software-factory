@@ -137,7 +137,20 @@ class DockerJobRuntimeTests(unittest.TestCase):
                 )
                 self.assertFalse(failed)
                 self.assertEqual(result["output"], {"value": "[REDACTED]"})
-                self.assertEqual(set(result), set(JobCapture.model_fields))
+                self.assertEqual(
+                    set(result),
+                    {
+                        "error",
+                        "exit_code",
+                        "oom",
+                        "output",
+                        "usage",
+                        "stdout",
+                        "stderr",
+                        "stdout_truncated",
+                        "stderr_truncated",
+                    },
+                )
 
     def test_parser_recursion_is_a_failed_capture_with_logs(self):
         from unittest.mock import patch
