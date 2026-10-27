@@ -1,12 +1,12 @@
 # Kubernetes workers and one-time Jobs — issue #17
 
-Status: proposed design; requires user approval before product implementation.
+Status: approved by the user on 2026-10-27, including executable Kubernetes scratch, combined logs and unavailable output after a hard deadline. Implementation is pending the implementation-plan review.
 
 ## Intent and decisions already made
 
 One Control Pane should manage shared workers and one-time container actions on Kubernetes as well as Docker. Projects, repository grants, immutable workflows, stage links and execution history keep their existing contracts. Issue #17 remains open until real-cluster qualification proves execution and recovery, not just manifest generation.
 
-The user selected **native Kubernetes API adapters** and a **separate local k3d cluster**. They authorized creation of that cluster. They have not yet approved this detailed design or changes to existing deployed workers/control services.
+The user selected **native Kubernetes API adapters** and a **separate local k3d cluster**. They authorized creation of that cluster. They approved this detailed design on 2026-10-27. Existing deployed workers/control services are outside this implementation’s mutation scope.
 
 The isolated development cluster is `flumic-issue17`, with one server and one agent. Its dedicated kubeconfig is outside the repository, its API is loopback-only, and commands always specify the kubeconfig/context. No current/default Kubernetes context is switched. The cluster is a development prerequisite, not evidence that Flumic Kubernetes support is implemented.
 
@@ -60,7 +60,7 @@ Use `batch/v1` Jobs, `restartPolicy: Never`, `backoffLimit: 0`, deterministic jo
 
 Create the Job initially suspended. Persist/verify its UID and expected spec before creating owned immutable payload resources and unsuspending it. Use UID/resourceVersion tests for mutations and UID preconditions for deletion. An existing resource with another UID/spec/owner is a conflict, never something to adopt or delete based only on a friendly name/label. A lost create reply is recovered by an exact identity/spec read. Once execution has been observed, a missing Job is an uncertain external effect; do not recreate it automatically.
 
-Preserve the existing `/factory` input/context/credential/output contract without hostPath mounts or a requirement to install Python into arbitrary action images:
+Preserve the existing `/flumic` input/context/credential/output contract without hostPath mounts or a requirement to install Python into arbitrary action images:
 
 1. Split bounded input JSON into immutable ConfigMaps below the Kubernetes per-object size limit; context is a separate bounded payload. Record expected byte counts/digests and a fixed maximum shard count. Credentials use a separate immutable Secret mounted read-only only into the action container.
 2. A trusted digest-pinned Python helper image supplies an init container that validates/reassembles payload into a private input volume. The original action image runs its original explicit argv. No shell is added around an arbitrary command.
@@ -70,7 +70,7 @@ Preserve the existing `/factory` input/context/credential/output contract withou
 
 Kubernetes Pod logs normally combine stdout/stderr. v1 must label them as a bounded combined stream, rather than claim portable separation: return that stream in `stdout`, empty `stderr`, and expose target/log-stream metadata to the UI. Docker's split streams remain unchanged. Do not depend on alpha log-stream feature gates. Output/usage JSON semantics remain unchanged.
 
-The hard deadline/cancellation takes priority over collector retention. If it terminates the collector before capture is committed, collection returns an explicit unavailable-result capture, best-effort bounded Pod logs and empty output; it must not throw/retry forever or reinterpret this as success. The canonical state is timed-out/cancelled. No result is accepted after its deadline, even if the action exited successfully earlier. Surviving uncaptured output across a hard deadline, permanent node loss or volume loss is not guaranteed; external side effects may already have happened. This is a proposed portability limitation requiring design approval.
+The hard deadline/cancellation takes priority over collector retention. If it terminates the collector before capture is committed, collection returns an explicit unavailable-result capture, best-effort bounded Pod logs and empty output; it must not throw/retry forever or reinterpret this as success. The canonical state is timed-out/cancelled. No result is accepted after its deadline, even if the action exited successfully earlier. Surviving uncaptured output across a hard deadline, permanent node loss or volume loss is not guaranteed; external side effects may already have happened. This portability limitation was explicitly included in the approved design.
 
 Garbage collection/TTL must not remove uncaptured evidence before canonical outcome settlement; this restriction does not override the hard deadline. Use explicit broker-owned cleanup/tombstones. Secret/ConfigMap owners must match the verified Job UID; do not delete similarly named unrelated resources. During cancellation/deadline handling, confirm the action Pod is stopped before settling the canonical execution; an unavailable API means cleanup pending, never confirmed cancellation. Deadline callbacks and late Job creation must be reconciled against durable tombstones.
 
@@ -82,7 +82,7 @@ Default-deny action networking requires an enforcing CNI and verified policies. 
 
 Map CPU/memory to requests/limits and temporary writable data to bounded memory volumes. Include init/collector overhead in target capacity reporting. Kubernetes does not expose a portable per-container PID limit: require an operator-configured and qualified Pod PID ceiling for the target, document that helper processes share that ceiling, and reject unsupported requested PID values rather than ignore them. Declare the target's supported/enforced resource and network semantics explicitly. No broad cluster privileges should be introduced merely to pretend these constraints are discoverable from namespace-only APIs.
 
-Docker currently mounts `/tmp` with `noexec`. Standard Kubernetes memory-backed `emptyDir` does not provide that per-volume mount option. **Proposal requiring user approval:** Kubernetes scratch space is writable/executable, explicitly reported as a target capability difference; Docker keeps its existing `noexec` behavior. This remains a trusted-developer runtime, not an untrusted-code sandbox. If Docker-equivalent `noexec` is required, do not implement this proposal as-is: revise the target/storage/runtime prerequisites and qualify enforcement before admitting those actions. Never claim equivalent hardening or silently downgrade a policy that requires `noexec`.
+Docker currently mounts `/tmp` with `noexec`. Standard Kubernetes memory-backed `emptyDir` does not provide that per-volume mount option. **Approved portability difference:** Kubernetes scratch space is writable/executable, explicitly reported as a target capability difference; Docker keeps its existing `noexec` behavior. This remains a trusted-developer runtime, not an untrusted-code sandbox. If Docker-equivalent `noexec` is required, do not implement this proposal as-is: revise the target/storage/runtime prerequisites and qualify enforcement before admitting those actions. Never claim equivalent hardening or silently downgrade a policy that requires `noexec`.
 
 Pin absolute job/stage deadlines at durable intent creation. Add the necessary deadline field to the internal launch contract, preserving old Docker defaults. Set Kubernetes activeDeadlineSeconds from the remaining authorized budget, and retain the broker's independent deadline/cancellation reconciliation. Never extend a job deadline on retry/restart.
 
@@ -102,7 +102,7 @@ Before real qualification, produce the concrete resource inventory and cleanup g
 
 ## Calls left to the builder
 
-The choices above beyond native adapters/k3d are implementation proposals, not decisions already attributed to the user. The builder may settle internal module/file splits, Kubernetes Python SDK version compatible with the qualified API, bounded retry/backoff constants, deterministic resource-name encoding, helper packaging, storage-size defaults and individual UI arrangement. It must not weaken authority, silently ignore unsupported limits, add a separate operator or change workflow-authoring contracts to avoid transport work.
+The choices above were initially implementation proposals and were approved with this design on 2026-10-27. The builder may settle internal module/file splits, Kubernetes Python SDK version compatible with the qualified API, bounded retry/backoff constants, deterministic resource-name encoding, helper packaging, storage-size defaults and individual UI arrangement. It must not weaken authority, silently ignore unsupported limits, add a separate operator or change workflow-authoring contracts to avoid transport work.
 
 ## Primary references
 
@@ -113,4 +113,6 @@ The choices above beyond native adapters/k3d are implementation proposals, not d
 
 ## Builder check and approval notes
 
-A fresh read-only builder check raised two material questions: collector survival versus hard deadlines, and Docker's `/tmp noexec` versus Kubernetes scratch-volume behavior. This revision resolves the first with a hard-deadline-first rule and explicit unavailable results, and presents the second as an explicit proposal for the user's design approval. Neither is represented as already approved. Combined log streams, target PID prerequisites and storage-backend recovery limits are also explicit portability differences above. No product code is implemented by this document.
+A fresh read-only builder check raised two material questions: collector survival versus hard deadlines, and Docker's `/tmp noexec` versus Kubernetes scratch-volume behavior. This revision resolves the first with a hard-deadline-first rule and explicit unavailable results, and presents the second as an explicit proposal for the user's design approval. The user approved both clarifications on 2026-10-27. Combined log streams, target PID prerequisites and storage-backend recovery limits are also explicit portability differences above. No product code is implemented by this document.
+
+Planning correction: the draft used `/factory` when referring to the existing file protocol. Source inspection shows `/flumic/input.json`, optional `/flumic/context.json`, `/flumic/credentials.json` and `/flumic/output/result.json` containing `output` and optional `usage`. The approved intent is to preserve that existing protocol; the corrected path does not introduce a new authoring contract.
