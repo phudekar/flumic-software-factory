@@ -1,6 +1,6 @@
 # GitLab.com setup and workflow behavior
 
-GitLab.com support is being implemented in issue #16. Its adapters, Control Pane configuration and trigger paths require the disposable-project live release qualification before support is announced. Self-managed GitLab, fork merge-request publication and cross-project pipeline children are outside this version. GitHub remains the existing released source host.
+GitLab.com supports issue-to-merge-request workflows, repository-scoped credentials, shared workers and durable webhook/poll triggers. The release qualification exercised real HTTP/Git publication, feedback, stale-ref protection, source and merged-commit CI, merge verification and guarded cleanup in a disposable GitLab.com project. Self-managed GitLab, fork merge-request publication and cross-project pipeline children are outside this version. GitHub remains the existing released source host.
 
 ## Connection and credentials
 
@@ -24,7 +24,7 @@ GitLab issue and merge-request **IIDs** are independent local numbers. Issue `7`
 
 After a namespace rename, edit the connection, save, and validate the new path. It must still resolve to the same numeric project. A path reused by a different project cannot retarget the connection; create another connection. Publication validates the numeric project and current path before and after Git operations. Namespace administration must be coordinated outside active publication; this is not an atomic remote namespace lock.
 
-Repository behavior overrides continue to control labels, model choices, prompt/task settings and limits. They cannot override source identity or credential purpose. See the [worker settings reference](configuration-workers.md#repository-provider-metadata-gitlab-release-qualification-pending) for `repository_provider`, `repository_host`, `gitlab_project_id`, and `repository_check_policy_json`. The Control Pane owns these fields for shared runs; new acceptance pins the repository revision rather than reading ambient environment defaults.
+Repository behavior overrides continue to control labels, model choices, prompt/task settings and limits. They cannot override source identity or credential purpose. See the [worker settings reference](configuration-workers.md#repository-provider-metadata) for `repository_provider`, `repository_host`, `gitlab_project_id`, and `repository_check_policy_json`. The Control Pane owns these fields for shared runs; new acceptance pins the repository revision rather than reading ambient environment defaults.
 
 ## Trigger ready issues, feedback and verification
 
@@ -34,7 +34,7 @@ Open the project's **Repository triggers** tab. Select a validated GitLab reposi
 - **Merge request feedback**: observes open, same-project MRs linked with `Closes #<issue-iid>` (also accepted: `Fixes` or `Resolves`). The linked issue must remain open with the configured PR-open label. Human note IDs advance the feedback cursor; factory/system notes are excluded. Add a new comment or run manually after editing a previously processed note.
 - **Merged change verification**: requires an actually merged MR and merge commit. Closing an MR without merging does not qualify. Queuing verification is not proof that its checks succeeded.
 
-Default inputs are operator-authored JSON; fresh source identity fields take precedence. Builtin workflows require follow-up bindings: a repository UUID maps `issue`, `feedback`, and `verify` to **definition UUIDs**. All three roles must be supplied. They resolve to current immutable revisions once at acceptance. Manual run submission instead takes revision UUIDs. See [runtime API examples](project-runtime-api.md#gitlab-repository-triggers-release-qualification-pending) and [workflow authoring](workflow-development.md).
+Default inputs are operator-authored JSON; fresh source identity fields take precedence. Builtin workflows require follow-up bindings: a repository UUID maps `issue`, `feedback`, and `verify` to **definition UUIDs**. All three roles must be supplied. They resolve to current immutable revisions once at acceptance. Manual run submission instead takes revision UUIDs. See [runtime API examples](project-runtime-api.md#gitlab-repository-triggers) and [workflow authoring](workflow-development.md).
 
 Creation or token rotation displays a webhook token once. Save it in the GitLab webhook's **Secret token** field, use the displayed HTTPS URL, and select issue, merge-request and comment/note events as appropriate for that binding. The receiver implements `X-Gitlab-Token`; GitLab signing-token verification is not implemented, so a signing token alone cannot authenticate this receiver. Current GitLab docs distinguish secret and signing tokens, and stable message IDs from recursive event correlation IDs: [webhook setup and headers](https://docs.gitlab.com/user/project/integrations/webhooks/).
 
@@ -76,6 +76,7 @@ The executable contract is [`tests/integration/test_gitlab_contract.py`](../test
 | `FLUMIC_GITLAB_DEFAULT_BRANCH` | The exact current default branch, for example `main`. |
 | `FLUMIC_GITLAB_DEFAULT_SHA` | Full approved default-branch commit SHA. A moved head stops the run; never use `HEAD` or dynamically bypass the pin. |
 | `GITLAB_TOKEN` | API/Git source credential injected privately into the test process. The harness never reads `.env` itself. |
+| `FLUMIC_GITLAB_RESUME_INVENTORY` | Optional inventory path for resuming the same verified draft-publication fixture after an interruption; never creates replacement resources. |
 | `FLUMIC_LIVE_EVIDENCE_DIR` | Optional local directory for atomically updated public inventory JSON. Only this allowlisted JSON is suitable for CI artifacts. |
 
 Once the pins and approvals are supplied privately, run:
@@ -96,3 +97,15 @@ The live run requires the standard `.gitlab-ci.yml` path and an available runner
 Do not edit the test project concurrently with qualification. Cleanup verifies project identity, owned markers, expected branch heads and per-file last-commit IDs. It refuses to delete the default/unowned refs, overwrite an advanced human branch, or restore files whose ownership changed. Each cleanup operation is attempted independently; an ownership or availability failure leaves a public inventory for manual review and makes the contract fail. Abrupt process termination can still leave owned resources, so inventory is updated throughout the run. No automatic cleanup touches unrelated issues, MRs, labels, files or workers.
 
 GitHub Actions provides **Run live GitLab.com qualification** and a separate **Approve temporary CI/default-branch commits** checkbox on the manually dispatched Tests workflow. Both default to false. Configure `FLUMIC_RELEASE_GITLAB_TOKEN` as a secret, and `FLUMIC_RELEASE_GITLAB_PROJECT_PATH`, `..._PROJECT_ID`, `..._DEFAULT_BRANCH`, and `..._DEFAULT_SHA` as repository variables for an approved disposable project. The job uploads only `output/gitlab-evidence/gitlab-contract-*.json`, containing resource IDs, commit/ref proof, dependency versions and cleanup status. It never uploads source configuration, tokens, headers, grants, spools or raw logs. Re-pin the SHA deliberately before a later live run because cleanup appends a commit.
+
+
+If transport fails after draft publication but before feedback, retain the original approved SHA and use the public inventory through `FLUMIC_GITLAB_RESUME_INVENTORY`. This narrow continuation verifies the original project, current known default head, issue/MR ownership markers, source project, exact recorded branch head and temporary CI ownership before writing. It reuses the original issues, labels, branch and MR and retains the coding/publication counters. It does not prepare another CI file or plan another task. Inventories now record branch heads; an older inventory can recover the first publication only by verifying its exact parent, complete single-file diff, commit message and file bytes. A marker alone does not authorize an advanced branch. Changed or partially removed resources stop continuation for review. The original CI file is read from the original approved commit for restoration; private CI contents are never placed in the inventory.
+
+
+### Qualification recovery and cleanup evidence
+
+The issue #16 qualification completed using the same owned resources after an API transport interruption. Two fake coding calls produced two physical publications; no paid model calls or existing worker restarts were needed. Exact source-ref and merged-main pipelines passed. An independent read-only gate verified that the entire final repository tree matches the original baseline, the issues, labels and branch are absent, and the retained MR is owned and merged.
+
+GitLab may refuse deletion of a merged test MR with HTTP 403 when the token lacks Owner/admin authority. Only an owned, verified merged MR may be retained as an explicit audit record; an open MR or any other cleanup failure still fails qualification. Deleting that audit record requires an appropriately authorized operator; do not broaden worker credentials for cleanup. See [GitLab MR management permissions](https://docs.gitlab.com/user/project/merge_requests/manage/).
+
+For a first-publication interruption, `FLUMIC_GITLAB_RESUME_INVENTORY` selects a bounded saved inventory. Resume validates the exact project, original default SHA, source head and owned resources before continuing; it never creates a second fixture. After restoration, set `FLUMIC_GITLAB_VERIFY_CLEANUP_INVENTORY` to the completed inventory and run only `integration.test_gitlab_contract.LiveGitLabCleanupVerification`. This gate reads the host without changing resources and emits allowlisted evidence with stage `qualified-cleanup-verified`. The original configuration pins and opt-in flags remain required. Never rerun the full live module merely to verify cleanup.

@@ -103,7 +103,7 @@ See [Docker action contracts](docker-action-jobs.md), [configuration effects](co
 
 For attribution, capture policy, scoped history/usage filters and durable delivery, see [project observability](project-observability.md).
 
-## GitLab repository triggers (release qualification pending)
+## GitLab repository triggers
 
 GitLab.com trigger support is under development in issue #16. The implementation must pass its disposable-project live qualification before it is treated as released support. A trigger belongs to one project and one validated repository connection; its saved workflow definition selects the graph to run. Webhook content cannot choose another project, repository or workflow.
 

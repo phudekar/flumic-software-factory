@@ -12,8 +12,7 @@ boundaries and operational limits.
 The diagram groups the implemented system into six responsibility layers.
 Its arrows show conceptual dependencies rather than a single synchronous request
 path; the application core is shared worker code, not another deployed service.
-The observability rail represents logs, metrics, traces and model accounting. GitLab and Kubernetes are planned
-capabilities, not additional active adapters in this deployment.
+The observability rail represents logs, metrics, traces and model accounting. GitHub and GitLab.com are supported source adapters; Kubernetes remains planned.
 
 The **Control Plane** governs configuration, operator access, lifecycle commands
 and execution visibility. The **execution plane** runs the development workflow.
@@ -63,7 +62,7 @@ when starting, and the current runtime does not provide graceful drain guarantee
 | Application service and ports | Planning, triage, implementation, review, feedback and merge-verification operations | Business operations depend on interfaces and typed requests/results instead of Hatchet/OpenAI clients; fakes can exercise behavior without a live engine or paid model call. | The same operations support the Hatchet adapter and one-shot local runner. There is one cohesive service, not a microservice per stage. |
 | Domain models and patch policy | Change contracts, path/file limits, completeness and content validation | Shared checks remain consistent as coding backends change; model choice does not redefine what the application can publish. | API coding and CLI coding return the same completed-patch contract. Publication policy is not an OS/network sandbox, and trusted adapters must protect extra data they load. |
 | Agent adapters | Planner/reviewer/coder implementations and context capabilities | Planning, review and coding can be chosen independently; model and prompt overrides can vary by task. | Use direct API planning/review with Codex or Claude coding, or implement a trusted coding port for a remote service. Custom managed factories require registry approval and installed code. |
-| Repository adapter | Issues, source snapshots, commits, PRs, review/merge state | Source-host integration is kept at an application boundary rather than scattered throughout model/orchestration code. | GitHub is the released source host. GitLab.com composition, numeric repository identity, separate issue/MR namespaces and durable triggers are being qualified; see [setup and boundaries](gitlab.md). Self-managed hosts remain outside this version. |
+| Repository adapter | Issues, source snapshots, commits, PRs, review/merge state | Source-host integration is kept at an application boundary rather than scattered throughout model/orchestration code. | GitHub and GitLab.com adapters support numeric repository identity, separate issue/MR namespaces and durable triggers; see [setup and boundaries](gitlab.md). Self-managed hosts remain outside this version. |
 | Execution-state adapter | Prepared plans/patches, cursors, issue claims and recovery | The application can reconcile retries using recorded progress, with state operations behind a port. | Legacy Python workflows use shared SQLite and file locks on one host. The new internal dynamic runtime uses project-scoped encrypted state and canonical claims in PostgreSQL; its coordinator adapter is qualified with mixed builtin/Docker graphs on real Hatchet and shared workers, and the executable catalog composes existing application operations per pinned context. Project-scoped APIs and assignment-authenticated transports activate the runtime through a fixed control service; see the [runtime API guide](project-runtime-api.md). |
 | Observation adapters | Operation/model context, logs, retained events and optional OTLP export | Instrumentation can change without rewriting development operations; execution policy stays separate from the monitoring vendor. | Use structured logging alone, managed Control Plane reporting, or optional SigNoz telemetry. Captured call content depends on policy; CLI accounting is not a complete internal transcript. |
 | Composition root + validated configuration | Constructing dependencies, selecting trusted implementations and resolving settings | Wiring stays explicit, and configuration changes can tune established behavior without editing the application service. | Change a task model/prompt through a saved profile, or load an approved installed factory. Configuration cannot create a new Python stage or make an unimplemented runtime available. |
@@ -90,8 +89,7 @@ fields cover the specific extension points listed below, not every integration.
   around existing operations, including retries, cancellation, routing and
   durable waits. The local runner demonstrates separation; it does not provide
   production scheduling or universal workflow-engine parity.
-- **Different source host or worker runtime:** GitLab-based workflows and
-  Kubernetes orchestration are coming soon. Their boundaries reduce the amount
+- **Different source host or worker runtime:** GitLab.com has a dedicated adapter; self-managed GitLab and Kubernetes orchestration remain planned. Their boundaries reduce the amount
   of application code that needs to change, but host-specific collaboration,
   persistence, claims, image/network setup and lifecycle behavior still need
   implementation and validation.

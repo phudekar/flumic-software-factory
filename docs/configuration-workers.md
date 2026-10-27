@@ -247,11 +247,11 @@ Commands inherit the container environment, network, permissions and mounts; mak
 
 **Profile; code/shipped default:** `600`; integer `1–3600` (booleans rejected). Bounds only the startup shell process. Example: `startup_timeout_seconds: 120` aborts startup if that script exceeds two minutes. No script means no hook execution, so this timeout does not delay registration. It does not affect API requests, coding subprocesses, Hatchet task execution, or control-plane bootstrap fetching. Process cleanup/output reader joining can add a small amount of time after the subprocess deadline. See [startup hook](../worker/factory/startup.py).
 
-## Repository provider metadata (GitLab release qualification pending)
+## Repository provider metadata
 
 ### `repository_provider`
 
-**Repository authority; code default:** `github`. Allowed values: `github` or `gitlab`. Chooses the installed repository adapter and source credential purpose. Example standalone YAML: `repository_provider: gitlab`. Shared runs derive this from the selected repository revision; behavior overrides cannot switch it. A GitLab run requires a worker that advertises GitLab capability. Old workers with no provider declaration remain GitHub-only. Existing GitHub snapshots omit this new default to preserve their wire format. In legacy mode, changing the provider requires restarting the affected worker and deliberately registering its provider-qualified workflows. GitLab support remains qualification pending; self-managed hosts are excluded.
+**Repository authority; code default:** `github`. Allowed values: `github` or `gitlab`. Chooses the installed repository adapter and source credential purpose. Example standalone YAML: `repository_provider: gitlab`. Shared runs derive this from the selected repository revision; behavior overrides cannot switch it. A GitLab run requires a worker that advertises GitLab capability. Old workers with no provider declaration remain GitHub-only. Existing GitHub snapshots omit this new default to preserve their wire format. In legacy mode, changing the provider requires restarting the affected worker and deliberately registering its provider-qualified workflows. GitLab.com is supported; self-managed hosts are excluded.
 
 ### `repository_host`
 

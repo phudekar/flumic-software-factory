@@ -173,6 +173,12 @@ class GitLabHarnessSafetyTests(unittest.TestCase):
     def test_complete_live_harness_dry_run_never_reaches_network_and_restores_files(
         self,
     ):
+        self._complete_contract_dry_run()
+
+    def test_transport_interruption_resumes_same_resources_and_cleans_up(self):
+        self._complete_contract_dry_run(resume=True)
+
+    def _complete_contract_dry_run(self, *, resume=False):
         import base64
         import re
         from urllib.parse import unquote
@@ -186,16 +192,31 @@ class GitLabHarnessSafetyTests(unittest.TestCase):
         original = wire.request
         counter = 1000
         pipeline = {}
+        interrupted = False
+        publisher = wire.publish
 
         def request(method, path, *, body=None, query=None, raw=False):
-            nonlocal counter, pipeline
+            nonlocal counter, pipeline, interrupted
+            if (
+                resume
+                and not interrupted
+                and path == "/labels"
+                and (query or {}).get("search", "").endswith("pr-reviewed")
+                and wire.mrs
+            ):
+                interrupted = True
+                from factory.domain.models import RepositoryError
+
+                raise RepositoryError("fixture transport interruption")
             if path == "":
                 return {**original(method, path), "shared_runners_enabled": True}
             if path == "/runners":
                 return []
             if path.startswith("/repository/files/") and method == "GET":
                 name = unquote(path.removeprefix("/repository/files/"))
-                if name not in wire.files:
+                if name not in wire.files or (
+                    name == ".gitlab-ci.yml" and (query or {}).get("ref") == wire.base
+                ):
                     raise GitLabRequestError(404)
                 return {
                     "encoding": "base64",
@@ -275,15 +296,52 @@ class GitLabHarnessSafetyTests(unittest.TestCase):
             "test_issue_plan_publication_feedback_ref_lease_merge_and_ci"
         )
         result = unittest.TestResult()
+        from tempfile import TemporaryDirectory
+        from pathlib import Path
+        import json
+
         with (
-            patch.dict(contract.os.environ, values),
-            patch.object(contract, "GitLabLiveFixture", return_value=fixture),
+            TemporaryDirectory() as directory,
+            patch.dict(
+                contract.os.environ, {**values, "FLUMIC_LIVE_EVIDENCE_DIR": directory}
+            ),
             patch(
                 "factory.adapters.gitlab.build_opener",
                 side_effect=AssertionError("dry run reached network"),
             ),
         ):
-            test.run(result)
+            with patch.object(contract, "GitLabLiveFixture", return_value=fixture):
+                if resume:
+                    with patch.object(
+                        contract.LiveGitLabContract,
+                        "cleanup_live_resources",
+                        lambda item: item.record_evidence("interrupted-publication"),
+                    ):
+                        test.run(result)
+                else:
+                    test.run(result)
+            if resume:
+                self.assertEqual(len(result.errors), 1)
+                inventory_path = next(Path(directory).glob("gitlab-contract-*.json"))
+                inventory = json.loads(inventory_path.read_text())
+                wire.client._request = request
+                wire.publish = publisher
+                resumed = GitLabLiveFixture.resume(
+                    config, inventory, client=wire.client
+                )
+                test = contract.LiveGitLabContract(
+                    "test_issue_plan_publication_feedback_ref_lease_merge_and_ci"
+                )
+                result = unittest.TestResult()
+                with (
+                    patch.dict(
+                        contract.os.environ,
+                        {"FLUMIC_GITLAB_RESUME_INVENTORY": str(inventory_path)},
+                    ),
+                    patch.object(contract, "GitLabLiveFixture") as fixture_type,
+                ):
+                    fixture_type.resume.return_value = resumed
+                    test.run(result)
         self.assertEqual(result.errors, [])
         self.assertEqual(result.failures, [])
         self.assertEqual(test.fake_coding_calls, 2)
@@ -333,3 +391,246 @@ class GitLabHarnessSafetyTests(unittest.TestCase):
             self.assertEqual(value["dependencies"], {"python": "fixture-version"})
             self.assertNotIn("config", value)
             self.assertNotIn("token", value)
+
+    def resume_fixture(self):
+        import base64
+        from factory.configuration import Labels
+        from integration.gitlab_live_fixture import LiveGitLabConfig
+
+        config = LiveGitLabConfig.from_env(self.values())
+        nonce = "c" * 32
+        prefix = "flumic-contract-" + nonce
+        marker = "<!-- flumic-contract:" + nonce + " -->"
+        names = [prefix + "-" + name.replace("_", "-") for name in Labels.model_fields]
+        inventory = {
+            "project_id": 123,
+            "repository": "group/sub/repo",
+            "approved_default_sha": "a" * 40,
+            "known_default_sha": "b" * 40,
+            "fixture": prefix,
+            "fake_coding_calls": 1,
+            "physical_publications": 1,
+            "issues": [1, 2],
+            "merge_requests": [3],
+            "branches": ["hatchet/issue-2"],
+            "branch_heads": {"hatchet/issue-2": "d" * 40},
+            "labels": names,
+            "writes": 18,
+            "verified_refs": [],
+        }
+        client = Mock()
+
+        def request(method, path, **kwargs):
+            if path == "":
+                return {
+                    "id": 123,
+                    "path_with_namespace": "group/sub/repo",
+                    "default_branch": "main",
+                }
+            if path.startswith("/repository/files/"):
+                return {
+                    "content": base64.b64encode(
+                        ("# " + prefix + "\nfixture: true\n").encode()
+                    ).decode()
+                }
+            raise AssertionError("Unexpected resume read")
+
+        client._request.side_effect = request
+        client.resolve_revision.return_value = "b" * 40
+        client.get_issue.side_effect = lambda iid: {
+            "number": iid,
+            "project_id": 123,
+            "body": marker,
+        }
+        client.get_pull_request.return_value = {
+            "number": 3,
+            "state": "open",
+            "merged": False,
+            "source_project_id": 123,
+            "target_project_id": 123,
+            "body": marker,
+            "head": {"sha": "d" * 40, "ref": "hatchet/issue-2"},
+        }
+        client._branch_head.return_value = "d" * 40
+        client._pages.return_value = [{"name": name} for name in names]
+        return config, inventory, client
+
+    def test_resume_reuses_only_verified_original_resources_without_writes(self):
+        from integration.gitlab_live_fixture import GitLabLiveFixture
+
+        config, inventory, client = self.resume_fixture()
+        resumed = GitLabLiveFixture.resume(config, inventory, client=client)
+        self.assertEqual(resumed.config.default_sha, "a" * 40)
+        self.assertEqual(resumed.expected_default_head, "b" * 40)
+        self.assertEqual(resumed.issues, [1, 2])
+        self.assertEqual(resumed.branches, {"hatchet/issue-2": "d" * 40})
+        self.assertEqual(resumed.prefix, inventory["fixture"])
+        self.assertTrue(
+            all(call.args[0] == "GET" for call in client._request.call_args_list)
+        )
+
+    def test_resume_rejects_foreign_inventory_and_changed_source_head(self):
+        from integration.gitlab_live_fixture import GitLabLiveFixture
+
+        for override in (
+            {"project_id": 999},
+            {"approved_default_sha": "f" * 40},
+            {"fake_coding_calls": 2},
+        ):
+            config, inventory, client = self.resume_fixture()
+            with self.assertRaises(ValueError):
+                GitLabLiveFixture.resume(
+                    config, {**inventory, **override}, client=client
+                )
+        config, inventory, client = self.resume_fixture()
+        client._branch_head.return_value = "e" * 40
+        with self.assertRaises(ValueError):
+            GitLabLiveFixture.resume(config, inventory, client=client)
+        self.assertTrue(
+            all(call.args[0] == "GET" for call in client._request.call_args_list)
+        )
+
+    def test_legacy_resume_requires_exact_publication_parent_message_diff_and_file(
+        self,
+    ):
+        from integration.gitlab_live_fixture import GitLabLiveFixture
+        from factory.adapters.gitlab import GitLabClient
+        from factory.domain.models import FileChange
+
+        config, inventory, client = self.resume_fixture()
+        inventory.pop("branch_heads")
+        nonce = inventory["fixture"].removeprefix("flumic-contract-")
+        path = "src/flumic_contract_" + nonce + ".py"
+        content = "print('" + nonce + "-1')\n"
+        marker = GitLabClient._patch_marker(
+            "b" * 40, [FileChange(path=path, content=content)]
+        )
+        original = client._request.side_effect
+
+        def request(method, endpoint, **kwargs):
+            if endpoint.startswith("/repository/commits/"):
+                return {
+                    "parent_ids": ["b" * 40],
+                    "message": "Flumic publication\n\n" + marker + "\n",
+                }
+            return original(method, endpoint, **kwargs)
+
+        client._request.side_effect = request
+        client._pages.side_effect = lambda endpoint, **kwargs: (
+            [{"new_path": path, "deleted_file": False}]
+            if endpoint.endswith("/diff")
+            else [{"name": name} for name in inventory["labels"]]
+        )
+        client.get_source_files.return_value = {path: content}
+        self.assertEqual(
+            GitLabLiveFixture.resume(config, inventory, client=client).branches,
+            {"hatchet/issue-2": "d" * 40},
+        )
+        client.get_source_files.return_value = {path: "human edit\n"}
+        with self.assertRaises(ValueError):
+            GitLabLiveFixture.resume(config, inventory, client=client)
+
+    def test_cleanup_retains_only_verified_merged_audit_record_on_delete_permission_denial(
+        self,
+    ):
+        from integration.gitlab_live_fixture import LiveGitLabConfig, GitLabLiveFixture
+        from factory.adapters.gitlab import GitLabRequestError
+
+        client = Mock()
+        client._request.return_value = {
+            "id": 123,
+            "path_with_namespace": "group/sub/repo",
+            "default_branch": "main",
+        }
+        client.resolve_revision.return_value = "a" * 40
+        fixture = GitLabLiveFixture(
+            LiveGitLabConfig.from_env(self.values()), client=client
+        )
+        fixture.mrs = [3]
+        client.get_pull_request.return_value = {"body": fixture.marker, "merged": True}
+
+        def request(method, path):
+            if method == "DELETE":
+                raise GitLabRequestError(403)
+            return {
+                "id": 123,
+                "path_with_namespace": "group/sub/repo",
+                "default_branch": "main",
+            }
+
+        client._request.side_effect = request
+        self.assertEqual(fixture.cleanup(), [])
+        self.assertEqual(fixture.retained_merged_requests, [3])
+        client.get_pull_request.return_value = {"body": fixture.marker, "merged": False}
+        self.assertEqual(fixture.cleanup(), ["merge-request/3"])
+
+    def test_cleanup_treats_known_already_removed_resources_as_complete(self):
+        from integration.gitlab_live_fixture import LiveGitLabConfig, GitLabLiveFixture
+        from factory.adapters.gitlab import GitLabRequestError
+
+        client = Mock()
+        client._request.return_value = {
+            "id": 123,
+            "path_with_namespace": "group/sub/repo",
+            "default_branch": "main",
+        }
+        client.resolve_revision.return_value = "a" * 40
+        fixture = GitLabLiveFixture(
+            LiveGitLabConfig.from_env(self.values()), client=client
+        )
+        fixture.issues = [7]
+        client.get_issue.side_effect = GitLabRequestError(404)
+        self.assertEqual(fixture.cleanup(), [])
+
+    def test_completed_cleanup_verification_checks_tree_ci_and_retained_merged_audit(
+        self,
+    ):
+        from integration.gitlab_live_fixture import GitLabLiveFixture
+        from factory.adapters.gitlab import GitLabRequestError
+
+        config, inventory, client = self.resume_fixture()
+        inventory.update(
+            fake_coding_calls=2,
+            physical_publications=2,
+            retained_merged_requests=[3],
+            verified_refs=[
+                {"sha": "d" * 40, "ref": "hatchet/issue-2"},
+                {"sha": "e" * 40, "ref": "main"},
+            ],
+        )
+        client.get_issue.side_effect = GitLabRequestError(404)
+        client.get_pull_request.return_value["merged"] = True
+        client.get_pull_request.return_value["state"] = "closed"
+        client._branch_head.return_value = None
+        client._pages.side_effect = lambda endpoint, **kwargs: (
+            []
+            if endpoint == "/labels"
+            else [
+                {"path": "README.md", "id": "f" * 40, "mode": "100644", "type": "blob"}
+            ]
+        )
+        client.verify_commit_checks.return_value = None
+        proof = GitLabLiveFixture.verify_completed_cleanup(
+            config, inventory, client=client
+        )
+        self.assertTrue(proof["cleanup_verified"])
+        self.assertTrue(proof["baseline_tree_matches"])
+        self.assertEqual(proof["retained_merged_requests"], [3])
+        self.assertEqual(client.verify_commit_checks.call_count, 2)
+        self.assertTrue(
+            all(call.args[0] == "GET" for call in client._request.call_args_list)
+        )
+        client._pages.side_effect = lambda endpoint, **kwargs: (
+            []
+            if endpoint == "/labels"
+            else [
+                {
+                    "path": "README.md",
+                    "id": "f" * 40 if kwargs["query"]["ref"] == "a" * 40 else "c" * 40,
+                    "mode": "100644",
+                    "type": "blob",
+                }
+            ]
+        )
+        with self.assertRaises(ValueError):
+            GitLabLiveFixture.verify_completed_cleanup(config, inventory, client=client)

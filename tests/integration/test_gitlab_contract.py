@@ -39,7 +39,16 @@ class LiveGitLabContract(unittest.TestCase):
         self.scope = secret_scope([self.config.token])
         self.scope.__enter__()
         self.addCleanup(self.scope.__exit__, None, None, None)
-        self.fixture = GitLabLiveFixture(self.config)
+        resume_path = os.environ.get("FLUMIC_GITLAB_RESUME_INVENTORY")
+        self.resume_info = None
+        if resume_path:
+            raw = Path(resume_path).read_bytes()
+            if len(raw) > 65536:
+                raise ValueError("Resume inventory exceeds its size limit")
+            self.resume_info = json.loads(raw)
+            self.fixture = GitLabLiveFixture.resume(self.config, self.resume_info)
+        else:
+            self.fixture = GitLabLiveFixture(self.config)
         self.client = self.fixture.client
         self.writes = 0
         self.cleanup_failures = []
@@ -59,6 +68,20 @@ class LiveGitLabContract(unittest.TestCase):
             "pydantic": version("pydantic"),
             "git": subprocess.check_output(["git", "--version"], text=True).strip(),
         }
+        if self.resume_info:
+            previous = self.file(".gitlab-ci.yml", ref=self.config.default_sha)
+            self.original_ci = (
+                base64.b64decode(previous["content"]).decode() if previous else None
+            )
+            self.ci_prepared = True
+            self.writes = self.resume_info["writes"]
+            self.physical_publications = self.resume_info["physical_publications"]
+            self.fake_coding_calls = self.resume_info["fake_coding_calls"]
+            self.checked = list(self.resume_info.get("verified_refs", []))
+            self.paths = {
+                "src/flumic_contract_" + self.fixture.nonce + ".py": True,
+                "src/flumic_race_" + self.fixture.nonce + ".py": True,
+            }
         original = self.client._request
 
         def guarded(method, path, **kwargs):
@@ -88,12 +111,12 @@ class LiveGitLabContract(unittest.TestCase):
                 "Enable an available test-project CI runner before live qualification"
             )
 
-    def file(self, path):
+    def file(self, path, *, ref=None):
         try:
             return self.client._request(
                 "GET",
                 "/repository/files/" + quote(path, safe=""),
-                query={"ref": self.config.default_branch},
+                query={"ref": ref or self.config.default_branch},
             )
         except GitLabRequestError as error:
             if error.status_code == 404:
@@ -230,6 +253,8 @@ class LiveGitLabContract(unittest.TestCase):
             "issues": self.fixture.issues,
             "merge_requests": self.fixture.mrs,
             "branches": list(self.fixture.branches),
+            "branch_heads": dict(self.fixture.branches),
+            "retained_merged_requests": list(self.fixture.retained_merged_requests),
             "labels": self.fixture.labels,
             "approved_default_sha": self.config.default_sha,
             "known_default_sha": self.fixture.expected_default_head,
@@ -243,45 +268,51 @@ class LiveGitLabContract(unittest.TestCase):
     def test_issue_plan_publication_feedback_ref_lease_merge_and_ci(self):
         import test_factory as factories
 
-        self.prepare_ci()
         names = {
             field: self.fixture.prefix + "-" + field.replace("_", "-")
             for field in Labels.model_fields
         }
         labels = Labels(**names)
-        for name in names.values():
-            self.fixture.labels.append(name)
-            self.client.ensure_label(name)
-        parent = self.client.create_issue(
-            title=self.fixture.prefix,
-            body=self.fixture.marker,
-            labels=[labels.ready_for_agent],
-        )
-        self.fixture.issues.append(parent["number"])
-        self.record_evidence("parent-created")
         fake = factories.FactoryTests()
         fake.setUp()
         service = fake.service
         service.repository = self.config.repository
         service.repositories = lambda _: self.client
         service.labels = labels
-        fake.planner.plan_issue.return_value = IssueWorkPlan(
-            tasks=[
-                PlannedSubtask(
-                    title=self.fixture.prefix + " task",
-                    objective="Qualify source publication. " + self.fixture.marker,
-                    acceptance_criteria=["A fake-model patch passes the live CI job."],
-                )
-            ]
-        )
-        root = IssueInput(
-            repository=self.config.repository, issue_number=parent["number"]
-        )
-        plan = service.plan_issue(root, service.load_issue(root))
-        self.assertEqual(len(plan.sub_issue_numbers), 1)
-        child = plan.sub_issue_numbers[0]
-        self.fixture.issues.append(child)
-        self.record_evidence("child-created")
+        if self.resume_info:
+            child = self.fixture.issues[1]
+            self.record_evidence("resuming-owned-publication")
+        else:
+            self.prepare_ci()
+            for name in names.values():
+                self.fixture.labels.append(name)
+                self.client.ensure_label(name)
+            parent = self.client.create_issue(
+                title=self.fixture.prefix,
+                body=self.fixture.marker,
+                labels=[labels.ready_for_agent],
+            )
+            self.fixture.issues.append(parent["number"])
+            self.record_evidence("parent-created")
+            fake.planner.plan_issue.return_value = IssueWorkPlan(
+                tasks=[
+                    PlannedSubtask(
+                        title=self.fixture.prefix + " task",
+                        objective="Qualify source publication. " + self.fixture.marker,
+                        acceptance_criteria=[
+                            "A fake-model patch passes the live CI job."
+                        ],
+                    )
+                ]
+            )
+            root = IssueInput(
+                repository=self.config.repository, issue_number=parent["number"]
+            )
+            plan = service.plan_issue(root, service.load_issue(root))
+            self.assertEqual(len(plan.sub_issue_numbers), 1)
+            child = plan.sub_issue_numbers[0]
+            self.fixture.issues.append(child)
+            self.record_evidence("child-created")
         self.assertIn(
             child, {self.client.get_issue(iid)["number"] for iid in self.fixture.issues}
         )
@@ -316,9 +347,15 @@ class LiveGitLabContract(unittest.TestCase):
         fake.agent.generate.side_effect = generate
         triage = TriageState(status="ready", issue_number=child, source_paths=[])
         branch = "hatchet/issue-" + str(child)
-        self.assertIsNone(
-            self.client._branch_head(branch), "Fresh fixture branch unexpectedly exists"
-        )
+        if not self.resume_info:
+            self.assertIsNone(
+                self.client._branch_head(branch),
+                "Fresh fixture branch unexpectedly exists",
+            )
+        else:
+            self.assertEqual(
+                self.client._branch_head(branch), self.fixture.branches[branch]
+            )
         publish = self.client.publisher.publish
 
         def tracked_publish(**values):
@@ -326,30 +363,31 @@ class LiveGitLabContract(unittest.TestCase):
             return publish(**values)
 
         self.client.publisher.publish = tracked_publish
-        original = self.client._request
-        lost = False
+        if not self.resume_info:
+            original = self.client._request
+            lost = False
 
-        def lose_success(method, endpoint, **kwargs):
-            nonlocal lost
-            result = original(method, endpoint, **kwargs)
-            if method == "POST" and endpoint == "/merge_requests" and not lost:
-                lost = True
-                raise RepositoryError("Simulated successful publication reply loss")
-            return result
+            def lose_success(method, endpoint, **kwargs):
+                nonlocal lost
+                result = original(method, endpoint, **kwargs)
+                if method == "POST" and endpoint == "/merge_requests" and not lost:
+                    lost = True
+                    raise RepositoryError("Simulated successful publication reply loss")
+                return result
 
-        self.client._request = lose_success
-        try:
-            with self.assertRaises(RepositoryError):
-                service.generate_and_open_draft_pr(command, triage)
-        finally:
-            self.client._request = original
-            head = self.client._branch_head(branch)
-            if head:
-                self.fixture.branches[branch] = head
-            existing = self.client.find_issue_pull_request(child)
-            if existing:
-                self.fixture.mrs.append(existing["number"])
-            self.record_evidence("publication-observed")
+            self.client._request = lose_success
+            try:
+                with self.assertRaises(RepositoryError):
+                    service.generate_and_open_draft_pr(command, triage)
+            finally:
+                self.client._request = original
+                head = self.client._branch_head(branch)
+                if head:
+                    self.fixture.branches[branch] = head
+                existing = self.client.find_issue_pull_request(child)
+                if existing:
+                    self.fixture.mrs.append(existing["number"])
+                self.record_evidence("publication-observed")
         recovered = service.generate_and_open_draft_pr(command, triage)
         self.assertEqual(self.fake_coding_calls, 1)
         self.assertEqual(self.physical_publications, 1)
@@ -428,3 +466,65 @@ class LiveGitLabContract(unittest.TestCase):
         result = service.verify_merged_pr(pull)
         self.assertEqual(result.status, "verified-merged")
         self.assertEqual(self.client.get_issue(child)["state"], "closed")
+
+
+class LiveGitLabCleanupVerification(unittest.TestCase):
+    """Independent read-only gate after a transport interruption or audit retention."""
+
+    def test_completed_flow_and_cleanup(self):
+        inventory_path = os.environ.get("FLUMIC_GITLAB_VERIFY_CLEANUP_INVENTORY")
+        if not inventory_path:
+            self.skipTest("opt-in completed GitLab cleanup verification")
+        config = LiveGitLabConfig.from_env(os.environ)
+        raw = Path(inventory_path).read_bytes()
+        if len(raw) > 65536:
+            raise ValueError("Qualification inventory exceeds its size limit")
+        inventory = json.loads(raw)
+        writes = inventory.get("writes")
+        if type(writes) is not int or not 0 <= writes <= 128:
+            raise ValueError("Qualification write counter is invalid")
+        with secret_scope([config.token]):
+            proof = GitLabLiveFixture.verify_completed_cleanup(config, inventory)
+        self.assertTrue(proof["cleanup_verified"])
+        self.assertTrue(proof["baseline_tree_matches"])
+        directory = os.environ.get("FLUMIC_LIVE_EVIDENCE_DIR")
+        if directory:
+            import platform
+            import subprocess
+            from importlib.metadata import version
+
+            safe = {
+                "schema_version": 1,
+                "stage": "qualified-cleanup-verified",
+                "project_id": config.project_id,
+                "repository": config.repository,
+                "fixture": inventory["fixture"],
+                "writes": writes,
+                "fake_coding_calls": 2,
+                "physical_publications": 2,
+                "approved_default_sha": config.default_sha,
+                "known_default_sha": inventory["known_default_sha"],
+                "issues": inventory["issues"],
+                "merge_requests": inventory["merge_requests"],
+                "branches": inventory["branches"],
+                "labels": inventory["labels"],
+                "cleanup_remaining": [],
+                **proof,
+                "dependencies": {
+                    "python": platform.python_version(),
+                    "hatchet-sdk": version("hatchet-sdk"),
+                    "pydantic": version("pydantic"),
+                    "git": subprocess.check_output(
+                        ["git", "--version"], text=True
+                    ).strip(),
+                },
+            }
+            target = Path(directory) / (
+                "gitlab-contract-"
+                + inventory["fixture"].removeprefix("flumic-contract-")
+                + ".json"
+            )
+            target.parent.mkdir(parents=True, exist_ok=True)
+            temporary = target.with_suffix(".tmp")
+            temporary.write_text(json.dumps(safe, indent=2) + "\n")
+            temporary.replace(target)
