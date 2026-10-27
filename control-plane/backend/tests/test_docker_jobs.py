@@ -636,6 +636,10 @@ class JobBrokerTests(unittest.TestCase):
 
         self.jobs.collect = cross_deadline
         self.broker.reconcile_once(self.jobs)
+        # The artificial clock jump also expires the reconciliation claim. It
+        # cannot publish an outcome; the next valid owner confirms termination.
+        self.assertNotEqual(self.submit().state, "completed")
+        self.broker.reconcile_once(self.jobs)
         self.assertEqual(self.submit().state, "timed-out")
 
     def test_capture_identity_error_is_not_terminal_proof(self):

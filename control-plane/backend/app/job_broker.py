@@ -5,7 +5,6 @@ lease before invoking it (#11). No supplied image, argv, mounts, inputs or crede
 are trusted: all are recovered from the owned immutable launch and assignment.
 """
 
-import fcntl
 import hashlib
 from pathlib import Path
 import time
@@ -17,6 +16,8 @@ from app.database import (
     StageAttempt,
     WorkflowRun,
     SecretVersion,
+    Worker,
+    RuntimeResourceBinding,
 )
 from app.projects import require_owned, ProjectScope
 from app.project_context import encrypt, decrypt, resolve_secret
@@ -26,15 +27,22 @@ from app.job_contracts import JobLaunch, JobReceipt, RuntimeJobRef
 from factory.workflows.definitions import WorkflowDefinition, DockerStage
 from factory.workflows.redaction import secret_scope
 from app.job_contracts import sanitize_capture
+from app.runtime_targets import TargetRegistry, TargetSnapshot
+from app.runtime_claims import (
+    claim_runtime,
+    require_runtime_claim,
+    release_runtime_claim,
+    runtime_heartbeat,
+)
 
 TERMINAL = {"completed", "failed", "timed-out", "cancelled"}
 
 
 class JobBroker:
-    def __init__(self, sessions, settings, *, clock=time.time, root=None):
+    def __init__(self, sessions, settings, *, clock=time.time, root=None, targets=None):
         self.sessions, self.settings, self.clock = sessions, settings, clock
         self.root = Path(root or settings.snapshot_root / "jobs")
-        (self.root / ".locks").mkdir(parents=True, exist_ok=True, mode=0o700)
+        self.targets = targets or TargetRegistry(settings)
 
     def _receipt(self, row):
         return JobReceipt(
@@ -88,6 +96,27 @@ class JobBroker:
                 or hashed(stage.model_dump(mode="json")) != spec_digest
             ):
                 raise HTTPException(409, "Job spec does not match pinned stage")
+            worker = db.get(Worker, assignment.worker_id)
+            if worker is None or worker.protocol != "shared-v1":
+                raise HTTPException(409, "Job requires a shared worker runtime target")
+            try:
+                target = self.targets.snapshot(worker.target_id)
+                if worker.target_snapshot:
+                    pinned = self.targets.require_snapshot(
+                        TargetSnapshot.model_validate(worker.target_snapshot)
+                    )
+                    if (
+                        pinned.id != worker.target_id
+                        or pinned.revision != target.revision
+                    ):
+                        raise ValueError("Worker target pin mismatch")
+                elif target.kind != "docker":
+                    raise ValueError("Worker target is not pinned")
+                self.targets.require_stage(target, stage, protocol=worker.protocol)
+            except ValueError:
+                raise HTTPException(
+                    409, "Worker runtime target is not available for this stage"
+                ) from None
             metadata = pin["stages"][stage.id]
             if metadata["repository_id"] != assignment.repository_id:
                 raise HTTPException(409, "Job repository does not match pinned stage")
@@ -131,7 +160,12 @@ class JobBroker:
                     public_context["factory_run_id"] = (
                         correlation if len(correlation) <= 120 else run.id
                     )
+            deadline = self.clock() + stage.timeout_seconds
             launch = JobLaunch(
+                target_id=target.id,
+                target_revision=target.revision,
+                target_snapshot=target.model_dump(mode="json"),
+                deadline=deadline,
                 job_id=job_id,
                 project_id=scope.project_id,
                 execution_id=item.id,
@@ -160,7 +194,10 @@ class JobBroker:
                 state="pending",
                 launch_started=False,
                 cancel_requested=False,
-                deadline=self.clock() + stage.timeout_seconds,
+                deadline=deadline,
+                target_id=target.id,
+                target_revision=target.revision,
+                target_snapshot=target.model_dump(mode="json"),
                 updated_at=self.clock(),
             )
             db.add(row)
@@ -185,6 +222,22 @@ class JobBroker:
             launch.spec_digest,
         ) != (row.id, row.project_id, row.execution_id, row.spec_digest):
             raise ValueError("Stored job authority is inconsistent")
+        if (launch.target_id, launch.target_revision, launch.target_snapshot) != (
+            row.target_id,
+            row.target_revision,
+            row.target_snapshot,
+        ):
+            raise ValueError("Stored job target authority is inconsistent")
+        if (
+            launch.deadline is not None or launch.target_revision
+        ) and launch.deadline != row.deadline:
+            raise ValueError("Stored job deadline is inconsistent")
+        if launch.target_snapshot:
+            self.targets.require_snapshot(
+                TargetSnapshot.model_validate(launch.target_snapshot)
+            )
+        elif launch.target_id != "local-docker":
+            raise ValueError("Stored job target pin is missing")
         item = require_owned(
             db, ProjectScope(row.project_id), StageAttempt, row.execution_id
         )
@@ -192,8 +245,7 @@ class JobBroker:
         return document, launch, run
 
     def reconcile_once(self, runtime):
-        # OS locks span I/O without a long database transaction/expiring lease.
-        # All broker replicas for this local Docker target must share this directory.
+        # Shared database leases serialize replicas without a shared host path.
         with self.sessions() as db:
             # Reserve an independent budget for active effects; historical cleanup
             # must never consume their launch/cancel/deadline service capacity.
@@ -218,34 +270,42 @@ class JobBroker:
             )
         progressed = False
         for job_id in candidates:
-            with (self.root / ".locks" / job_id).open("a") as lock:
-                try:
-                    fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                except BlockingIOError:
-                    continue
-                try:
-                    self._reconcile(runtime, job_id)
-                except Exception:
-                    # A transport/unknown effect never proves terminality and never
-                    # permits a second logical job. Persist a safe diagnostic only.
-                    with self.sessions.begin() as db:
+            claim = claim_runtime(self.sessions, "job:" + job_id, self.clock())
+            if claim is None:
+                continue
+            try:
+                with runtime_heartbeat(self.sessions, claim, clock=self.clock):
+                    self._reconcile(runtime, job_id, claim)
+            except Exception:
+                with self.sessions.begin() as db:
+                    transition_lock(db)
+                    try:
+                        require_runtime_claim(self.sessions, claim, self.clock(), db=db)
+                    except ValueError:
+                        pass
+                    else:
                         row = db.get(RuntimeJob, job_id)
                         row.error = (
                             "Job reconciliation unavailable; retrying inspection"
                         )
                         row.updated_at = self.clock()
-                progressed = True
+            finally:
+                release_runtime_claim(self.sessions, claim)
+            progressed = True
         return progressed
 
-    def _unknown(self, job_id):
+    def _unknown(self, job_id, claim):
         with self.sessions.begin() as db:
+            transition_lock(db)
+            require_runtime_claim(self.sessions, claim, self.clock(), db=db)
             row = db.get(RuntimeJob, job_id)
             row.state = "unknown"
             row.error = "Job launch/execution outcome unknown; awaiting reconciliation"
 
-    def _reconcile(self, runtime, job_id):
+    def _reconcile(self, runtime, job_id, claim):
         with self.sessions.begin() as db:
             transition_lock(db)
+            require_runtime_claim(self.sessions, claim, self.clock(), db=db)
             row = db.get(RuntimeJob, job_id)
             document, launch, run = self._authority(db, row)
             terminal, started = row.state in TERMINAL, row.launch_started
@@ -280,24 +340,36 @@ class JobBroker:
                 )
                 if revoked:
                     stop, stop_state = True, "failed"
+        if callable(getattr(type(runtime), "for_job", None)):
+            runtime = runtime.for_job(ref, claim=claim)
         if terminal:
             # Keep tombstones and inspect them on later ticks too: a delayed Docker
             # create response must never leave a cancelled job running indefinitely.
+            require_runtime_claim(self.sessions, claim, self.clock())
             runtime.terminate(ref, grace_seconds=5)
+            require_runtime_claim(self.sessions, claim, self.clock())
             runtime.cleanup(ref)
             with self.sessions.begin() as db:
-                db.get(RuntimeJob, job_id).next_cleanup_at = self.clock() + 60
+                transition_lock(db)
+                require_runtime_claim(self.sessions, claim, self.clock(), db=db)
+                row = db.get(RuntimeJob, job_id)
+                row.next_cleanup_at = self.clock() + 60
+                row.cleanup_pending = False
+                row.runtime_phase = "removed"
             return
         with secret_scope(credentials.values()):
             state = runtime.inspect(ref)
             if state.state != "missing":
                 observed = True
                 with self.sessions.begin() as db:
+                    transition_lock(db)
+                    require_runtime_claim(self.sessions, claim, self.clock(), db=db)
                     db.get(RuntimeJob, job_id).runtime_observed = True
             if state.state == "missing" and started and not observed:
-                self._unknown(job_id)
+                self._unknown(job_id, claim)
                 return
             if stop:
+                require_runtime_claim(self.sessions, claim, self.clock())
                 runtime.terminate(ref, grace_seconds=5)
                 state = runtime.inspect(ref)
                 if state.state not in {"missing", "exited", "dead"}:
@@ -313,17 +385,22 @@ class JobBroker:
                 )
             else:
                 if not started or state.state == "created":
+                    require_runtime_claim(self.sessions, claim, self.clock())
                     runtime.ensure(
                         launch.model_copy(update={"credentials": credentials})
                     )
                     state = runtime.inspect(ref)
                 if state.state == "missing":
-                    self._unknown(job_id)
+                    self._unknown(job_id, claim)
                     return  # Unknown external effects; do not recreate a lost job.
                 with self.sessions.begin() as db:
+                    transition_lock(db)
+                    require_runtime_claim(self.sessions, claim, self.clock(), db=db)
                     db.get(RuntimeJob, job_id).runtime_observed = True
                 if state.state not in {"exited", "dead"}:
                     with self.sessions.begin() as db:
+                        transition_lock(db)
+                        require_runtime_claim(self.sessions, claim, self.clock(), db=db)
                         row = db.get(RuntimeJob, job_id)
                         row.state, row.error = "running", None
                     return
@@ -333,6 +410,7 @@ class JobBroker:
                 final = "failed" if failed else "completed"
             with self.sessions.begin() as db:
                 transition_lock(db)
+                require_runtime_claim(self.sessions, claim, self.clock(), db=db)
                 row = db.get(RuntimeJob, job_id)
                 _, _, run = self._authority(db, row)
                 if row.state in TERMINAL:
@@ -349,5 +427,19 @@ class JobBroker:
                         "timed-out",
                     )
                 row.state, row.error = final, None
+                row.runtime_phase = "captured"
+                row.cleanup_pending = True
+                binding = db.scalar(
+                    select(RuntimeResourceBinding).where(
+                        RuntimeResourceBinding.job_id == row.id,
+                        RuntimeResourceBinding.project_id == row.project_id,
+                        RuntimeResourceBinding.target_id == row.target_id,
+                        RuntimeResourceBinding.target_revision == row.target_revision,
+                        RuntimeResourceBinding.kind == "Job",
+                        RuntimeResourceBinding.logical_id == row.id,
+                    )
+                )
+                if binding is not None:
+                    binding.phase = "captured"
                 row.result_ciphertext = encrypt(result, self.settings)
                 row.updated_at = self.clock()
