@@ -4,7 +4,7 @@ Flumic AI supports multiple projects, multiple repositories per project,
 versioned data-defined workflows, shared simple/developer worker pools and
 one-time Docker actions. The Control Pane publishes and inspects this runtime;
 legacy static workflows remain separate and retain their existing IDs/history.
-GitLab, Kubernetes and remote function execution remain planned.
+GitHub and GitLab.com repositories are supported. Kubernetes and remote function execution remain planned.
 
 ## Choose the configuration owner
 
