@@ -167,6 +167,15 @@ class GitPublisher:
             run(["fetch", "--no-tags", "--depth=1", "--filter=blob:none", remote, base])
             run(["read-tree", base])
             for change in changes:
+                entries = run(
+                    ["ls-files", "--stage", "-z", "--", ":(literal)" + change.path]
+                )
+                mode = "100644"
+                for entry in entries.split("\0"):
+                    if entry and entry.split("\t", 1)[1] == change.path:
+                        mode = entry.split(" ", 1)[0]
+                if mode not in {"100644", "100755"}:
+                    raise RepositoryError("Publication can only edit regular files")
                 oid = run(
                     ["hash-object", "-w", "--stdin"], input=change.content.encode()
                 )
@@ -177,7 +186,7 @@ class GitPublisher:
                         "update-index",
                         "--add",
                         "--cacheinfo",
-                        f"100644,{oid},{change.path}",
+                        f"{mode},{oid},{change.path}",
                     ]
                 )
             tree = run(["write-tree"])

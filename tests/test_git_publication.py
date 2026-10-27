@@ -70,6 +70,51 @@ class GitPublicationTests(unittest.TestCase):
         self.assertEqual(git(self.remote, "show", result + ":main.py"), "generated")
         self.assertEqual(self.publisher.publish(**self.kwargs), result)
 
+    def test_content_edit_preserves_executable_mode_and_recovery(self):
+        (self.work / "main.py").chmod(0o755)
+        git(self.work, "add", "main.py")
+        git(self.work, "commit", "-m", "executable")
+        base = git(self.work, "rev-parse", "HEAD")
+        git(self.work, "push", "origin", "HEAD:refs/heads/factory")
+        self.kwargs["expected_head"] = base
+        result = self.publisher.publish(**self.kwargs)
+        self.assertTrue(
+            git(self.remote, "ls-tree", result, "main.py").startswith("100755 ")
+        )
+        self.assertEqual(self.publisher.publish(**self.kwargs), result)
+
+    def test_publication_rejects_symlink_and_submodule_replacement(self):
+        from factory.domain.models import RepositoryError
+
+        for mode in ("120000", "160000"):
+            with self.subTest(mode=mode):
+                oid = (
+                    self.base
+                    if mode == "160000"
+                    else git(self.work, "rev-parse", self.base + ":main.py")
+                )
+                git(
+                    self.work,
+                    "update-index",
+                    "--add",
+                    "--cacheinfo",
+                    mode + "," + oid + ",special.py",
+                )
+                git(self.work, "commit", "-m", mode)
+                head = git(self.work, "rev-parse", "HEAD")
+                git(self.work, "push", "origin", "HEAD:refs/heads/factory")
+                with self.assertRaises(RepositoryError):
+                    self.publisher.publish(
+                        **{
+                            **self.kwargs,
+                            "expected_head": head,
+                            "changes": [
+                                FileChange(path="special.py", content="replacement")
+                            ],
+                        }
+                    )
+                self.assertEqual(git(self.remote, "rev-parse", "factory"), head)
+
     def race_before_push(self, mutate):
         original = self.publisher._run
 

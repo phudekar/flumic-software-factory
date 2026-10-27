@@ -39,6 +39,8 @@ class GitLabClientTests(unittest.TestCase):
     def test_mr_iid_and_state_are_not_issue_id(self):
         self.client._request.return_value = {
             "id": 888,
+            "source_project_id": 123,
+            "target_project_id": 123,
             "iid": 7,
             "title": "Draft: Change",
             "description": "Body",
@@ -58,6 +60,51 @@ class GitLabClientTests(unittest.TestCase):
         self.assertEqual(change["head"]["sha"], "a" * 40)
         self.assertEqual(change["merge_commit_sha"], "b" * 40)
         self.client._request.assert_called_once_with("GET", "/merge_requests/7")
+
+    def test_fork_and_missing_project_identity_rejected_before_direct_use(self):
+        from factory.domain.models import RepositoryError
+
+        for source, target in (
+            (999, 123),
+            (123, 999),
+            (None, 123),
+            (123, None),
+            (True, 123),
+        ):
+            with self.subTest(source=source, target=target):
+                self.client._request.return_value = {
+                    "iid": 7,
+                    "state": "opened",
+                    "source_project_id": source,
+                    "target_project_id": target,
+                    "source_branch": "main",
+                }
+                with self.assertRaises(RepositoryError):
+                    self.client.get_pull_request(7)
+
+    def test_discovery_skips_fork_even_when_it_links_the_factory_issue(self):
+        self.client._request.return_value = [
+            {
+                "iid": 1,
+                "state": "opened",
+                "description": "Closes #7",
+                "source_project_id": 999,
+                "target_project_id": 123,
+                "source_branch": "main",
+            },
+            {
+                "iid": 2,
+                "state": "opened",
+                "description": "Closes #7",
+                "source_project_id": 123,
+                "target_project_id": 123,
+                "source_branch": "factory",
+            },
+        ]
+        self.assertEqual(
+            [item["number"] for item in self.client.list_open_pull_requests()], [2]
+        )
+        self.assertEqual(self.client.find_issue_pull_request(7)["number"], 2)
 
     def test_comments_skip_system_and_paginate(self):
         notes = [{"id": n, "body": str(n), "system": False} for n in range(100)]
@@ -226,8 +273,20 @@ class GitLabClientTests(unittest.TestCase):
 
     def test_existing_mr_match_is_exact_issue_marker(self):
         self.client._request.return_value = [
-            {"iid": 1, "description": "Closes #70", "state": "opened"},
-            {"iid": 2, "description": "Closes #7", "state": "opened"},
+            {
+                "iid": 1,
+                "description": "Closes #70",
+                "state": "opened",
+                "source_project_id": 123,
+                "target_project_id": 123,
+            },
+            {
+                "iid": 2,
+                "description": "Closes #7",
+                "state": "opened",
+                "source_project_id": 123,
+                "target_project_id": 123,
+            },
         ]
         self.assertEqual(self.client.find_issue_pull_request(7)["number"], 2)
 
@@ -248,6 +307,8 @@ class GitLabClientTests(unittest.TestCase):
             "iid": 7,
             "state": "opened",
             "labels": ["reviewed"],
+            "source_project_id": 123,
+            "target_project_id": 123,
         }
         self.assertEqual(
             self.client.get_pull_request(7)["labels"], [{"name": "reviewed"}]
@@ -287,6 +348,8 @@ class GitLabClientTests(unittest.TestCase):
             },
             {
                 "id": 88,
+                "source_project_id": 123,
+                "target_project_id": 123,
                 "iid": 9,
                 "state": "opened",
                 "description": "Closes #7",

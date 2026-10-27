@@ -795,6 +795,75 @@ class RepositoryTriggersTests(unittest.TestCase):
             )
             self.assertEqual(merged["status"], "accepted")
 
+    def test_merged_verification_accepts_auto_closed_issue_but_feedback_does_not(self):
+        from app.trigger_runtime import TriggerRuntime
+        from app.services import Configurations
+        from factory.adapters.gitlab_events import GitLabEvent
+        from unittest.mock import Mock
+
+        _, _, _, created = self.setup_binding("verify")
+        runtime = TriggerRuntime(
+            self.sessions, self.settings, Configurations(self.settings.root)
+        )
+        event = GitLabEvent(
+            event_id="merged-auto-close",
+            payload_digest="a" * 64,
+            project_id=123,
+            repository="alpha/backend",
+            object_kind="merge_request",
+            action="merge",
+            pull_number=4,
+        )
+        remote = Mock(repository="alpha/backend", project_id=123)
+        remote.get_pull_request.return_value = {
+            "number": 4,
+            "html_url": "https://gitlab.com/alpha/backend/-/merge_requests/4",
+            "body": "Closes #7",
+            "state": "closed",
+            "merged": True,
+            "source_project_id": 123,
+            "target_project_id": 123,
+            "head": {"ref": "factory-7"},
+            "merge_commit_sha": "a" * 40,
+        }
+        remote.get_issue.return_value = {
+            "number": 7,
+            "state": "closed",
+            "labels": [{"name": "pr-open"}],
+        }
+        labels = {
+            "ready_for_agent": "ready",
+            "pr_open": "pr-open",
+            "plan_created": "plan-created",
+        }
+        with patch.object(runtime, "source", return_value=(remote, labels)):
+            result = runtime.accept_event(created["id"], event)
+        self.assertEqual(result["status"], "accepted")
+        from factory.application.helpers import _pull_input_from_api
+
+        self.assertIsNone(
+            _pull_input_from_api(
+                remote, remote.get_pull_request.return_value, pr_open_label="pr-open"
+            )
+        )
+        self.assertIsNone(
+            _pull_input_from_api(
+                remote,
+                {**remote.get_pull_request.return_value, "merged": False},
+                pr_open_label="pr-open",
+                allow_closed_issue=True,
+            )
+        )
+        remote.get_issue.return_value["labels"] = []
+        self.assertIsNone(
+            _pull_input_from_api(
+                remote,
+                remote.get_pull_request.return_value,
+                pr_open_label="pr-open",
+                allow_closed_issue=True,
+            )
+        )
+
     def test_recursive_event_correlation_uuid_does_not_collide_deliveries(self):
         self.client.headers.pop("Idempotency-Key", None)
         _, _, _, created = self.setup_binding()

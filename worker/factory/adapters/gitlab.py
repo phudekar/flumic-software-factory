@@ -155,8 +155,17 @@ class GitLabClient:
             "labels": [{"name": label} for label in value.get("labels", [])],
         }
 
-    @staticmethod
-    def _change(value):
+    def _local_change(self, value):
+        return all(
+            type(value.get(key)) is int and value[key] == self.project_id
+            for key in ("source_project_id", "target_project_id")
+        )
+
+    def _change(self, value):
+        if not self._local_change(value):
+            raise RepositoryError(
+                "GitLab fork or foreign-project changes are unsupported"
+            )
         if (
             value.get("state") not in {"opened", "closed", "merged"}
             or type(value.get("iid")) is not int
@@ -198,6 +207,7 @@ class GitLabClient:
         return [
             self._change(value)
             for value in self._pages("/merge_requests", query={"state": "opened"})
+            if self._local_change(value)
         ]
 
     def get_pull_request(self, number):

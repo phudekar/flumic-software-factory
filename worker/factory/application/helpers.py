@@ -39,7 +39,7 @@ def _issue_snapshot(issue: dict[str, Any]) -> IssueState:
 
 
 def _pull_input_from_api(
-    github, pull: dict[str, Any], *, pr_open_label=PR_OPEN
+    github, pull: dict[str, Any], *, pr_open_label=PR_OPEN, allow_closed_issue=False
 ) -> PullInput | None:
     number = pull.get("number")
     url = pull.get("html_url")
@@ -58,7 +58,14 @@ def _pull_input_from_api(
         return None
     issue_number = int(linked_issue.group(1))
     issue = github.get_issue(issue_number)
-    if issue.get("state") != "open" or pr_open_label not in labels_for(issue):
+    allowed_states = (
+        {"open", "closed"}
+        if allow_closed_issue and pull.get("merged") is True
+        else {"open"}
+    )
+    if issue.get("state") not in allowed_states or pr_open_label not in labels_for(
+        issue
+    ):
         return None
     return PullInput(
         repository=github.repository,

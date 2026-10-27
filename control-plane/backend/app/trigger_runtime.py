@@ -142,7 +142,12 @@ class TriggerRuntime:
                 raise HTTPException(
                     409, "Source change does not match configured repository"
                 )
-            inputs = _pull_input_from_api(client, pull, pr_open_label=labels["pr_open"])
+            inputs = _pull_input_from_api(
+                client,
+                pull,
+                pr_open_label=labels["pr_open"],
+                allow_closed_issue=kind == "verify" and pull.get("merged") is True,
+            )
             eligible = inputs is not None
             stamp = ""
             if kind == "feedback":

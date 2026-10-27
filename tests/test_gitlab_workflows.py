@@ -176,6 +176,52 @@ class GitLabCompositionTests(unittest.TestCase):
             "a" * 40, ref="release"
         )
 
+    def test_fork_feedback_is_rejected_for_legacy_scan_and_direct_service(self):
+        import test_factory as fixtures
+        from gitlab_protocol_fixture import GitLabProtocolFixture
+        from factory.domain.models import PullInput, RepositoryError
+
+        fixture = fixtures.FactoryTests()
+        fixture.setUp()
+        remote = GitLabProtocolFixture()
+        fixture.service.repositories = lambda _: remote.client
+        remote.issues[2]["labels"] = [fixture.service.labels.pr_open]
+        remote.mrs[4] = {
+            "iid": 4,
+            "state": "opened",
+            "title": "Fork change",
+            "description": "Closes #2",
+            "source_project_id": 999,
+            "target_project_id": 123,
+            "source_branch": "main",
+            "target_branch": "main",
+            "sha": remote.base,
+            "web_url": "https://gitlab.com/owner/repo/-/merge_requests/4",
+        }
+        remote.notes[("merge_requests", 4)] = [
+            {
+                "id": 100,
+                "body": "Please fix this",
+                "system": False,
+                "author": {"username": "human"},
+            }
+        ]
+        scan = fixture.service.scan_open_pr_feedback()
+        self.assertEqual(scan.pull_requests_queued, 0)
+        with self.assertRaises(RepositoryError):
+            fixture.service.process_pull_request_feedback(
+                PullInput(
+                    repository="owner/repo",
+                    issue_number=2,
+                    pull_number=4,
+                    pull_url=remote.mrs[4]["web_url"],
+                    branch="main",
+                )
+            )
+        self.assertEqual(remote.publications, [])
+        self.assertEqual(remote.writes, [])
+        fixture.agent.generate.assert_not_called()
+
     def test_complete_shared_action_flow_on_gitlab_wire_fixture(self):
         import test_factory as fixtures
         from gitlab_protocol_fixture import GitLabProtocolFixture
