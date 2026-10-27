@@ -2,6 +2,11 @@
 
 from typing import Protocol, TYPE_CHECKING
 
+
+class RuntimePending(RuntimeError):
+    """Accepted asynchronous work requires another observed reconciliation."""
+
+
 if TYPE_CHECKING:
     from app.job_contracts import JobLaunch, RuntimeJobRef, RuntimeJobState, JobCapture
 
@@ -23,6 +28,7 @@ class WorkflowEngine(Protocol):
 
 class JobRuntime(Protocol):
     """One-time action jobs, separate from persistent worker administration."""
+
     def ensure(self, launch: "JobLaunch") -> "RuntimeJobRef": ...
     def inspect(self, ref: "RuntimeJobRef") -> "RuntimeJobState": ...
     def collect(self, ref: "RuntimeJobRef") -> "JobCapture": ...

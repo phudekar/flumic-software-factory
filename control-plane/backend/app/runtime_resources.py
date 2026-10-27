@@ -1,13 +1,14 @@
 """Scoped durable remote identities; names and labels are never deletion authority."""
 
 from contextlib import contextmanager
+import copy
 import re
 import time
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from app.database import RuntimeResourceBinding, RuntimeJob, Worker
 from app.runtime_claims import require_runtime_claim
-from app.runtime_targets import TargetSnapshot
+from app.runtime_targets import TargetSnapshot, digest
 
 KINDS = {
     "Deployment",
@@ -117,7 +118,12 @@ class RuntimeResources:
         job_id=None,
         claim,
         db=None,
+        document=None,
     ):
+        if document is not None and (
+            kind != "Deployment" or digest(document) != spec_digest
+        ):
+            raise ValueError("Runtime document does not match prepared spec")
         if (
             kind not in KINDS
             or not isinstance(logical_id, str)
@@ -188,6 +194,8 @@ class RuntimeResources:
                         raise ValueError("Remote runtime binding cannot be replaced")
                     return row
                 row = RuntimeResourceBinding(**values)
+                if document is not None:
+                    row.details = {"specs": {spec_digest: copy.deepcopy(document)}}
                 connection.add(row)
                 connection.flush()
                 return row
@@ -219,7 +227,9 @@ class RuntimeResources:
             connection.flush()
             return row
 
-    def prepare_change(self, kind, logical_id, *, expected_spec, new_spec, claim):
+    def prepare_change(
+        self, kind, logical_id, *, expected_spec, new_spec, claim, document=None
+    ):
         if kind != "Deployment" or not re.fullmatch(r"[a-f0-9]{64}", new_spec):
             raise ValueError("Only a worker Deployment may change its prepared spec")
         with self.sessions.begin() as db:
@@ -231,6 +241,16 @@ class RuntimeResources:
             ):
                 raise ValueError("Runtime spec changed before preparation")
             row.pending_spec_digest = new_spec
+            if document is not None:
+                if digest(document) != new_spec:
+                    raise ValueError("Runtime document does not match prepared spec")
+                documents = {
+                    k: v
+                    for k, v in row.details.get("specs", {}).items()
+                    if k == expected_spec
+                }
+                documents[new_spec] = copy.deepcopy(document)
+                row.details = {"specs": documents}
             db.flush()
             return row
 
@@ -241,5 +261,7 @@ class RuntimeResources:
                 raise ValueError("Runtime spec change was not prepared")
             row.spec_digest = new_spec
             row.pending_spec_digest = None
+            if row.details.get("specs"):
+                row.details = {"specs": {new_spec: row.details["specs"][new_spec]}}
             db.flush()
             return row
