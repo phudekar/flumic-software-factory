@@ -248,6 +248,49 @@ class KubernetesApiTests(unittest.TestCase):
                 expected_uid="owned-uid",
             )
 
+    def test_long_operator_deployment_id_still_produces_valid_label_values(self):
+        from types import SimpleNamespace
+        from app.adapters.kubernetes_api import KubernetesApi
+        from app.adapters.kubernetes_workers import KubernetesWorkerRuntime
+        from app.runtime_targets import KubernetesTarget, TargetSnapshot, digest
+
+        document = target()
+        document["deployment_id"] = "f" * 80
+        document = KubernetesTarget.model_validate(document).model_dump(mode="json")
+        pin = TargetSnapshot(
+            id=document["id"],
+            kind="kubernetes",
+            configuration=document,
+            revision=digest(document),
+        )
+        worker = SimpleNamespace(
+            id="11111111-1111-4111-8111-111111111111",
+            pool_id="fixture-pool",
+            protocol="shared-v1",
+            target_id=pin.id,
+            target_snapshot=pin.model_dump(),
+        )
+        adapter = KubernetesWorkerRuntime(
+            SimpleNamespace(root=fixtures.ROOT),
+            None,
+            pin,
+            SimpleNamespace(snapshot=pin),
+            api=KubernetesApi(pin, clients={}),
+        )
+        body = adapter._bodies(
+            worker,
+            {
+                "protocol": "shared-v1",
+                "worker_id": worker.id,
+                "pool_id": worker.pool_id,
+                "role": "simple",
+            },
+            "fixture-token",
+        )[0]
+        self.assertTrue(
+            all(len(value) <= 63 for value in body["metadata"]["labels"].values())
+        )
+
 
 class KubernetesWorkerTests(unittest.TestCase):
     def setUp(self):
@@ -611,6 +654,19 @@ class KubernetesWorkerTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.adapter.action(self.worker.id, "remove")
         self.assertTrue(any(key[1] == "deployment" for key in self.server.objects))
+
+    def test_server_canonical_storage_quantity_and_defaults_preserve_worker_intent(
+        self,
+    ):
+        self.server.server_defaults = True
+        uid = self.adapter.create(self.worker, self.document, self.token)
+        self.assertEqual(
+            self.adapter.create(self.worker, self.document, self.token), uid
+        )
+        self.adapter.action(self.worker.id, "start")
+        self.adapter.action(self.worker.id, "stop")
+        self.adapter.action(self.worker.id, "remove")
+        self.assertTrue(self.adapter.list()[0]["spool_retained"])
 
 
 class KubernetesLifecycleTests(unittest.TestCase):

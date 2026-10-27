@@ -20,6 +20,7 @@ class KubeProtocol:
         self.lose_create = None
         self.lose_patch = None
         self.enforce_fence = True
+        self.server_defaults = False
         self.namespace_uids = {
             configuration["worker_namespace"]: configuration["worker_namespace_uid"],
             configuration["job_namespace"]: configuration["job_namespace_uid"],
@@ -111,6 +112,22 @@ class KubeProtocol:
                         "replicas": value["spec"]["replicas"],
                         "readyReplicas": 0,
                     }
+                if self.server_defaults and kind == "deployment":
+                    pod = value["spec"]["template"]["spec"]
+                    pod["securityContext"] = {}
+                    pod["restartPolicy"] = "Always"
+                    for volume in pod["volumes"]:
+                        if "configMap" in volume:
+                            volume["configMap"]["defaultMode"] = 420
+                if self.server_defaults and kind == "persistent_volume_claim":
+                    value["spec"].update(
+                        volumeMode="Filesystem", volumeName="pvc-fixture-volume"
+                    )
+                    value["spec"]["resources"]["requests"]["storage"] = "0.25Gi"
+                    value["metadata"]["annotations"][
+                        "pv.kubernetes.io/bind-completed"
+                    ] = "yes"
+                    value["metadata"]["finalizers"] = ["kubernetes.io/pvc-protection"]
                 self.objects[key] = value
                 if self.lose_create == kind:
                     self.lose_create = None

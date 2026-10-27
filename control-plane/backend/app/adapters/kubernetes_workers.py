@@ -6,6 +6,7 @@ import hashlib
 import json
 
 from app.adapters.kubernetes_api import KubernetesApi, KubernetesError, NAMESPACE_FENCE
+from app.adapters.kubernetes_job_manifests import manifest_fingerprint
 from app.ports import RuntimePending
 from app.runtime_targets import TargetSnapshot, digest
 from app.security import redact
@@ -14,19 +15,9 @@ OWNER = "flumic.io/worker-id"
 INTENT = "flumic.io/intent"
 
 
-def subset(expected, actual):
-    """Allow API defaults, but require every intended field and exact arrays."""
-    if isinstance(expected, dict):
-        return isinstance(actual, dict) and all(
-            k in actual and subset(v, actual[k]) for k, v in expected.items()
-        )
-    if isinstance(expected, list):
-        return (
-            isinstance(actual, list)
-            and len(expected) == len(actual)
-            and all(subset(a, b) for a, b in zip(expected, actual))
-        )
-    return expected == actual
+def matches_manifest(expected, actual):
+    """Compare exact prepared authority after known Kubernetes API defaults."""
+    return manifest_fingerprint(expected) == manifest_fingerprint(actual)
 
 
 class KubernetesWorkerRuntime:
@@ -71,13 +62,16 @@ class KubernetesWorkerRuntime:
 
     def _labels(self, worker_id):
         return {
-            "flumic.io/deployment": self.config["deployment_id"],
+            "flumic.io/deployment": hashlib.sha256(
+                self.config["deployment_id"].encode()
+            ).hexdigest()[:32],
             "flumic.io/worker": hashlib.sha256(worker_id.encode()).hexdigest()[:32],
         }
 
     def _metadata(self, name, worker_id, intent):
         return {
             "name": name,
+            "namespace": self.config["worker_namespace"],
             "labels": self._labels(worker_id),
             "annotations": {
                 OWNER: worker_id,
@@ -101,7 +95,7 @@ class KubernetesWorkerRuntime:
                 raise ValueError("Worker resource identity changed")
         elif value is None:
             value = self._call(group, "create", resource, body=body)
-        if not subset(body, value) or value["metadata"].get(
+        if not matches_manifest(body, value) or value["metadata"].get(
             "ownerReferences", []
         ) != body["metadata"].get("ownerReferences", []):
             raise ValueError("Worker resource does not match prepared intent")
@@ -293,7 +287,7 @@ class KubernetesWorkerRuntime:
             check = copy.deepcopy(value)
             check["spec"]["replicas"] = 0
             if (
-                not subset(deployment, check)
+                not matches_manifest(deployment, check)
                 or digest(deployment) != binding.spec_digest
             ):
                 raise ValueError(
@@ -380,7 +374,7 @@ class KubernetesWorkerRuntime:
         if not any(
             key in (binding.spec_digest, binding.pending_spec_digest)
             and digest(document) == key
-            and subset(document, actual)
+            and matches_manifest(document, actual)
             for key, document in documents.items()
         ):
             raise ValueError("Worker Deployment spec does not match prepared authority")
@@ -551,7 +545,7 @@ class KubernetesWorkerRuntime:
                     },
                 ],
             )
-        if not subset(bodies[0], value):
+        if not matches_manifest(bodies[0], value):
             raise ValueError("Worker configuration observation does not match intent")
         if (
             value.get("status", {}).get("observedGeneration", 0)
