@@ -575,12 +575,26 @@ class KubernetesWorkerTests(unittest.TestCase):
         }
         self.assertEqual(self.adapter.list()[0]["status"], "unschedulable")
         self.server.log_bytes = (
-            "diagnostic " + self.token + "\n" + "x" * 1000
+            "".join("old-line-" + str(index) + "\n" for index in range(1000))
+            + "diagnostic "
+            + self.token
+            + "\nlatest-line\n"
         ).encode()
-        logs = self.adapter.logs(self.worker.id, 200)
+        logs = self.adapter.logs(self.worker.id, 2)
         self.assertNotIn(self.token, logs)
         self.assertIn("[REDACTED]", logs)
-        self.assertLessEqual(len(logs.encode()), 250)
+        self.assertIn("latest-line", logs)
+        self.assertNotIn("old-line-", logs)
+        self.assertLessEqual(len(logs.encode()), 65536)
+        from app.reconciler import worker_token
+
+        real_token = worker_token(self.settings, self.worker.id)
+        self.server.log_bytes = (
+            "x" * (65536 - (len(real_token) - 1)) + real_token + "after-boundary"
+        ).encode()
+        logs = self.adapter.logs(self.worker.id, 500)
+        self.assertFalse(real_token[:-1] in logs)
+        self.assertLessEqual(len(logs.encode()), 65536)
 
     def test_configure_recovers_lost_patch_response_without_replacement(self):
         from app.adapters.kubernetes_api import KubernetesError
@@ -667,6 +681,51 @@ class KubernetesWorkerTests(unittest.TestCase):
         self.adapter.action(self.worker.id, "stop")
         self.adapter.action(self.worker.id, "remove")
         self.assertTrue(self.adapter.list()[0]["spool_retained"])
+
+    def test_ready_pod_is_running_while_registration_remains_separate(self):
+        self.adapter.create(self.worker, self.document, self.token)
+        self.adapter.action(self.worker.id, "start")
+        deployment = self.deployment()
+        self.server.objects[("apps", "replica_set", "flumic-workers", "ready-rs")] = {
+            "metadata": {
+                "name": "ready-rs",
+                "uid": "ready-rs-uid",
+                "ownerReferences": [
+                    {
+                        "kind": "Deployment",
+                        "uid": deployment["metadata"]["uid"],
+                        "controller": True,
+                    }
+                ],
+            }
+        }
+        self.server.objects[("core", "pod", "flumic-workers", "ready-pod")] = {
+            "metadata": {
+                "name": "ready-pod",
+                "uid": "ready-pod-uid",
+                "labels": deployment["spec"]["template"]["metadata"]["labels"],
+                "ownerReferences": [
+                    {
+                        "kind": "ReplicaSet",
+                        "name": "ready-rs",
+                        "uid": "ready-rs-uid",
+                        "controller": True,
+                    }
+                ],
+            },
+            "status": {
+                "phase": "Running",
+                "containerStatuses": [
+                    {
+                        "name": "worker",
+                        "ready": True,
+                        "state": {"running": {"startedAt": "fixture"}},
+                    }
+                ],
+            },
+        }
+        self.assertEqual(self.adapter.list()[0]["status"], "running")
+        self.assertIsNone(self.worker.registered_at)
 
 
 class KubernetesLifecycleTests(unittest.TestCase):

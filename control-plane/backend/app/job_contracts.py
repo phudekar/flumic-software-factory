@@ -218,7 +218,12 @@ def sanitize_capture(capture, secrets):
         )
         failed = True
     for stream in ("stdout", "stderr"):
-        encoded = text(getattr(capture, stream)).encode()
+        raw = getattr(capture, stream)
+        if getattr(capture, stream + "_truncated"):
+            from app.security import redact_truncated_secret_tail
+
+            raw = redact_truncated_secret_tail(raw, values)
+        encoded = text(raw).encode()
         result[stream] = encoded[:262144].decode("utf-8", errors="ignore")
         result[stream + "_truncated"] = (
             getattr(capture, stream + "_truncated") or len(encoded) > 262144

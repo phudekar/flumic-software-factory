@@ -65,9 +65,11 @@ class KubeProtocol:
 
     def logs(self, name, namespace, **kwargs):
         self.calls.append(("logs", namespace, name, kwargs))
-        return io.BytesIO(
-            self.log_bytes[: kwargs.get("limit_bytes", len(self.log_bytes))]
-        )
+        raw = self.log_bytes
+        if kwargs.get("tail_lines") is not None:
+            count = kwargs["tail_lines"]
+            raw = b"".join(raw.splitlines(keepends=True)[-count:]) if count else b""
+        return io.BytesIO(raw[: kwargs.get("limit_bytes", len(raw))])
 
     def handle(self, group, kind, operation):
         def request(namespace, name=None, body=None, **kwargs):

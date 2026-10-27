@@ -249,6 +249,25 @@ class TargetRegistry:
             raise ValueError("Runtime target pin is no longer available") from None
         return current
 
+    def resolve_worker(self, worker):
+        """Decode private worker pins once, with uniform safe failure messages."""
+        try:
+            if worker.target_snapshot:
+                snapshot = self.require_snapshot(
+                    TargetSnapshot.model_validate(worker.target_snapshot)
+                )
+                if snapshot.id != worker.target_id:
+                    raise ValueError()
+            else:
+                if worker.target_id != "local-docker":
+                    raise ValueError()
+                snapshot = self.snapshot("local-docker")
+            if snapshot.kind == "kubernetes" and worker.protocol != "shared-v1":
+                raise ValueError()
+            return snapshot
+        except (ValueError, AttributeError):
+            raise ValueError("Worker runtime target pin is not available") from None
+
     def require_stage(self, snapshot, stage, *, protocol="shared-v1"):
         snapshot = self.require_snapshot(snapshot)
         if snapshot.kind == "docker":

@@ -220,20 +220,12 @@ def main():
     from app.settings import AppSettings
     from app.database import database
     from app.services import Configurations
-    from app.adapters.docker import DockerRuntime
+    from app.runtime_router import RuntimeRouter
 
     settings = AppSettings.load()
     _, sessions = database(settings.database_url)
-    runtime = DockerRuntime(settings, Configurations(settings.root))
-    from app.adapters.docker_jobs import DockerJobRuntime
-    import hashlib
-
-    root = settings.snapshot_root / "jobs"
-    host = settings.host_root / root.relative_to(settings.root)
-    deployment = hashlib.sha256(
-        f"{settings.compose_project_name}:{settings.host_root}".encode()
-    ).hexdigest()[:24]
-    jobs = DockerJobRuntime(root, host, deployment, bridge=settings.job_bridge)
+    runtime = RuntimeRouter(settings, Configurations(settings.root), sessions)
+    jobs = runtime
     stopped = threading.Event()
     threading.Thread(
         target=reconcile_jobs, args=(sessions, jobs, settings, stopped), daemon=True

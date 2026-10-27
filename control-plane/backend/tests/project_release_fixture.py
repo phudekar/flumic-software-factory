@@ -135,9 +135,31 @@ class ProjectReleaseFixture:
         image="example/fixture@sha256:" + "a" * 64,
         command=None,
         directory=None,
+        settings_transform=None,
+        worker_target_id="local-docker",
     ):
         self.case = fixtures.ControlPlaneTests()
         self.case.setUp()
+        if settings_transform is not None:
+            from app.main import create_app
+            from fastapi.testclient import TestClient
+
+            self.case.client.__exit__(None, None, None)
+            self.case.settings = settings_transform(self.case.settings)
+            self.case.app = create_app(
+                self.case.settings,
+                self.case.sessions,
+                self.case.runtime,
+                self.case.workflow,
+            )
+            self.case.client = TestClient(self.case.app)
+            self.case.client.__enter__()
+            csrf = self.case.client.post(
+                "/api/v1/auth/login", json={"password": "test-admin-password"}
+            ).json()["csrf"]
+            self.case.client.headers.update(
+                {"X-CSRF-Token": csrf, "Idempotency-Key": str(uuid.uuid4())}
+            )
         self.client, self.sessions, self.settings = (
             self.case.client,
             self.case.sessions,
@@ -192,7 +214,10 @@ class ProjectReleaseFixture:
                 self.pools[role] = pool
                 worker = self.call(
                     "/api/v1/worker-pools/" + pool["id"] + "/workers",
-                    {"name": self.namespace + "-" + role},
+                    {
+                        "name": self.namespace + "-" + role,
+                        "target_id": worker_target_id,
+                    },
                     201,
                 )
                 self.workers[role] = worker

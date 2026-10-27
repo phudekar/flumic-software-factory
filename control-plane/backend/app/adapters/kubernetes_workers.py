@@ -567,6 +567,11 @@ class KubernetesWorkerRuntime:
                     RuntimeResourceBinding.target_id == self.target.id,
                     RuntimeResourceBinding.target_revision == self.target.revision,
                     RuntimeResourceBinding.kind == "Deployment",
+                    *(
+                        [RuntimeResourceBinding.worker_id == self.resources.worker_id]
+                        if self.resources.worker_id is not None
+                        else []
+                    ),
                 )
             ).all()
         result = []
@@ -592,6 +597,20 @@ class KubernetesWorkerRuntime:
                 "stopped" if value["spec"]["replicas"] == 0 and not pods else "pending"
             )
             for pod in pods:
+                if (
+                    value["spec"]["replicas"] == 1
+                    and not pod["metadata"].get("deletionTimestamp")
+                    and pod.get("status", {}).get("phase") == "Running"
+                    and any(
+                        container.get("name") == "worker"
+                        and container.get("ready") is True
+                        and "running" in container.get("state", {})
+                        for container in pod.get("status", {}).get(
+                            "containerStatuses", []
+                        )
+                    )
+                ):
+                    status = "running"
                 conditions = pod.get("status", {}).get("conditions", [])
                 if any(
                     c.get("type") == "PodScheduled" and c.get("status") == "False"
@@ -632,15 +651,21 @@ class KubernetesWorkerRuntime:
                     expected_uid=pod["metadata"]["uid"],
                     namespace_kind="worker",
                     container="worker",
-                    limit=min(max(limit, 0), 65536),
+                    limit=65536,
+                    tail_lines=min(max(limit, 0), 500),
                 )
                 from app.reconciler import worker_token
 
-                for secret in self._tokens | {
+                tokens = self._tokens | {
                     worker_token(self.settings, value["worker_id"])
-                }:
+                }
+                if truncated:
+                    from app.security import redact_truncated_secret_tail
+
+                    text = redact_truncated_secret_tail(text, tokens)
+                for secret in tokens:
                     if secret:
                         text = text.replace(secret, "[REDACTED]")
                 logs.append(redact(text) + ("\n[TRUNCATED]" if truncated else ""))
-            return "\n".join(logs)[:65536]
+            return "\n".join(logs).encode()[:65536].decode("utf-8", errors="ignore")
         raise ValueError("Unknown worker runtime identity")

@@ -100,18 +100,7 @@ class JobBroker:
             if worker is None or worker.protocol != "shared-v1":
                 raise HTTPException(409, "Job requires a shared worker runtime target")
             try:
-                target = self.targets.snapshot(worker.target_id)
-                if worker.target_snapshot:
-                    pinned = self.targets.require_snapshot(
-                        TargetSnapshot.model_validate(worker.target_snapshot)
-                    )
-                    if (
-                        pinned.id != worker.target_id
-                        or pinned.revision != target.revision
-                    ):
-                        raise ValueError("Worker target pin mismatch")
-                elif target.kind != "docker":
-                    raise ValueError("Worker target is not pinned")
+                target = self.targets.resolve_worker(worker)
                 self.targets.require_stage(target, stage, protocol=worker.protocol)
             except ValueError:
                 raise HTTPException(

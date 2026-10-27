@@ -45,6 +45,7 @@ class PoolEdit(BaseModel):
 
 class SharedWorkerEdit(BaseModel):
     model_config = ConfigDict(extra="forbid")
+    target_id: str = Field(default="local-docker", pattern=r"^[a-z][a-z0-9-]{0,79}$")
     name: str = Field(pattern=r"^[a-z][a-z0-9-]{0,99}$")
 
 
@@ -174,7 +175,7 @@ def authorize_execution(
     return row
 
 
-def eligibility(db, worker, assignment):
+def eligibility(db, worker, assignment, settings=None):
     membership(db, assignment.project_id, assignment.pool_id)
     pool = pool_record(db, assignment.pool_id)
     if (
@@ -200,6 +201,50 @@ def eligibility(db, worker, assignment):
         or assignment.action not in caps.get("actions", [])
     ):
         raise HTTPException(409, "Worker capabilities do not match assignment")
+
+    if settings is None:
+        if worker.target_id != "local-docker":
+            raise HTTPException(409, "Runtime target authority is required")
+        return
+    from app.runtime_targets import TargetRegistry
+
+    try:
+        registry = TargetRegistry(settings)
+        target = registry.resolve_worker(worker)
+        if target.kind == "kubernetes" and assignment.executor == "docker@1":
+            from app.database import WorkflowRun
+            from app.workflow_definitions import read_definition_pin
+            from factory.workflows.definitions import DockerStage
+
+            attempt = require_owned(
+                db,
+                ProjectScope(assignment.project_id),
+                StageAttempt,
+                assignment.execution_id,
+            )
+            run = require_owned(
+                db, ProjectScope(assignment.project_id), WorkflowRun, attempt.run_id
+            )
+            document = read_definition_pin(
+                db, ProjectScope(assignment.project_id), run.snapshot_id, settings
+            )
+            stage = next(
+                (
+                    item
+                    for item in document["definition"]["stages"]
+                    if item["id"] == attempt.stage_id
+                ),
+                None,
+            )
+            if stage is None:
+                raise ValueError()
+            registry.require_stage(
+                target, DockerStage.model_validate(stage), protocol=worker.protocol
+            )
+    except ValueError:
+        raise HTTPException(
+            409, "Worker runtime target does not support execution requirements"
+        ) from None
 
 
 def lease_token(settings, row):
@@ -240,7 +285,7 @@ def claim_execution(db, invocation, worker_id, settings, *, claim_key, now=None)
     )
     if worker is None:
         raise HTTPException(401, "Invalid worker credentials")
-    eligibility(db, worker, row)
+    eligibility(db, worker, row, settings)
     proof = digest(claim_key)
     if row.status != "ready":
         if (
@@ -302,7 +347,7 @@ def require_lease(db, worker, identifier, proof, settings, *, now=None, terminal
     )
     if row is None or row.worker_id != worker.id:
         raise HTTPException(404, "Assignment not found")
-    eligibility(db, worker, row)
+    eligibility(db, worker, row, settings)
     if not hmac.compare_digest(proof, lease_token(settings, row)):
         raise HTTPException(409, "Invalid assignment lease")
     if terminal and (
@@ -450,6 +495,7 @@ def install(app, sessions, settings):
                         {
                             "id": worker.id,
                             "name": worker.name,
+                            "target_id": worker.target_id,
                             "protocol": worker.protocol,
                             "desired_state": worker.desired_state,
                             "capability_state": state,
@@ -508,6 +554,12 @@ def install(app, sessions, settings):
 
     @app.post("/api/v1/worker-pools/{pool_id}/workers", status_code=201)
     def create_worker(pool_id: str, body: SharedWorkerEdit):
+        from app.runtime_targets import TargetRegistry
+
+        try:
+            target = TargetRegistry(settings).snapshot(body.target_id)
+        except ValueError:
+            raise HTTPException(422, "Unknown deployment target") from None
         with sessions.begin() as db:
             pool = pool_record(db, pool_id)
             if db.scalar(select(Worker.id).where(Worker.name == body.name)):
@@ -519,6 +571,8 @@ def install(app, sessions, settings):
                 protocol=PROTOCOL,
                 pool_id=pool.id,
                 credential_hash="pending",
+                target_id=target.id,
+                target_snapshot=target.model_dump(),
             )
             db.add(worker)
             db.flush()
@@ -535,6 +589,7 @@ def install(app, sessions, settings):
                 "protocol": worker.protocol,
                 "pool_id": pool.id,
                 "name": worker.name,
+                "target_id": worker.target_id,
             }
 
     @app.post("/api/v1/shared-worker/register")

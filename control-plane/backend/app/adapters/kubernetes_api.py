@@ -226,7 +226,16 @@ class KubernetesApi:
             raise KubernetesError()
         return value
 
-    def pod_logs(self, name, *, namespace_kind, container, expected_uid, limit=MAX_LOG):
+    def pod_logs(
+        self,
+        name,
+        *,
+        namespace_kind,
+        container,
+        expected_uid,
+        limit=MAX_LOG,
+        tail_lines=None,
+    ):
         if not isinstance(name, str) or not re.fullmatch(
             r"[a-z0-9][a-z0-9.-]{0,252}", name
         ):
@@ -249,6 +258,11 @@ class KubernetesApi:
                 namespace=namespace,
                 container=container,
                 limit_bytes=limit + 1,
+                **(
+                    {"tail_lines": max(0, min(int(tail_lines), 500))}
+                    if tail_lines is not None
+                    else {}
+                ),
                 _request_timeout=(3, 10),
                 _preload_content=False,
             )

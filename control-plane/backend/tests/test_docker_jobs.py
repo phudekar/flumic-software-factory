@@ -208,6 +208,20 @@ class DockerJobRuntimeTests(unittest.TestCase):
         self.runtime.cleanup(self.runtime.reference(self.launch))
         self.assertFalse((Path(self.tmp.name) / self.launch.job_id).exists())
 
+    def test_truncated_log_cannot_reveal_an_almost_complete_grant(self):
+        from app.job_contracts import JobCapture, sanitize_capture
+
+        secret = "a" * 64
+        capture = JobCapture(
+            output={},
+            exit_code=0,
+            stdout="x" * (262144 - 63) + secret[:-1],
+            stdout_truncated=True,
+        )
+        result, failed = sanitize_capture(capture, [secret])
+        self.assertFalse(failed)
+        self.assertFalse(secret[:-1] in result["stdout"])
+
 
 class FakeJobRuntime:
     def __init__(self):
