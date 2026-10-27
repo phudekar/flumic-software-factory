@@ -19,7 +19,15 @@ KINDS = {
     "PersistentVolumeClaim",
     "NetworkPolicy",
 }
-PHASES = {"prepared", "payload-ready", "running", "captured", "terminating", "removed"}
+PHASES = {
+    "intent",
+    "prepared",
+    "payload-ready",
+    "running",
+    "captured",
+    "terminating",
+    "removed",
+}
 
 
 class RuntimeResources:
@@ -65,7 +73,12 @@ class RuntimeResources:
 
     def require(self, kind, logical_id, *, uid, spec_digest, db=None):
         row = self.get(kind, logical_id, db=db)
-        if row is None or row.uid != uid or row.spec_digest != spec_digest:
+        if (
+            row is None
+            or row.uid is None
+            or row.uid != uid
+            or row.spec_digest != spec_digest
+        ):
             raise ValueError("Remote runtime identity does not match authority")
         return row
 
@@ -121,7 +134,7 @@ class RuntimeResources:
         document=None,
     ):
         if document is not None and (
-            kind != "Deployment" or digest(document) != spec_digest
+            kind not in {"Deployment", "Job"} or digest(document) != spec_digest
         ):
             raise ValueError("Runtime document does not match prepared spec")
         if (
@@ -172,7 +185,7 @@ class RuntimeResources:
                         )
                 else:
                     parent = self.get(root_kind, root_id, db=connection)
-                    if parent is None or parent.uid != owner_uid:
+                    if parent is None or not parent.uid or parent.uid != owner_uid:
                         raise ValueError("Runtime child resource owner is not pinned")
                 row = self.get(kind, logical_id, db=connection)
                 values = dict(
@@ -190,17 +203,121 @@ class RuntimeResources:
                     job_id=job_id,
                 )
                 if row is not None:
-                    if any(getattr(row, key) != value for key, value in values.items()):
+                    unobserved = (
+                        row.uid is None and row.phase == "intent" and kind == "Job"
+                    )
+                    if any(
+                        getattr(row, key) != value
+                        for key, value in values.items()
+                        if key != "uid" or not unobserved
+                    ):
                         raise ValueError("Remote runtime binding cannot be replaced")
+                    if unobserved:
+                        row.uid, row.phase = uid, "prepared"
+                        connection.flush()
+                    if kind == "Job":
+                        connection.get(RuntimeJob, job_id).runtime_observed = True
+                        connection.flush()
                     return row
                 row = RuntimeResourceBinding(**values)
                 if document is not None:
                     row.details = {"specs": {spec_digest: copy.deepcopy(document)}}
                 connection.add(row)
+                if kind == "Job":
+                    connection.get(RuntimeJob, job_id).runtime_observed = True
                 connection.flush()
                 return row
         except IntegrityError:
             raise ValueError("Runtime resource identity is already bound") from None
+
+    def prepare_job_root(self, job_id, document, *, claim):
+        """Reserve a suspended, nonsecret manifest before any external create."""
+        if (
+            document.get("kind") != "Job"
+            or document.get("spec", {}).get("suspend") is not True
+            or document.get("metadata", {}).get("namespace")
+            != self.snapshot.configuration.get("job_namespace")
+        ):
+            raise ValueError("A pinned suspended Job manifest is required")
+        name = document["metadata"].get("name")
+        if not isinstance(name, str) or not re.fullmatch(
+            r"[a-z0-9][a-z0-9-]{0,62}", name
+        ):
+            raise ValueError("Invalid Job resource name")
+        spec = digest(document)
+        try:
+            with self.sessions.begin() as db:
+                self._owner(
+                    db,
+                    project_id=self.project_id,
+                    worker_id=None,
+                    job_id=job_id,
+                    claim=claim,
+                )
+                row = self.get("Job", job_id, db=db)
+                if row is not None:
+                    if (
+                        row.name != name
+                        or row.spec_digest != spec
+                        or row.details.get("specs", {}).get(spec) != document
+                    ):
+                        raise ValueError("Prepared Job intent cannot change")
+                    return row
+                row = RuntimeResourceBinding(
+                    target_id=self.snapshot.id,
+                    target_revision=self.snapshot.revision,
+                    kind="Job",
+                    logical_id=job_id,
+                    namespace=document["metadata"]["namespace"],
+                    name=name,
+                    uid=None,
+                    spec_digest=spec,
+                    phase="intent",
+                    project_id=self.project_id,
+                    job_id=job_id,
+                    details={"specs": {spec: copy.deepcopy(document)}},
+                )
+                db.add(row)
+                db.flush()
+                return row
+        except IntegrityError:
+            raise ValueError("Job intent is already reserved") from None
+
+    def prepare_job_start(self, job_id, document, *, claim):
+        """Only a still-suspended Job may select a new, fenced remaining budget."""
+        with self.sessions.begin() as db:
+            row = self._owned_row(db, "Job", job_id, claim)
+            budget = document.get("spec", {}).get("activeDeadlineSeconds")
+            if not row.uid or type(budget) is not int or not 1 <= budget <= 3600:
+                raise ValueError("Observed Job and bounded remaining budget required")
+            initial = row.details.get("specs", {}).get(row.spec_digest)
+            expected = copy.deepcopy(initial)
+            if expected is None:
+                raise ValueError("Prepared Job document is missing")
+            expected["spec"].update(suspend=False, activeDeadlineSeconds=budget)
+            if document != expected or row.phase not in {"prepared", "payload-ready"}:
+                raise ValueError("Running Job intent cannot change")
+            row.details = {**row.details, "start_manifest": copy.deepcopy(document)}
+            db.flush()
+            return row
+
+    def prepare_job_stop(self, job_id, document, *, claim):
+        with self.sessions.begin() as db:
+            row = self._owned_row(db, "Job", job_id, claim)
+            initial = row.details.get("specs", {}).get(row.spec_digest)
+            candidates = [initial, row.details.get("start_manifest")]
+            allowed = []
+            for candidate in candidates:
+                if candidate is not None:
+                    stopped = copy.deepcopy(candidate)
+                    stopped["spec"]["suspend"] = True
+                    allowed.append(stopped)
+            if not row.uid or document not in allowed:
+                raise ValueError("Job stop must preserve prepared execution spec")
+            row.details = {**row.details, "stop_manifest": copy.deepcopy(document)}
+            row.phase = "terminating"
+            db.flush()
+            return row
 
     def _owned_row(self, db, kind, logical_id, claim):
         row = self.get(kind, logical_id, db=db)
@@ -221,6 +338,8 @@ class RuntimeResources:
             raise ValueError("Invalid runtime resource phase")
         with self._transaction(db) as connection:
             row = self._owned_row(connection, kind, logical_id, claim)
+            if row.uid is None and phase != "intent":
+                raise ValueError("Runtime resource UID has not been observed")
             if row.phase != expected_phase:
                 raise ValueError("Runtime resource phase changed")
             row.phase = phase

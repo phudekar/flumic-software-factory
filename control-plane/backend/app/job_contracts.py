@@ -101,7 +101,19 @@ class RuntimeJobRef(RuntimePin):
 
 
 class RuntimeJobState(Contract):
+    # Only adapters whose initial external create cannot execute user code may
+    # settle an unobserved cancellation while that create is still uncertain.
+    creation_inert: bool = Field(default=False, strict=True)
+
+    @model_serializer(mode="wrap")
+    def compatible_wire(self, handler):
+        result = handler(self)
+        if not self.creation_inert:
+            result.pop("creation_inert", None)
+        return result
+
     state: Literal[
+        "intent",
         "missing",
         "created",
         "running",

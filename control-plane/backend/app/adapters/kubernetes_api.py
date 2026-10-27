@@ -270,6 +270,99 @@ class KubernetesApi:
         if self.api_client is not None:
             self.api_client.close()
 
+    def collector_exec(self, name, *, expected_uid, mode):
+        """Only fixed trusted collector commands, on a separately owned stream."""
+        from kubernetes.stream import stream
+        from app.adapters.kubernetes_job_manifests import HELPER_COMMAND
+        from factory.workflows.references import json_bytes
+
+        if (
+            mode not in {"capture", "release"}
+            or not isinstance(name, str)
+            or not re.fullmatch(r"[a-z0-9][a-z0-9.-]{0,252}", name)
+        ):
+            raise ValueError("Unsupported collector invocation")
+        namespace = self.require_namespace("job")
+
+        def require_pod():
+            pod = self._raw(
+                "core", "read_namespaced_pod", name=name, namespace=namespace
+            )
+            if not expected_uid or pod.get("metadata", {}).get("uid") != expected_uid:
+                raise ValueError("Collector Pod identity changed")
+
+        require_pod()
+        self.check_effect()
+        response = None
+        output, diagnostic = bytearray(), bytearray()
+        try:
+            with self.exec_client() as client:
+                response = stream(
+                    client.connect_get_namespaced_pod_exec,
+                    name=name,
+                    namespace=namespace,
+                    container="collector",
+                    command=HELPER_COMMAND + [mode],
+                    stdin=False,
+                    stdout=True,
+                    stderr=True,
+                    tty=False,
+                    _preload_content=False,
+                    _request_timeout=(3, 10),
+                )
+                deadline = time.monotonic() + 15
+                while response.is_open():
+                    if time.monotonic() >= deadline:
+                        raise ValueError("Collector exec exceeded bounded duration")
+                    response.update(timeout=1)
+                    for channel, destination in (
+                        ("stdout", output),
+                        ("stderr", diagnostic),
+                    ):
+                        if getattr(response, "peek_" + channel)(timeout=0):
+                            destination.extend(
+                                getattr(response, "read_" + channel)(timeout=0).encode()
+                            )
+                    if len(output) + len(diagnostic) > 1048576:
+                        raise ValueError("Collector exec exceeded response bounds")
+                if response.returncode != 0:
+                    raise ValueError("Collector command did not complete successfully")
+            require_pod()
+            self.require_namespace("job")
+            self.check_effect()
+            if mode == "release":
+                if output:
+                    raise ValueError("Collector release returned unexpected output")
+                return None
+
+            def pairs(items):
+                value = {}
+                for key, item in items:
+                    if key in value:
+                        raise ValueError("Duplicate collector JSON field")
+                    value[key] = item
+                return value
+
+            def nonfinite(_):
+                raise ValueError("Nonfinite collector JSON")
+
+            try:
+                value = json.loads(
+                    output, object_pairs_hook=pairs, parse_constant=nonfinite
+                )
+                if not isinstance(value, dict) or len(json_bytes(value)) > 1048576:
+                    raise ValueError()
+            except (ValueError, TypeError, RecursionError):
+                raise ValueError("Collector returned invalid bounded JSON") from None
+            return value
+        except (ValueError, KubernetesError):
+            raise
+        except Exception as error:
+            raise KubernetesError(getattr(error, "status", None)) from None
+        finally:
+            if response is not None:
+                response.close()
+
     @contextmanager
     def exec_client(self):
         """Streaming changes transport; never lend it the REST client's pool."""

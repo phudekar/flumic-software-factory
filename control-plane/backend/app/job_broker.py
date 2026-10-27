@@ -356,16 +356,22 @@ class JobBroker:
                 row.next_cleanup_at = self.clock() + 60
                 row.cleanup_pending = False
                 row.runtime_phase = "removed"
+                row.error = None
             return
         with secret_scope(credentials.values()):
             state = runtime.inspect(ref)
-            if state.state != "missing":
+            if state.state not in {"missing", "intent"}:
                 observed = True
                 with self.sessions.begin() as db:
                     transition_lock(db)
                     require_runtime_claim(self.sessions, claim, self.clock(), db=db)
                     db.get(RuntimeJob, job_id).runtime_observed = True
-            if state.state == "missing" and started and not observed:
+            if (
+                state.state == "missing"
+                and started
+                and not observed
+                and not state.creation_inert
+            ):
                 self._unknown(job_id, claim)
                 return
             if stop:
@@ -384,7 +390,7 @@ class JobBroker:
                     stop_state,
                 )
             else:
-                if not started or state.state == "created":
+                if not started or state.state in {"created", "intent"}:
                     require_runtime_claim(self.sessions, claim, self.clock())
                     runtime.ensure(
                         launch.model_copy(update={"credentials": credentials})
@@ -439,7 +445,7 @@ class JobBroker:
                         RuntimeResourceBinding.logical_id == row.id,
                     )
                 )
-                if binding is not None:
+                if binding is not None and binding.uid is not None:
                     binding.phase = "captured"
                 row.result_ciphertext = encrypt(result, self.settings)
                 row.updated_at = self.clock()

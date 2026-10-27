@@ -19,6 +19,7 @@ class KubeProtocol:
         self.serial = 0
         self.lose_create = None
         self.lose_patch = None
+        self.lose_delete = None
         self.enforce_fence = True
         self.server_defaults = False
         self.namespace_uids = {
@@ -141,7 +142,16 @@ class KubeProtocol:
                 conditions = (body or {}).get("preconditions", {})
                 if conditions.get("uid") != self.objects[key]["metadata"]["uid"]:
                     raise ApiFailure(409)
+                if (
+                    conditions.get("resourceVersion") is not None
+                    and conditions["resourceVersion"]
+                    != self.objects[key]["metadata"]["resourceVersion"]
+                ):
+                    raise ApiFailure(409)
                 del self.objects[key]
+                if self.lose_delete == kind:
+                    self.lose_delete = None
+                    raise ApiFailure(503)
                 return {"status": "Success"}
             if operation == "patch":
                 assert isinstance(body, list), (

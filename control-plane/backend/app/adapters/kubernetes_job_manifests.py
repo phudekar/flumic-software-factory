@@ -374,6 +374,13 @@ def normalized_manifest(manifest):
     value.pop("status", None)
     meta = value.get("metadata", {})
     uid, name = meta.get("uid"), meta.get("name")
+    deleting = bool(meta.get("deletionTimestamp"))
+    if deleting and "finalizers" in meta:
+        meta["finalizers"] = [
+            item for item in meta["finalizers"] if item != "foregroundDeletion"
+        ]
+        if not meta["finalizers"]:
+            meta.pop("finalizers")
     for key in (
         "uid",
         "resourceVersion",

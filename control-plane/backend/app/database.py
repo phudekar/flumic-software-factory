@@ -591,6 +591,10 @@ class RuntimeResourceBinding(Base):
             name="fk_runtime_binding_job",
         ),
         CheckConstraint(
+            "(phase = 'intent' AND uid IS NULL) OR (phase <> 'intent' AND uid IS NOT NULL)",
+            name="ck_runtime_binding_observation",
+        ),
+        CheckConstraint(
             "(worker_id IS NOT NULL AND job_id IS NULL AND project_id IS NULL) OR (worker_id IS NULL AND job_id IS NOT NULL AND project_id IS NOT NULL)",
             name="ck_runtime_binding_owner",
         ),
@@ -602,7 +606,7 @@ class RuntimeResourceBinding(Base):
     logical_id: Mapped[str] = mapped_column(String(160))
     namespace: Mapped[str] = mapped_column(String(63))
     name: Mapped[str] = mapped_column(String(253))
-    uid: Mapped[str] = mapped_column(String(128))
+    uid: Mapped[str | None] = mapped_column(String(128))
     owner_uid: Mapped[str | None] = mapped_column(String(128))
     spec_digest: Mapped[str] = mapped_column(String(64))
     pending_spec_digest: Mapped[str | None] = mapped_column(String(64))

@@ -47,7 +47,7 @@ def upgrade():
         sa.Column("logical_id", sa.String(160), nullable=False),
         sa.Column("namespace", sa.String(63), nullable=False),
         sa.Column("name", sa.String(253), nullable=False),
-        sa.Column("uid", sa.String(128), nullable=False),
+        sa.Column("uid", sa.String(128), nullable=True),
         sa.Column("owner_uid", sa.String(128)),
         sa.Column("spec_digest", sa.String(64), nullable=False),
         sa.Column("pending_spec_digest", sa.String(64)),
@@ -75,6 +75,10 @@ def upgrade():
             ["project_id", "job_id"],
             ["runtime_jobs.project_id", "runtime_jobs.id"],
             name="fk_runtime_binding_job",
+        ),
+        sa.CheckConstraint(
+            "(phase = 'intent' AND uid IS NULL) OR (phase <> 'intent' AND uid IS NOT NULL)",
+            name="ck_runtime_binding_observation",
         ),
         sa.CheckConstraint(
             "(worker_id IS NOT NULL AND job_id IS NULL AND project_id IS NULL) OR (worker_id IS NULL AND job_id IS NOT NULL AND project_id IS NOT NULL)",
