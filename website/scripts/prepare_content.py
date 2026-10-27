@@ -23,6 +23,7 @@ GUIDES = {
     'docs/configuration-control-plane.md': 'Control Plane settings: effects and examples',
     'docs/worker-image-builds.md': 'Worker image builds',
     'docs/project-runtime-api.md': 'Project workflow runtime API',
+    'docs/kubernetes.md': 'Kubernetes runtime configuration and operations',
     'docs/gitlab.md': 'GitLab.com setup and workflow behavior',
     'docs/project-runtime-operations.md': 'Project runtime rollout and qualification',
     'docs/docker-action-jobs.md': 'One-time Docker actions',

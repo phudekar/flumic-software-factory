@@ -304,6 +304,13 @@ class TargetRegistry:
                     "name": config["name"],
                     "runtime": snapshot.kind,
                     "revision": snapshot.revision,
+                    "availability": "configured",
+                    "limitations": [
+                        "Executable scratch",
+                        "Combined action logs",
+                        "Retained worker history volume",
+                        "Uncaptured output may be unavailable after a hard deadline",
+                    ] if kube else [],
                     "capabilities": {
                         "create": True,
                         "start": True,

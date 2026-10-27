@@ -139,6 +139,8 @@ class RuntimeTargetsTests(unittest.TestCase):
             self.assertNotIn(private, wire)
         self.assertEqual(public["capabilities"]["log_stream"], "combined")
         self.assertTrue(public["capabilities"]["scratch_executable"])
+        self.assertEqual(public["availability"], "configured")
+        self.assertIn("Executable scratch", public["limitations"])
         self.assertFalse(public["capabilities"]["legacy"])
         with self.assertRaises(ValueError):
             registry.require_stage(first, stage())

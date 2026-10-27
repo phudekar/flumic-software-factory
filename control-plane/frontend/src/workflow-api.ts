@@ -91,6 +91,16 @@ export interface ProjectRun {
   }[];
 }
 export interface ProjectJob {
+  target_id?: string;
+  runtime?: {
+    kind: string;
+    namespace?: string;
+    job_uid?: string;
+    pod_uids?: string[];
+    phase?: string;
+    cleanup_pending?: boolean;
+    log_stream?: string;
+  };
   job_id: string;
   execution_id: string;
   state: string;

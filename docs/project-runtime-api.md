@@ -146,3 +146,8 @@ GitLab sends POST `/api/v1/hooks/gitlab/{binding_id}` with `X-Gitlab-Token` and,
 The control runtime polls one leased binding at a time, at most five listed and five previously tracked resources per scan, with a 30-second interval per binding. It uses only that connection's scoped GitLab credential. Source reads have a five-second request timeout and a two-page limit; incomplete reads fail closed and retry later. Each scan has its own receipt identity so timestamp omissions cannot prevent a fresh tracked read. Receipts accumulate in the database; there is no automatic retention policy yet.
 
 Ready issues run once per observed not-ready → ready transition. Routine comments do not rearm them. Feedback uses increasing human note IDs, retains pending feedback during an active run, and ignores system notes. Editing an existing note does not create a new note ID; add a new comment or launch manually. Verification requires a merged MR with a merge commit, and queues the verification workflow; its checks still determine success. Closed-unmerged changes never imply success. Fork merge requests are excluded. Polling cannot reconstruct a readiness toggle that occurs entirely between observations. Retry a `409` caused by an in-flight configuration/source-observation change; fresh acceptance rechecks current state and credentials.
+
+
+## Kubernetes runtime configuration (planned)
+
+Native Kubernetes worker Deployments and one-time Jobs are under qualification in issue #17. See the [operator configuration reference](kubernetes.md) for every target setting, explicit controller authentication, namespace fencing, storage, networking, PID limits and capture/cleanup behavior. Docker remains the current qualified runtime.

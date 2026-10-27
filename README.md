@@ -344,3 +344,8 @@ for local preview commands and Pages setup. The expected deployment address is
 - [Architecture diagram, component responsibilities and extension points](docs/architecture.md#architecture-at-a-glance)
 - [Optional SigNoz observability](docs/observability.md)
 - [Architecture migration history](docs/architecture-migration.md)
+
+
+## Kubernetes runtime configuration (planned)
+
+Native Kubernetes worker Deployments and one-time Jobs are under qualification in issue #17. See the [operator configuration reference](docs/kubernetes.md) for every target setting, explicit controller authentication, namespace fencing, storage, networking, PID limits and capture/cleanup behavior. Docker remains the current qualified runtime.

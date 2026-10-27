@@ -1,0 +1,25 @@
+# Install before any action is unsuspended. Requires an enforcing CNI.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: flumic-action-deny
+  namespace: flumic-actions
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+  ingress: []
+  egress: []
+---
+# Deliberately denies until an operator adds narrowly approved DNS/egress rules.
+# Policies are additive: do not add namespace-wide egress exceptions.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: flumic-action-bridge
+  namespace: flumic-actions
+spec:
+  podSelector:
+    matchLabels:
+      flumic.io/action-network: bridge
+  policyTypes: [Egress]
+  egress: []

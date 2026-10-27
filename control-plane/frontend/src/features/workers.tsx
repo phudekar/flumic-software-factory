@@ -22,6 +22,8 @@ import { api } from "../api";
 import { Empty, Failure, PageTitle, Section, Status } from "../components/ui";
 import { useData } from "../hooks";
 
+import { SharedWorkerForm } from "./runtime-targets";
+
 export function WorkersPage() {
   const data = useData<Workers>("workers", "/workers");
   const configurations = useData<WorkerConfig[]>(
@@ -34,6 +36,7 @@ export function WorkersPage() {
         items.findIndex((other) => other.family_id === c.family_id) === i,
     ) ?? [];
   const [configId, setConfigId] = useState("");
+  const [sharedCreating, setSharedCreating] = useState(false);
   const [creating, setCreating] = useState(false);
   const [showRemoved, setShowRemoved] = useState(false);
   const [showExited, setShowExited] = useState(false);
@@ -78,15 +81,23 @@ export function WorkersPage() {
   }
   return (
     <>
+      {sharedCreating && (
+        <SharedWorkerForm close={() => setSharedCreating(false)} />
+      )}
       <PageTitle
         eyebrow="EXECUTION INFRASTRUCTURE"
         title="Workers"
         description="Manage worker instances without coupling your factory to a runtime."
         action={
-          <button className="primary" onClick={() => setCreating(true)}>
-            <Plus size={15} />
-            Create worker
-          </button>
+          <div>
+            <button onClick={() => setSharedCreating(true)}>
+              Add shared worker
+            </button>
+            <button className="primary" onClick={() => setCreating(true)}>
+              <Plus size={15} />
+              Create worker
+            </button>
+          </div>
         }
       />
       <p>
@@ -137,7 +148,7 @@ export function WorkersPage() {
         </label>
         <span className="tag">
           <Box size={13} />
-          Local Docker
+          Runtime infrastructure
         </span>
         <span className="muted">Refreshes every 10 seconds</span>
       </div>
@@ -419,10 +430,10 @@ export function WorkersPage() {
               </button>
             </div>
             <p>
-              A new instance uses an immutable configuration snapshot and is
-              created stopped. Profiles with a base OS image build or reuse a
-              cached worker image first; build progress appears on the worker
-              page.
+              Legacy workers use Docker. A new instance uses an immutable
+              configuration snapshot and is created stopped. Profiles with a
+              base OS image build or reuse a cached worker image first; build
+              progress appears on the worker page.
             </p>
             <label>
               Instance name
@@ -587,6 +598,44 @@ export function WorkerPage() {
         >
           View worker profile →
         </Link>
+      )}
+      {worker && (
+        <Section title="Runtime observation">
+          <div className="editor-body">
+            <p>
+              Target: {worker.target_id} · Desired state: {worker.desired_state}
+            </p>
+            <p>Runtime observation: {worker.runtime?.status ?? "unknown"}</p>
+            <p>
+              Hatchet registration:{" "}
+              {worker.engine
+                ? worker.engine.paused
+                  ? "Paused"
+                  : "Registered"
+                : "Not observed"}
+            </p>
+            {worker.runtime?.namespace && (
+              <p>
+                Namespace: <span>{worker.runtime.namespace}</span>
+              </p>
+            )}
+            {worker.runtime?.deployment_uid && (
+              <p>
+                Deployment UID: <span>{worker.runtime.deployment_uid}</span>
+              </p>
+            )}
+            {worker.runtime?.pod_uids?.map((uid) => (
+              <p key={uid}>
+                Pod UID: <span>{uid}</span>
+              </p>
+            ))}
+            <p>Actual image: {worker.runtime?.image ?? "Not observed"}</p>
+            <p>
+              A ready process and Hatchet registration are separate
+              observations.
+            </p>
+          </div>
+        </Section>
       )}
       <WorkerBuildView id={id ?? ""} />
       <ScopedUsage query={query} />
