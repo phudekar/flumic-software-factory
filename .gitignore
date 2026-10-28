@@ -16,6 +16,8 @@ control-plane/frontend/*.tsbuildinfo
 website/node_modules/
 website/dist/
 website/.astro/
+website/src/content/docs/architecture/decisions.md
+website/src/content/docs/architecture/decisions/
 website/src/content/docs/handbook/
 website/src/content/docs/reference/
 website/src/content/docs/start/quick-start.md

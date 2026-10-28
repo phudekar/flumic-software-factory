@@ -16,6 +16,7 @@ export default defineConfig({
     customCss: ['./src/styles/docs.css'],
     sidebar: [
       { label: 'Start here', items: ['start/introduction', 'start/quick-start', 'start/architecture', 'start/concepts'] },
+      { label: 'Architecture decisions', collapsed: true, items: [{ autogenerate: { directory: 'architecture/decisions' } }] },
       { label: 'Workflows & stages', items: [{ autogenerate: { directory: 'workflows' } }] },
       { label: 'Control plane', items: [{ autogenerate: { directory: 'control-plane' } }] },
       { label: 'Configuration', items: [{ autogenerate: { directory: 'configuration' } }] },

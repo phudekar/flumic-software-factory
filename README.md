@@ -338,6 +338,7 @@ for local preview commands and Pages setup. The expected deployment address is
 - [One-time Docker actions, execution contract and recovery](docs/docker-action-jobs.md)
 - [Create workflows, add stages and link executions](docs/workflow-development.md)
 - [Architecture diagram, component responsibilities and extension points](docs/architecture.md#architecture-at-a-glance)
+- [Architecture decision records and trade-offs](docs/adr/index.md)
 - [Optional SigNoz observability](docs/observability.md)
 - [Architecture migration history](docs/architecture-migration.md)
 

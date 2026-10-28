@@ -6,47 +6,88 @@ boundaries and operational limits.
 
 ## Architecture at a glance
 
-![Flumic AI layered architecture with component icons: developer experience, Control Plane, orchestration, worker execution, integration adapters, infrastructure and persistence; observability spans every layer](images/flumic-architecture.svg)
+![Flumic AI layered architecture with component icons: developer experience, Control Plane, orchestration, shared execution, runtime targets, integration adapters and persistence; observability spans every layer](images/flumic-architecture.svg)
 
 [Open the full-size architecture diagram](images/flumic-architecture.svg).
-The diagram groups the implemented system into six responsibility layers.
-Its arrows show conceptual dependencies rather than a single synchronous request
-path; the application core is shared worker code, not another deployed service.
-The observability rail represents logs, metrics, traces and model accounting. GitHub and GitLab.com are supported source adapters. Docker and native Kubernetes adapters implement the runtime boundary; PostgreSQL holds project execution state and claims.
+The diagram groups the implemented system into seven responsibility layers, with
+observability spanning them. Arrows represent conceptual dependencies; runtime
+management is performed by the Control Plane, not by repository or model adapters.
+The application core is shared worker code, not another deployed service.
 
-The **Control Plane** governs configuration, operator access, lifecycle commands
-and execution visibility. The **execution plane** runs the development workflow.
-They communicate through saved bootstrap configuration, scoped worker events and
-engine/runtime adapters; a browser session is not required to keep an already
-running worker executing its tasks. Managed workers do require the Control API
-when starting, and the current runtime does not provide graceful drain guarantees.
+## Projects, execution and infrastructure are separate scopes
+
+| Scope | Owns | Does not grant |
+| --- | --- | --- |
+| Project | Multiple repositories, workflow revisions, configuration/grants and execution history | Kubernetes credentials or arbitrary target/Pod configuration |
+| Shared worker pool | Authorized project membership, worker role/capabilities and shared execution capacity | Access to every project's credentials or history |
+| Runtime target | Operator-approved destination, images, namespaces, networking and storage policy | Permission to rewrite admitted execution snapshots |
+| Execution attempt | Pinned project context, target authority, bounded action input/result and correlated usage | The current mutable configuration of another worker or project |
+
+Docker remains available alongside **at most one configured Kubernetes target**.
+The historical `docker` workflow-stage identifier is the portable container-action
+contract; it does not force Docker execution. Claim validation checks the frozen
+stage against the selected target before reserving it. A Docker worker without
+bridge support cannot block a capable native worker by claiming native-only work.
 
 ## How a change moves through the system
 
-1. An operator saves shared factory settings and worker-local model/prompt
-   settings in the Control Plane. Profiles pin a factory revision; snapshots
-   identify what a worker should load. Running workers retain loaded settings
-   until restart.
-2. A lifecycle request produces a durable operation in PostgreSQL. The background
-   reconciler claims it and calls the runtime adapter to create/configure/start
-   the Docker worker. Slow image builds do not need to finish within the browser
-   request. A receipt records acceptance/status, not immediate execution success.
-3. The worker fetches its resolved saved configuration at startup and registers
-   its role, task options and workflow definitions with Hatchet. Hatchet handles
-   queues, configured retries, schedules and durable waits, routing each stage to
-   a compatible worker.
-4. A stage calls an application operation with typed inputs. The application
-   coordinates repository access, model calls, policy checks and execution state
-   through ports. Planning/review can run on simple workers while coding/feedback
-   uses developer workers, according to task routing.
-5. Repository and agent adapters translate between external APIs/tools and
-   application contracts. The service validates completed patch content before
-   publication, records recovery state and reconciles GitHub outcomes. Humans
-   retain approval and merge responsibility.
-6. Operation/model observation records the worker, loaded configuration, run,
-   stage and attempt context where available. Managed events feed Control Plane
-   investigation and accounting; the optional OTLP observer exports correlated
-   telemetry to SigNoz. Unknown usage/cost remains unknown.
+1. **Save and pin behavior.** A project owns repository connections, immutable
+   workflow revisions, configuration and grants. New runs pin their inputs and
+   context; later edits do not rewrite admitted work. Legacy profile-based
+   workers adopt saved bootstrap settings at startup rather than through hot reload.
+2. **Request infrastructure changes.** The authenticated API writes a durable
+   lifecycle operation. The reconciler applies it through the runtime router:
+   Docker containers or native one-replica worker Deployments with private PVCs.
+   An accepted command, observed runtime readiness, Hatchet registration and
+   heartbeat are separate facts. Start does not certify readiness.
+3. **Schedule shared capacity.** Hatchet supplies durable scheduling, retries and
+   waits around the project coordinator and task execution. Pools share simple
+   and developer workers across authorized projects. Assignment authentication
+   binds work to a specific worker, project context and supported target.
+4. **Execute through contracts.** Builtin stages invoke installed application
+   operations with typed inputs. Container stages use the broker and selected
+   runtime. Kubernetes creates a suspended Job, binds its actual UID, prepares
+   bounded immutable input and action-only credentials, then unsuspends it within
+   the original deadline. Worker/action Pods receive no controller API authority.
+5. **Record before releasing.** The broker persists canonical capture before
+   collector release and cleanup. PostgreSQL claims, owner epochs and target pins
+   fence controller writes; namespace admission fences and UID/resourceVersion
+   tests guard remote effects. Fresh metadata nonces fence delayed unsuspends,
+   including cancellation when a changed payload prevents root deletion.
+6. **Recover without inventing success.** Validate Pod metadata/specs before
+   binding or deletion and validate all recorded worker payload generations before
+   cascading cleanup. Multiple live Pods cannot prove cancellation. Changed
+   descendants retain stopped roots for investigation; private worker spools
+   survive restart/removal and replay with deduplication.
+7. **Observe each attempt.** Project events, logs and reported model usage connect
+   project, run, stage and attempt identity. Optional OTLP export feeds SigNoz;
+   instrumentation determines accounting coverage, and unknown tokens/cost remain
+   unknown. Kubernetes logs are combined; hard deadlines or collector/storage
+   loss may leave uncaptured output unavailable.
+
+## Architecture decision records
+
+The [ADR index](adr/index.md) explains the durable trade-offs behind these
+boundaries. These records describe accepted, implemented choices, including their
+costs and rejected alternatives. Temporary test fixtures and CI/commit mechanics
+remain implementation history rather than architectural decisions.
+
+## Guarantees and operational limits
+
+PostgreSQL is required for the default native Kubernetes composition. Legacy
+static workflows retain shared-host SQLite and file locks; that path does not
+become multi-node safe by moving its files onto network storage. The dynamic
+project coordinator, shared-worker transport and Docker/native action runtime
+are implemented; see [runtime rollout and qualification](project-runtime-operations.md).
+
+Kubernetes requires operator-qualified admission policy, RBAC, images, CNI, Pod
+PID limits and storage. Scratch is executable; helper/storage overhead is
+additional to action limits. NetworkPolicy has Kubernetes' own-node traffic
+exception. Local-path PVCs retain history but do not provide node-loss HA.
+The qualification covers a dedicated two-node k3d/K3s cluster, not every production
+distribution. Namespace/cluster administrators are trusted. Exactly-once external
+effects, instantaneous deadline termination, automatic scaling, multi-user
+roles and verified graceful drain are not supplied by these adapters.
 
 ## Why each component makes the architecture adaptable
 
@@ -63,16 +104,17 @@ when starting, and the current runtime does not provide graceful drain guarantee
 | Domain models and patch policy | Change contracts, path/file limits, completeness and content validation | Shared checks remain consistent as coding backends change; model choice does not redefine what the application can publish. | API coding and CLI coding return the same completed-patch contract. Publication policy is not an OS/network sandbox, and trusted adapters must protect extra data they load. |
 | Agent adapters | Planner/reviewer/coder implementations and context capabilities | Planning, review and coding can be chosen independently; model and prompt overrides can vary by task. | Use direct API planning/review with Codex or Claude coding, or implement a trusted coding port for a remote service. Custom managed factories require registry approval and installed code. |
 | Repository adapter | Issues, source snapshots, commits, PRs, review/merge state | Source-host integration is kept at an application boundary rather than scattered throughout model/orchestration code. | GitHub and GitLab.com adapters support numeric repository identity, separate issue/MR namespaces and durable triggers; see [setup and boundaries](gitlab.md). Self-managed hosts remain outside this version. |
-| Execution-state adapter | Prepared plans/patches, cursors, issue claims and recovery | The application can reconcile retries using recorded progress, with state operations behind a port. | Legacy Python workflows use shared SQLite and file locks on one host. The new internal dynamic runtime uses project-scoped encrypted state and canonical claims in PostgreSQL; its coordinator adapter is qualified with mixed builtin/Docker graphs on real Hatchet and shared workers, and the executable catalog composes existing application operations per pinned context. Project-scoped APIs and assignment-authenticated transports activate the runtime through a fixed control service; see the [runtime API guide](project-runtime-api.md). |
+| Execution-state adapter | Prepared plans/patches, cursors, issue claims and recovery | The application can reconcile retries using recorded progress, with state operations behind a port. | Legacy Python workflows use shared SQLite and file locks on one host. The dynamic project runtime uses project-scoped encrypted state and canonical claims in PostgreSQL; its coordinator adapter is qualified with mixed builtin/container graphs on real Hatchet and shared workers, using Docker or native Kubernetes, and the executable catalog composes existing application operations per pinned context. Project-scoped APIs and assignment-authenticated transports activate the runtime through a fixed control service; see the [runtime API guide](project-runtime-api.md). |
 | Observation adapters | Operation/model context, logs, retained events and optional OTLP export | Instrumentation can change without rewriting development operations; execution policy stays separate from the monitoring vendor. | Use structured logging alone, managed Control Plane reporting, or optional SigNoz telemetry. Captured call content depends on policy; CLI accounting is not a complete internal transcript. |
 | Composition root + validated configuration | Constructing dependencies, selecting trusted implementations and resolving settings | Wiring stays explicit, and configuration changes can tune established behavior without editing the application service. | Change a task model/prompt through a saved profile, or load an approved installed factory. Configuration cannot create a new Python stage or make an unimplemented runtime available. |
 
 The corresponding contracts are in
 [worker application ports](../worker/factory/application/ports.py),
 [Control Plane runtime/engine ports](../control-plane/backend/app/ports.py) and
-[worker composition](../worker/factory/bootstrap.py). The repository factory is
-currently wired to `GitHubClient` there; the dynamic `*_factory` configuration
-fields cover the specific extension points listed below, not every integration.
+[worker composition](../worker/factory/bootstrap.py). Repository construction
+selects the GitHub or GitLab.com adapter from the pinned
+repository identity; the dynamic `*_factory` fields cover the specific extension
+points listed below, not every integration.
 
 ## Adapting the system: choose the smallest boundary
 
@@ -98,6 +140,12 @@ fields cover the specific extension points listed below, not every integration.
 
 | Location | Responsibility |
 | --- | --- |
+| `control-plane/backend/app/workflow_state.py` | Project-scoped run transitions, immutable context and canonical claims |
+| `control-plane/backend/app/dynamic_runtime.py` | Fixed Hatchet control worker and project coordinator integration |
+| `control-plane/backend/app/runtime_router.py` | Route pinned worker/Job authority to Docker or native Kubernetes |
+| `control-plane/backend/app/runtime_claims.py` and `runtime_resources.py` | Database leases/epochs and scoped UID/spec bindings |
+| `control-plane/backend/app/adapters/kubernetes_jobs.py` | Suspended Job admission, fenced recovery, capture and guarded cleanup |
+| `control-plane/backend/app/adapters/kubernetes_workers.py` | Deployment lifecycle, immutable configuration and retained private PVCs |
 | `worker/factory/domain/` | Shared models, events, patch policy, and content/path safety |
 | `worker/factory/application/ports.py` | Planner, reviewer, coding, repository, dispatch, state, and observation interfaces |
 | `worker/factory/application/service.py` | Issue intake, planning, triage, implementation, review, feedback, and merge verification operations |
@@ -235,12 +283,13 @@ multi-host installation needs a shared transactional `FactoryStateStore` adapter
 with equivalent claim and recovery semantics. GitHub is outside its transaction;
 this implementation does not promise exactly-once external effects.
 
-For data-defined workflows, the new internal run-state service provides shared
+For data-defined workflows, the project run-state service provides shared
 transactional admission and canonical external-resource claims. It preserves
 execution identities on replay, retains uncertain expired leases and refuses
-unsafe mixed legacy/dynamic mutation against the same repository. This service
-does not yet supply the durable engine coordinator or complete action runtime.
-See [durable run state and migration](control-plane.md#durable-run-state-and-admission).
+unsafe mixed legacy/dynamic mutation against the same repository. The implemented coordinator, shared-worker transport and builtin/container action
+runtime build on that authority, including native Kubernetes targets. See
+[the runtime API](project-runtime-api.md), [rollout and recovery](project-runtime-operations.md)
+and [the authority decision](adr/0003-postgresql-runtime-authority.md).
 
 The database contains prepared source contents and plans. It is ignored by Git
 and the Docker build context, but must be protected and backed up as application
