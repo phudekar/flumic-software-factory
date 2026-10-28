@@ -23,10 +23,12 @@ dynamic runtime registers the fixed Hatchet handlers. A working UI alone does
 not prove Hatchet connectivity or worker registration. This command also builds
 worker images; existing workers need an explicit lifecycle action to adopt them.
 
+For a screen-by-screen guide, see [guided project setup](/flumic-software-factory/control-plane/project-setup/).
+
 ## 2. Create a project and connect repositories
 
 Open **Projects**, create/select a project, and use its **Credentials** and
-**Repositories** tabs. Add a credential version and validate each repository
+**Repositories** sidebar pages. Add a credential version and validate each repository
 connection. Use aliases such as `backend` and `frontend`; workflow documents refer
 to those aliases rather than borrowing another project's credentials.
 
@@ -53,7 +55,7 @@ for precedence and when edits take effect.
 
 ## 4. Publish a small workflow
 
-In the project's **Workflows** tab, start with the examples and action schemas in
+In the project's **Workflows** page, start with the examples and action schemas in
 [workflow authoring](/flumic-software-factory/handbook/workflow-development/#data-defined-workflow-revisions).
 Use real repository aliases and pool IDs from your project. Validate before
 publishing. Link stages through `after`, then bind inputs from declared parent
@@ -71,7 +73,7 @@ an authorized executor, digest-pinned image and the documented result contract.
 
 ## 5. Run and inspect the result
 
-Launch the published revision, then open the project's **Workflow runs** tab.
+Launch the published revision, then open the project's **Workflow runs** page.
 Check stage attempts, assignment, result and canonical terminal state. An accepted
 receipt is not proof that compatible capacity was available or that a Job ran.
 

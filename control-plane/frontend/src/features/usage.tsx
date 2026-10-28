@@ -13,15 +13,33 @@ import { useData } from "../hooks";
 
 export function UsagePage() {
   const data = useData<Usage>("usage", "/usage");
-  const usage = data.data;
+  return <UsageSummary usage={data.data} error={data.error} />;
+}
+export function ProjectUsagePage() {
+  const data = useProjectData<Usage>("/usage");
+  return <UsageSummary usage={data.data} error={data.error} project />;
+}
+function UsageSummary({
+  usage,
+  error,
+  project = false,
+}: {
+  usage?: Usage;
+  error: unknown;
+  project?: boolean;
+}) {
   return (
     <>
       <PageTitle
         eyebrow="ACCOUNTING"
         title="Usage & cost"
-        description="Understand token consumption and known costs across recorded model calls."
+        description={
+          project
+            ? "Token consumption and known costs attributed to this project."
+            : "Understand token consumption and known costs across recorded model calls."
+        }
       />
-      <Failure error={data.error} />
+      <Failure error={error} />
       <div className="metrics">
         <Metric
           label="Input tokens"

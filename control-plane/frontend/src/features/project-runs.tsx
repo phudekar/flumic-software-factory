@@ -471,7 +471,7 @@ function ProjectHistory({ query }: { query: string }) {
     </>
   );
 }
-function ProjectCalls({ events }: { events: ModelAccountingEvent[] }) {
+export function ProjectCalls({ events }: { events: ModelAccountingEvent[] }) {
   const project = useProjectId(),
     [selected, setSelected] = useState<string | null>(null);
   const transcript = useQuery<Record<string, unknown>>({

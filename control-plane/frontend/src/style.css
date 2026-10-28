@@ -1483,3 +1483,92 @@ pre {
   flex: 0 0 auto;
   margin: 0;
 }
+
+/* List-first project setup, shared by repository, credential and workflow views. */
+.setup-card {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 20px;
+  margin: 12px 0;
+  background: var(--panel, transparent);
+  overflow-wrap: anywhere;
+}
+.setup-card h3 {
+  margin: 0;
+  font-size: 17px;
+}
+.setup-card p {
+  margin: 10px 0;
+}
+.setup-card-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.setup-badge {
+  font-size: 12px;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 4px 10px;
+}
+.setup-card details {
+  font-size: 12px;
+}
+.setup-card .toolbar {
+  margin-top: 16px;
+  align-items: center;
+}
+.setup-card .toolbar a {
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.setup-guidance {
+  color: var(--muted);
+  margin: 20px 0;
+  line-height: 1.7;
+}
+.setup-guidance h2 {
+  color: var(--text);
+}
+.setup-advanced {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+}
+.stage-summary-list {
+  list-style: none;
+  padding: 0;
+}
+.setup-stages {
+  margin: 28px 0;
+}
+.setup-stages pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+#run-saved-revision {
+  scroll-margin-top: 24px;
+}
+
+.workspace-return {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+  margin: 0 12px 12px;
+}
+.project-heading {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 14px;
+  margin-bottom: 24px;
+}
+.sidebar {
+  overflow-y: auto;
+}

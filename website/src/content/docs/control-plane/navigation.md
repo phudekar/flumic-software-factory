@@ -12,8 +12,10 @@ Overview summarizes managed workers, the latest page of workflow runs, recorded 
 
 ## Project work and global infrastructure
 
-Start in **Projects** for project-scoped setup and execution. **Workers** and
-**Runtime targets** describe shared infrastructure. The remaining legacy views
+Start in **Projects** for project-scoped setup and execution. Selecting a project
+switches the sidebar to its Overview, Workflows, Runs, Model history, Usage and
+setup pages. Use **All projects** to return to workspace navigation. **Workers**
+and **Runtime targets** describe shared infrastructure outside that project menu. The remaining legacy views
 retain static workflow IDs and history; selecting a project does not convert
 legacy executions into project workflows.
 
@@ -35,3 +37,7 @@ for the setup sequence.
 | Worker prompts | Stage-specific Markdown guidance and history |
 
 The UI refreshes through bounded polling. **Refresh all data** requests fresh views; integration warnings indicate unknown state rather than an inferred healthy/idle system. Use the [full operator handbook](/flumic-software-factory/handbook/control-plane/) for field-level behavior and limits.
+
+## Guided setup
+
+See [Projects, repositories and credentials](/flumic-software-factory/control-plane/project-setup/) for the list-first screens, Add/Edit/Cancel forms, workflow cards and stage summaries.
