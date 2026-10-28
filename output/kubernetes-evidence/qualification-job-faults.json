@@ -5,49 +5,49 @@
   "cases": [
     {
       "case": "lost-create-and-capture-replies",
-      "job_id": "4399b80dd3f5187c7a4c194dae8e78a6aad50fef38788ab249eb6b2ca1db058a",
+      "job_id": "49a4c3b366e58143a96206598fa4aaf6dec65ce093a118c39c9e31f8d51c9ff5",
       "state": "completed",
       "capture_attempts": 2,
       "cleanup_pending": false
     },
     {
       "case": "nonzero-exit",
-      "job_id": "75a0d16daa1b1092ce957f450ee3a16b5b98ec9dd2507c83954a563d276e11f2",
+      "job_id": "98ada6bfc3af8605323d607000c24325e6c2ebf11b4ac101e68aea6ed00f771a",
       "state": "failed",
       "capture_attempts": 1,
       "cleanup_pending": false
     },
     {
       "case": "malformed-output",
-      "job_id": "70f633b402e8787396313c52080b5e9d7eedc56f518b4530dfc84f0d219ed526",
+      "job_id": "9b6e7f6a56f96416f775a0036b040637d2ff6067209d34d84409012337cf431a",
       "state": "failed",
       "capture_attempts": 1,
       "cleanup_pending": false
     },
     {
       "case": "oom",
-      "job_id": "fe2255de52f41fb5938b70b07e09ae833fb1a75d31832f3c95cdbfb4583a53ab",
+      "job_id": "bff118be65b9ad827b4918d8f65a9b6a36a30be45647d161389ea059d463ed6c",
       "state": "failed",
       "capture_attempts": 1,
       "cleanup_pending": false
     },
     {
       "case": "cancel-without-submitter",
-      "job_id": "ec4c666a3a9ac474c7b8a17101b5ae11e66a56bba9d964c0e539294686dc9213",
+      "job_id": "584982262e8c486805f689a2e2e81e41f59c6efd85c948d627c02ec4aafba379",
       "state": "cancelled",
-      "capture_attempts": 1,
-      "cleanup_pending": false
-    },
-    {
-      "case": "deadline-during-controller-outage",
-      "job_id": "772f3978df6e47e78b03400d66ef375c95bae8f90dd38d649acde5ec11259655",
-      "state": "timed-out",
       "capture_attempts": 0,
       "cleanup_pending": false
     },
     {
+      "case": "deadline-during-controller-outage",
+      "job_id": "331ca41c96fb0d58a0b314cdb753544cf9d535b21fc3cefc2e98dd6ea0b98975",
+      "state": "timed-out",
+      "capture_attempts": 1,
+      "cleanup_pending": false
+    },
+    {
       "case": "collector-crash",
-      "job_id": "67a4d7c3b6056b2555a4c0e2518f349e370460845d2256658cd9fabde91496e6",
+      "job_id": "d94149cbe79f0eff024864d4e8a9000a20cf72c6b81828c8fdda6187208f2bef",
       "state": "failed",
       "capture_attempts": 1,
       "cleanup_pending": false

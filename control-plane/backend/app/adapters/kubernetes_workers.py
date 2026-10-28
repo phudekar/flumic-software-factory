@@ -4,6 +4,8 @@ import base64
 import copy
 import hashlib
 import json
+from sqlalchemy import select
+from app.database import RuntimeResourceBinding
 
 from app.adapters.kubernetes_api import KubernetesApi, KubernetesError, NAMESPACE_FENCE
 from app.adapters.kubernetes_job_manifests import manifest_fingerprint
@@ -480,6 +482,38 @@ class KubernetesWorkerRuntime:
             ):
                 raise ValueError("Worker dependency owner changed")
 
+    def _all_payloads_intact(self, worker_id, value):
+        with self.resources.sessions() as db:
+            bindings = db.scalars(
+                select(RuntimeResourceBinding).where(
+                    RuntimeResourceBinding.worker_id == worker_id,
+                    RuntimeResourceBinding.project_id.is_(None),
+                    RuntimeResourceBinding.target_id == self.target.id,
+                    RuntimeResourceBinding.target_revision == self.target.revision,
+                    RuntimeResourceBinding.kind.in_(("Secret", "ConfigMap")),
+                )
+            ).all()
+        for binding in bindings:
+            remote = self._read(
+                "core",
+                "secret" if binding.kind == "Secret" else "config_map",
+                binding.name,
+            )
+            if remote is None:
+                continue
+            owners = remote["metadata"].get("ownerReferences", [])
+            if (
+                remote["metadata"]["uid"] != binding.uid
+                or manifest_fingerprint(remote) != binding.spec_digest
+                or len(owners) != 1
+                or owners[0].get("uid") != value["metadata"]["uid"]
+                or owners[0].get("kind") != "Deployment"
+                or not owners[0].get("controller")
+            ):
+                raise ValueError(
+                    "Worker payload generation identity/spec/owner changed"
+                )
+
     def action(self, worker_id, action):
         if action in ("start", "stop"):
             self._scale(worker_id, int(action == "start"))
@@ -489,7 +523,8 @@ class KubernetesWorkerRuntime:
                 self._removed(worker_id)
                 return
             value = self._scale(worker_id, 0)
-            self._dependencies(worker_id, value, spool_only=True)
+            self._dependencies(worker_id, value)
+            self._all_payloads_intact(worker_id, value)
             self._call(
                 "apps",
                 "delete",

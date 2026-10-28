@@ -6,20 +6,20 @@
     {
       "node": "k3d-flumic-issue17-agent-0",
       "role": "simple",
-      "worker_id": "beb50472-75c0-4e4f-b103-a9e82ea4c412",
-      "deployment_uid": "337aae9a-a2dd-4547-8131-389a8a697f00",
-      "pod_uid": "65a17b1a-188a-4018-82c5-5933bac49e7a",
-      "pvc_uid": "5b4bc6f9-9788-4e16-acb5-0547dbc003f6",
+      "worker_id": "58db3b07-ac15-421c-af73-8da35bbf7e45",
+      "deployment_uid": "22d26e3a-14eb-427a-b8ee-1d6f32c7f265",
+      "pod_uid": "4b89cc3b-5fd4-43c1-a4c6-d2892c84a406",
+      "pvc_uid": "e77afe2f-f48c-4eaa-9d9d-76167d9e0e49",
       "registered": true,
       "hatchet_heartbeat_observed": true
     },
     {
       "node": "k3d-flumic-issue17-server-0",
       "role": "developer",
-      "worker_id": "8aabe41a-e299-4e4c-aa35-c60f642859d8",
-      "deployment_uid": "89c6cd8f-e62d-4400-a62d-1072df08d36f",
-      "pod_uid": "e3d3073d-9fe5-4009-aebd-77b03f2dd58b",
-      "pvc_uid": "28803d76-a0c6-4242-8c3f-4fef82bbeee2",
+      "worker_id": "406a6361-3764-4e7c-a203-2b7c680ad43d",
+      "deployment_uid": "02023f1b-5e76-47d3-b4d2-f78652a727f0",
+      "pod_uid": "e3cf1372-abce-4474-891f-32db57758176",
+      "pvc_uid": "5582fe7f-d138-4658-a81e-ead1a6632e18",
       "registered": true,
       "hatchet_heartbeat_observed": true
     }

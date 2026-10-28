@@ -211,7 +211,7 @@ def eligibility(db, worker, assignment, settings=None):
     try:
         registry = TargetRegistry(settings)
         target = registry.resolve_worker(worker)
-        if target.kind == "kubernetes" and assignment.executor == "docker@1":
+        if assignment.executor == "docker@1":
             from app.database import WorkflowRun
             from app.workflow_definitions import read_definition_pin
             from factory.workflows.definitions import DockerStage

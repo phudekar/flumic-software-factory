@@ -164,6 +164,7 @@ class KubeProtocol:
                 for path in ("/metadata/uid", "/metadata/resourceVersion"):
                     if tests.get(path) != actual["metadata"][path.rsplit("/", 1)[1]]:
                         raise ApiFailure(409)
+                before = copy.deepcopy(actual)
                 for patch in body:
                     if patch["op"] == "test":
                         continue
@@ -175,6 +176,8 @@ class KubeProtocol:
                     for p in parts[:-1]:
                         current = current.setdefault(p, {})
                     current[parts[-1]] = copy.deepcopy(patch["value"])
+                if actual == before:
+                    return copy.deepcopy(actual)
                 self.serial += 1
                 actual["metadata"]["resourceVersion"] = str(self.serial)
                 actual["metadata"]["generation"] += 1

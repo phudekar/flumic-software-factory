@@ -655,6 +655,31 @@ class KubernetesWorkerTests(unittest.TestCase):
             self.adapter.action(self.worker.id, "start")
         self.assertEqual(self.deployment()["spec"]["replicas"], 0)
 
+    def test_remove_refuses_replaced_configuration_dependencies(self):
+        self.adapter.create(self.worker, self.document, self.token)
+        secret = next(
+            value for key, value in self.server.objects.items() if key[1] == "secret"
+        )
+        secret["metadata"]["uid"] = "replacement-secret"
+        with self.assertRaises(ValueError):
+            self.adapter.action(self.worker.id, "remove")
+        self.assertTrue(any(key[1] == "deployment" for key in self.server.objects))
+
+    def test_remove_refuses_changed_previous_generation_payload(self):
+        self.adapter.create(self.worker, self.document, self.token)
+        old = next(
+            value
+            for key, value in self.server.objects.items()
+            if key[1] == "config_map"
+        )
+        self.adapter.configure(
+            self.worker, dict(self.document, normal_slots=4), self.token
+        )
+        old["data"][next(iter(old["data"]))] = "foreign-config"
+        with self.assertRaises(ValueError):
+            self.adapter.action(self.worker.id, "remove")
+        self.assertTrue(any(key[1] == "deployment" for key in self.server.objects))
+
     def test_remove_refuses_spool_with_new_gc_owner(self):
         self.adapter.create(self.worker, self.document, self.token)
         pvc = next(

@@ -283,6 +283,26 @@ class RuntimeResources:
         except IntegrityError:
             raise ValueError("Job intent is already reserved") from None
 
+    def prepare_job_fence(self, job_id, nonce, *, claim):
+        """Approve both sides of a metadata write before invalidating old RVs."""
+        if not isinstance(nonce, str) or not re.fullmatch(r"[0-9a-f]{32}", nonce):
+            raise ValueError("Invalid Job fence")
+        with self.sessions.begin() as db:
+            row = self._owned_row(db, "Job", job_id, claim)
+            if not row.uid or row.phase not in {"prepared", "payload-ready"}:
+                raise ValueError("Only a prepared suspended Job may be fenced")
+            initial = row.details["specs"][row.spec_digest]
+            document = copy.deepcopy(initial)
+            document["metadata"]["annotations"]["flumic.io/start-fence"] = nonce
+            previous = row.details.get("fence_manifest", initial)
+            row.details = {
+                **row.details,
+                "previous_fence_manifest": previous,
+                "fence_manifest": document,
+            }
+            db.flush()
+            return document
+
     def prepare_job_start(self, job_id, document, *, claim):
         """Only a still-suspended Job may select a new, fenced remaining budget."""
         with self.sessions.begin() as db:
@@ -291,7 +311,7 @@ class RuntimeResources:
             if not row.uid or type(budget) is not int or not 1 <= budget <= 3600:
                 raise ValueError("Observed Job and bounded remaining budget required")
             initial = row.details.get("specs", {}).get(row.spec_digest)
-            expected = copy.deepcopy(initial)
+            expected = copy.deepcopy(row.details.get("fence_manifest", initial))
             if expected is None:
                 raise ValueError("Prepared Job document is missing")
             expected["spec"].update(suspend=False, activeDeadlineSeconds=budget)
@@ -305,16 +325,37 @@ class RuntimeResources:
         with self.sessions.begin() as db:
             row = self._owned_row(db, "Job", job_id, claim)
             initial = row.details.get("specs", {}).get(row.spec_digest)
-            candidates = [initial, row.details.get("start_manifest")]
+            candidates = [initial] + [
+                row.details.get(key)
+                for key in (
+                    "start_manifest",
+                    "fence_manifest",
+                    "previous_fence_manifest",
+                    "stop_manifest",
+                    "previous_stop_manifest",
+                )
+            ]
+            nonce = (
+                document.get("metadata", {})
+                .get("annotations", {})
+                .get("flumic.io/start-fence")
+            )
+            if not isinstance(nonce, str) or not re.fullmatch(r"[0-9a-f]{32}", nonce):
+                raise ValueError("Job stop requires a fresh metadata fence")
             allowed = []
             for candidate in candidates:
                 if candidate is not None:
                     stopped = copy.deepcopy(candidate)
                     stopped["spec"]["suspend"] = True
+                    stopped["metadata"]["annotations"]["flumic.io/start-fence"] = nonce
                     allowed.append(stopped)
             if not row.uid or document not in allowed:
                 raise ValueError("Job stop must preserve prepared execution spec")
-            row.details = {**row.details, "stop_manifest": copy.deepcopy(document)}
+            row.details = {
+                **row.details,
+                "previous_stop_manifest": row.details.get("stop_manifest"),
+                "stop_manifest": copy.deepcopy(document),
+            }
             row.phase = "terminating"
             db.flush()
             return row

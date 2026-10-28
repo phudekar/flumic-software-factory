@@ -1,6 +1,7 @@
 """Durable suspended Job intents, fenced admission and repeatable collection."""
 
 import copy
+import uuid
 import math
 import time
 
@@ -144,8 +145,21 @@ class KubernetesJobRuntime:
             if value["spec"].get("suspend", False)
             else root.details.get("start_manifest")
         )
-        if expected is None or manifest_fingerprint(value) != manifest_fingerprint(
-            expected
+        candidates = [expected]
+        if value["spec"].get("suspend", False):
+            candidates.extend(
+                root.details.get(key)
+                for key in (
+                    "fence_manifest",
+                    "previous_fence_manifest",
+                    "previous_stop_manifest",
+                )
+            )
+            candidates.append(self._manifest(root))
+        if not any(
+            candidate is not None
+            and manifest_fingerprint(value) == manifest_fingerprint(candidate)
+            for candidate in candidates
         ):
             raise ValueError("Kubernetes Job spec does not match prepared intent")
         if root.uid is None:
@@ -242,15 +256,33 @@ class KubernetesJobRuntime:
                     claim=self.claim,
                 )
             if root.details.get("start_manifest"):
-                # Increment RV even for a no-op suspension, invalidating any
-                # previously delayed unsuspend before selecting a smaller budget.
-                value = self._patch(
-                    value, [{"op": "replace", "path": "/spec/suspend", "value": True}]
+                fenced = self.resources.prepare_job_fence(
+                    ref.job_id, uuid.uuid4().hex, claim=self.claim
                 )
+                prior_rv = value["metadata"]["resourceVersion"]
+                value = self._patch(
+                    value,
+                    [
+                        {
+                            "op": "add",
+                            "path": "/metadata/annotations/flumic.io~1start-fence",
+                            "value": fenced["metadata"]["annotations"][
+                                "flumic.io/start-fence"
+                            ],
+                        },
+                        {"op": "replace", "path": "/spec/suspend", "value": True},
+                    ],
+                )
+                if value["metadata"]["resourceVersion"] == prior_rv:
+                    raise ValueError("Job fencing did not advance remote revision")
+                if manifest_fingerprint(value) != manifest_fingerprint(fenced):
+                    raise ValueError("Job fence does not match prepared intent")
+            else:
+                fenced = initial
             budget = math.floor(ref.deadline - self.clock())
             if budget < 1:
                 raise ValueError("Job has no whole-second execution budget")
-            started = copy.deepcopy(initial)
+            started = copy.deepcopy(fenced)
             started["spec"].update(suspend=False, activeDeadlineSeconds=budget)
             self.resources.prepare_job_start(ref.job_id, started, claim=self.claim)
             value = self._patch(
@@ -296,7 +328,7 @@ class KubernetesJobRuntime:
                 raise ValueError("Action Pod owner is not the recorded Job UID")
         return items
 
-    def _verified_pod(self, ref, root, pod):
+    def _validate_pod(self, ref, root, pod):
         expected = (root.details.get("start_manifest") or self._manifest(root))["spec"][
             "template"
         ]
@@ -339,9 +371,13 @@ class KubernetesJobRuntime:
 
         if normalize(spec) != normalize(expected["spec"]):
             raise ValueError("Action Pod execution spec changed")
+        return expected
+
+    def _verified_pod(self, ref, root, pod, *, logical_id=None):
+        expected = self._validate_pod(ref, root, pod)
         self.resources.bind(
             "Pod",
-            ref.job_id + ":pod",
+            logical_id or ref.job_id + ":pod",
             namespace=root.namespace,
             name=pod["metadata"]["name"],
             uid=pod["metadata"]["uid"],
@@ -375,6 +411,8 @@ class KubernetesJobRuntime:
                 return RuntimeJobState(state="missing", creation_inert=True)
             return RuntimeJobState(state="intent")
         pods = self._pods(ref, root)
+        for pod in pods:
+            self._validate_pod(ref, root, pod)
         if value is None and pods:
             return (
                 RuntimeJobState(state="dead", exit_code=1)
@@ -387,8 +425,11 @@ class KubernetesJobRuntime:
         if not pods:
             if value is None:
                 return RuntimeJobState(state="missing")
-            if root.details.get("stop_manifest") and not value["metadata"].get(
-                "deletionTimestamp"
+            if (
+                root.details.get("stop_manifest")
+                and manifest_fingerprint(value)
+                == manifest_fingerprint(root.details["stop_manifest"])
+                and not value["metadata"].get("deletionTimestamp")
             ):
                 return RuntimeJobState(state="dead", exit_code=1)
             if any(
@@ -405,7 +446,15 @@ class KubernetesJobRuntime:
                 else "running"
             )
         if len(pods) != 1:
-            return RuntimeJobState(state="dead", exit_code=1)
+            return RuntimeJobState(
+                state="dead"
+                if all(
+                    pod.get("status", {}).get("phase") in {"Failed", "Succeeded"}
+                    for pod in pods
+                )
+                else "removing",
+                exit_code=1,
+            )
         pod = self._verified_pod(ref, root, pods[0])
         action = self._action(pod)
         if "terminated" in action:
@@ -434,6 +483,8 @@ class KubernetesJobRuntime:
         if root is None or not root.uid or value is None:
             return JobCapture(**base, error="Job result is unavailable")
         pods = self._pods(ref, root)
+        for pod in pods:
+            self._validate_pod(ref, root, pod)
         if len(pods) != 1:
             return JobCapture(**base, error="A single owned action Pod is unavailable")
         pod = self._verified_pod(ref, root, pods[0])
@@ -552,27 +603,17 @@ class KubernetesJobRuntime:
             if not root.uid:
                 return
             primary = self.resources.get("Pod", ref.job_id + ":pod")
-            template = (root.details.get("start_manifest") or self._manifest(root))[
-                "spec"
-            ]["template"]
-            for pod in self._pods(ref, root):
+            pods = self._pods(ref, root)
+            for pod in pods:
+                self._validate_pod(ref, root, pod)
+            for pod in pods:
                 logical = (
                     ref.job_id + ":pod"
                     if primary is None or primary.uid == pod["metadata"]["uid"]
                     else ref.job_id + ":late-" + digest(pod["metadata"]["uid"])[:24]
                 )
-                binding = self.resources.bind(
-                    "Pod",
-                    logical,
-                    namespace=root.namespace,
-                    name=pod["metadata"]["name"],
-                    uid=pod["metadata"]["uid"],
-                    spec_digest=digest(template),
-                    owner_uid=root.uid,
-                    project_id=ref.project_id,
-                    job_id=ref.job_id,
-                    claim=self.claim,
-                )
+                self._verified_pod(ref, root, pod, logical_id=logical)
+                binding = self.resources.get("Pod", logical)
                 if binding.phase != "terminating":
                     self.resources.record_phase(
                         "Pod",
@@ -583,21 +624,50 @@ class KubernetesJobRuntime:
                     )
                 self._delete("core", "pod", pod)
             return
+        for pod in self._pods(ref, root):
+            self._validate_pod(ref, root, pod)
         row = self._job(ref)
         if row.state == "completed" and row.runtime_phase == "captured":
             state = self.inspect(ref)
             if state.state in {"exited", "dead", "missing"}:
                 return
-        stopped = copy.deepcopy(
-            root.details.get("start_manifest")
-            if not value["spec"].get("suspend", False)
-            else (root.details.get("stop_manifest") or self._manifest(root))
+        candidates = [self._manifest(root)] + [
+            root.details.get(key)
+            for key in (
+                "start_manifest",
+                "fence_manifest",
+                "previous_fence_manifest",
+                "stop_manifest",
+                "previous_stop_manifest",
+            )
+        ]
+        current = next(
+            (
+                item
+                for item in candidates
+                if item is not None
+                and manifest_fingerprint(item) == manifest_fingerprint(value)
+            ),
+            None,
         )
+        if current is None:
+            raise ValueError("Job stop has no approved observed manifest")
+        stopped = copy.deepcopy(current)
         stopped["spec"]["suspend"] = True
+        nonce = uuid.uuid4().hex
+        stopped["metadata"]["annotations"]["flumic.io/start-fence"] = nonce
         self.resources.prepare_job_stop(ref.job_id, stopped, claim=self.claim)
         if not value["metadata"].get("deletionTimestamp"):
             value = self._patch(
-                value, [{"op": "replace", "path": "/spec/suspend", "value": True}]
+                value,
+                [
+                    {
+                        "op": "add",
+                        "path": "/metadata/annotations/flumic.io~1start-fence",
+                        "value": nonce,
+                    },
+                    {"op": "replace", "path": "/spec/suspend", "value": True},
+                ],
             )
         # Suspension requests action termination without cascading through an
         # object whose persisted UID/owner has been replaced.
@@ -618,6 +688,8 @@ class KubernetesJobRuntime:
         if root.uid is None:
             return
         pods = self._pods(ref, root)
+        for pod in pods:
+            self._validate_pod(ref, root, pod)
         if not self._payloads_intact(ref, root):
             raise ValueError("Cleanup payload identity/owner changed")
         if value is not None:

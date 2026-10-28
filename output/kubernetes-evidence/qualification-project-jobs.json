@@ -14,44 +14,44 @@
   "reported_usd_per_project": 0.03,
   "resources": [
     {
-      "kind": "Pod",
-      "uid": "57ec5b92-a686-4d72-baee-659742344902"
+      "kind": "Secret",
+      "uid": "0e5cba6b-c4f5-4310-b2c1-01fa3d11cc3c"
     },
     {
       "kind": "ConfigMap",
-      "uid": "ec680140-76fd-4e17-b608-38b83197bf70"
-    },
-    {
-      "kind": "ConfigMap",
-      "uid": "158b647b-9671-48b5-b066-cacdb3e0ef23"
+      "uid": "52497d87-7e14-409b-8cbf-ca99edd57405"
     },
     {
       "kind": "Pod",
-      "uid": "efdd354e-ae05-4834-a84f-e04f0e6b4997"
+      "uid": "7b5229a7-b115-44e4-910f-f2c62e9c6308"
     },
     {
       "kind": "Secret",
-      "uid": "06c27893-71e7-47d6-bc60-19144dcc7111"
+      "uid": "fd69735c-ade2-4e20-a8d1-8a0aa7d62589"
+    },
+    {
+      "kind": "Pod",
+      "uid": "de29c31f-c8ec-46fa-bf0b-ac8b469f529d"
     },
     {
       "kind": "ConfigMap",
-      "uid": "38781b43-fa8d-4700-850e-aa590f502591"
+      "uid": "7cdd590e-9178-492c-8eb3-e2c0c4f1ffef"
     },
     {
       "kind": "Job",
-      "uid": "98a534bc-1bc3-4323-a33f-00376bbafe33"
+      "uid": "4cd6b7be-899d-4682-8e61-a11d7dcba0ba"
     },
     {
       "kind": "ConfigMap",
-      "uid": "00abd04c-ee29-42e4-a2a8-ef38a2aa9d60"
+      "uid": "ff70e296-0e27-47ab-8b4a-1819689a0090"
     },
     {
-      "kind": "Secret",
-      "uid": "18d7662d-e566-4790-a42b-42e1b7c47dad"
+      "kind": "ConfigMap",
+      "uid": "6a72d82c-484d-4e34-afd4-ae1940b4f57f"
     },
     {
       "kind": "Job",
-      "uid": "a9379f6f-d136-40f2-b929-ae690c2c76c6"
+      "uid": "2d0480b2-bf34-428b-becb-37ff7462fe2e"
     }
   ],
   "real_components": [

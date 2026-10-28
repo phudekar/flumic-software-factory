@@ -152,6 +152,86 @@ class KubernetesProjectReleaseTests(unittest.TestCase):
         f.jobs = NativeReleaseDriver(f)
         return f
 
+    def test_mixed_pool_rejects_incapable_docker_before_native_claim(self):
+        import uuid
+        from sqlalchemy import select
+        from app.database import Assignment
+        from app.reconciler import worker_token
+
+        f = self.fixture()
+        self.assertIsNone(f.settings.job_bridge)
+        project = f.projects["release-alpha"]
+        graph = copy.deepcopy(project["graph"])
+        next(stage for stage in graph["stages"] if stage["id"] == "collect")[
+            "network"
+        ] = "bridge"
+        project["definition"] = f.call(
+            project["base"] + "/workflow-definitions/" + project["definition"]["id"],
+            {"document": graph, "parent_id": project["definition"]["revision_id"]},
+            method="PUT",
+        )
+        run = f.launch("release-alpha")
+        for _ in range(12):
+            frontier = f.runtime.advance(run)
+            ready = [
+                inv
+                for inv in frontier.ready
+                if frontier.routes[inv.execution_id].stage_id == "collect"
+            ]
+            if ready:
+                invocation = ready[0]
+                break
+            for invocation in frontier.ready:
+                f.execute(invocation, frontier.routes[invocation.execution_id].role)
+            f.drain_history()
+        else:
+            self.fail("Container stage did not become ready")
+        pool = f.pools["developer"]
+        worker = f.call(
+            "/api/v1/worker-pools/" + pool["id"] + "/workers",
+            {"name": "incapable-docker", "target_id": "local-docker"},
+            201,
+        )
+        headers = {
+            "X-Worker-Id": worker["id"],
+            "Authorization": "Bearer " + worker_token(f.settings, worker["id"]),
+        }
+        f.call(
+            "/api/v1/shared-worker/register",
+            {
+                "protocol": "shared-v1",
+                "pool_id": pool["id"],
+                "role": "developer",
+                "executors": pool["executors"],
+                "actions": pool["actions"],
+                "normal_slots": 2,
+                "durable_slots": 16,
+            },
+            headers=headers,
+        )
+        body = {
+            "project_id": run.project_id,
+            "run_id": run.run_id,
+            "execution_id": invocation.execution_id,
+            "claim_key": str(uuid.uuid4()),
+        }
+        response = f.client.post(
+            "/api/v1/shared-worker/claim", json=body, headers=headers
+        )
+        self.assertEqual(response.status_code, 409, response.text)
+        with f.sessions() as db:
+            row = db.scalar(
+                select(Assignment).where(
+                    Assignment.execution_id == invocation.execution_id
+                )
+            )
+            self.assertEqual(row.status, "ready")
+            self.assertIsNone(row.worker_id)
+        response = f.client.post(
+            "/api/v1/shared-worker/claim", json=body, headers=f.headers["developer"]
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+
     def test_two_projects_shared_workers_native_jobs_frozen_grants_and_usage(self):
         f = self.fixture()
         runs = [f.launch(slug) for slug in f.projects]

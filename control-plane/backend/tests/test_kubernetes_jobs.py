@@ -233,6 +233,114 @@ class KubernetesJobTests(JobFixture, unittest.TestCase):
             claim=self.claim,
         )
 
+    def test_multiple_live_pods_are_not_reported_dead(self):
+        self.runtime.ensure(self.launch)
+        first = self.pod()
+        first["status"]["containerStatuses"][0]["state"] = {"running": {}}
+        second = copy.deepcopy(first)
+        second["metadata"].update(name="second-pod", uid="second-uid")
+        self.server.objects[("core", "pod", "flumic-actions", "second-pod")] = second
+        self.assertNotIn(
+            self.runtime.inspect(self.ref).state, {"dead", "exited", "missing"}
+        )
+
+    def test_cancellation_waits_for_both_running_pods_to_stop(self):
+        from app.database import RuntimeJob
+        from app.runtime_claims import release_runtime_claim
+
+        self.runtime.ensure(self.launch)
+        first = self.pod()
+        first["status"]["containerStatuses"][0]["state"] = {"running": {}}
+        second = copy.deepcopy(first)
+        second["metadata"].update(name="second-pod", uid="second-uid")
+        self.server.objects[("core", "pod", "flumic-actions", "second-pod")] = second
+        self.server.clients["batch"].delete_namespaced_job = lambda **kwargs: {
+            "status": "Success"
+        }
+        with self.sessions.begin() as db:
+            row = db.get(RuntimeJob, self.ref.job_id)
+            row.cancel_requested, row.launch_started = True, True
+        release_runtime_claim(self.sessions, self.claim)
+        outer = self
+
+        class Router:
+            def for_job(self, ref, *, claim):
+                from app.adapters.kubernetes_jobs import KubernetesJobRuntime
+
+                return KubernetesJobRuntime(
+                    outer.snapshot,
+                    outer.resources,
+                    api=type(outer.api)(outer.snapshot, clients=outer.server.clients),
+                    claim=claim,
+                    clock=lambda: outer.now,
+                )
+
+        self.broker.reconcile_once(Router())
+        with self.sessions() as db:
+            self.assertNotIn(
+                db.get(RuntimeJob, self.ref.job_id).state,
+                {"cancelled", "completed", "timed_out"},
+            )
+        for pod in (first, second):
+            pod["status"]["phase"] = "Failed"
+            pod["status"]["containerStatuses"][0]["state"] = {
+                "terminated": {"exitCode": 137}
+            }
+        self.broker.reconcile_once(Router())
+        with self.sessions() as db:
+            self.assertEqual(db.get(RuntimeJob, self.ref.job_id).state, "cancelled")
+
+    def test_rootless_valid_late_pods_are_bound_and_stopped(self):
+        self.runtime.ensure(self.launch)
+        first = self.pod()
+        self.runtime.inspect(self.ref)
+        second = copy.deepcopy(first)
+        second["metadata"].update(name="late-pod", uid="late-uid")
+        self.server.objects[("core", "pod", "flumic-actions", "late-pod")] = second
+        del self.server.objects[
+            next(key for key in self.server.objects if key[1] == "job")
+        ]
+        self.runtime.terminate(self.ref)
+        self.assertFalse(any(key[1] == "pod" for key in self.server.objects))
+
+    def test_rootless_termination_refuses_changed_pod_spec(self):
+        self.runtime.ensure(self.launch)
+        pod = self.pod()
+        pod["spec"]["containers"][0]["image"] = "foreign-image"
+        key = next(key for key in self.server.objects if key[1] == "job")
+        del self.server.objects[key]
+        with self.assertRaises(ValueError):
+            self.runtime.terminate(self.ref)
+        self.assertIn(
+            ("core", "pod", "flumic-actions", "owned-pod"), self.server.objects
+        )
+
+    def test_cascading_termination_refuses_changed_pod_project(self):
+        self.runtime.ensure(self.launch)
+        pod = self.pod()
+        pod["metadata"]["labels"]["flumic.io/project"] = "foreign-project"
+        with self.assertRaises(ValueError):
+            self.runtime.terminate(self.ref)
+        self.assertTrue(any(key[1] == "job" for key in self.server.objects))
+        self.assertIsNone(self.resources.get("Pod", self.ref.job_id + ":pod"))
+
+    def test_rootless_termination_validates_all_before_deleting_any(self):
+        self.runtime.ensure(self.launch)
+        first = self.pod()
+        second = copy.deepcopy(first)
+        second["metadata"].update(name="late-pod", uid="late-uid")
+        second["metadata"]["labels"]["flumic.io/project"] = "foreign-project"
+        self.server.objects[("core", "pod", "flumic-actions", "late-pod")] = second
+        del self.server.objects[
+            next(key for key in self.server.objects if key[1] == "job")
+        ]
+        with self.assertRaises(ValueError):
+            self.runtime.terminate(self.ref)
+        self.assertIn(
+            ("core", "pod", "flumic-actions", "owned-pod"), self.server.objects
+        )
+        self.assertIsNone(self.resources.get("Pod", self.ref.job_id + ":pod"))
+
     def test_ensure_has_one_uid_payloads_then_unsuspends_with_fixed_budget(self):
         self.assertEqual(self.runtime.ensure(self.launch), self.ref)
         uid = self.job()["metadata"]["uid"]
@@ -540,6 +648,109 @@ class KubernetesJobTests(JobFixture, unittest.TestCase):
         )
         with self.sessions() as db:
             self.assertEqual(db.get(RuntimeJob, self.ref.job_id).state, "pending")
+
+    def test_retry_fences_delayed_unsuspend_before_replacing_budget(self):
+        from app.adapters.kubernetes_api import KubernetesApi, KubernetesError
+        from app.adapters.kubernetes_jobs import KubernetesJobRuntime
+        from app.runtime_claims import claim_runtime
+
+        original = self.server.clients["batch"].patch_namespaced_job
+        old_patch = []
+
+        def hold(**kwargs):
+            if any(
+                p.get("path") == "/spec/suspend" and p.get("value") is False
+                for p in kwargs["body"]
+            ):
+                old_patch.append(copy.deepcopy(kwargs))
+                raise KubernetesError("Delayed request")
+            return original(**kwargs)
+
+        self.server.clients["batch"].patch_namespaced_job = hold
+        with self.assertRaises(KubernetesError):
+            self.runtime.ensure(self.launch)
+        self.now += 61
+        claim = claim_runtime(self.sessions, "job:" + self.ref.job_id, self.now)
+        runtime = KubernetesJobRuntime(
+            self.snapshot,
+            self.resources,
+            api=KubernetesApi(self.snapshot, clients=self.server.clients),
+            claim=claim,
+            clock=lambda: self.now,
+        )
+        self.server.clients["batch"].patch_namespaced_job = original
+        prepare = self.resources.prepare_job_start
+        delayed_rejected = []
+
+        def interleave(*args, **kwargs):
+            result = prepare(*args, **kwargs)
+            try:
+                original(**old_patch[0])
+            except Exception as error:
+                if getattr(error, "status", None) != 409:
+                    raise
+                delayed_rejected.append(True)
+            return result
+
+        self.resources.prepare_job_start = interleave
+        runtime.ensure(self.launch)
+        self.assertEqual(delayed_rejected, [True])
+        self.assertEqual(runtime.inspect(self.ref).state, "running")
+
+    def test_lost_fence_reply_recovers_only_approved_metadata(self):
+        from app.adapters.kubernetes_api import KubernetesError
+
+        original = self.server.clients["batch"].patch_namespaced_job
+
+        def hold(**kwargs):
+            if any(
+                p.get("path") == "/spec/suspend" and p.get("value") is False
+                for p in kwargs["body"]
+            ):
+                raise KubernetesError(503)
+            return original(**kwargs)
+
+        self.server.clients["batch"].patch_namespaced_job = hold
+        with self.assertRaises(KubernetesError):
+            self.runtime.ensure(self.launch)
+        self.server.clients["batch"].patch_namespaced_job = original
+        self.server.lose_patch = "job"
+        with self.assertRaises(KubernetesError):
+            self.runtime.ensure(self.launch)
+        self.runtime.ensure(self.launch)
+        self.assertEqual(self.runtime.inspect(self.ref).state, "running")
+        self.job()["metadata"]["annotations"]["flumic.io/start-fence"] = "foreign-fence"
+        with self.assertRaises(ValueError):
+            self.runtime.inspect(self.ref)
+
+    def test_cancellation_fences_delayed_unsuspend_when_payload_blocks_delete(self):
+        from app.adapters.kubernetes_api import KubernetesError
+
+        original = self.server.clients["batch"].patch_namespaced_job
+        delayed = []
+
+        def hold(**kwargs):
+            if any(
+                p.get("path") == "/spec/suspend" and p.get("value") is False
+                for p in kwargs["body"]
+            ):
+                delayed.append(copy.deepcopy(kwargs))
+                raise KubernetesError(503)
+            return original(**kwargs)
+
+        self.server.clients["batch"].patch_namespaced_job = hold
+        with self.assertRaises(KubernetesError):
+            self.runtime.ensure(self.launch)
+        secret = next(
+            value for key, value in self.server.objects.items() if key[1] == "secret"
+        )
+        secret["metadata"]["uid"] = "foreign-secret"
+        self.server.clients["batch"].patch_namespaced_job = original
+        self.runtime.terminate(self.ref)
+        with self.assertRaises(Exception) as caught:
+            original(**delayed[0])
+        self.assertEqual(getattr(caught.exception, "status", None), 409)
+        self.assertEqual(self.runtime.inspect(self.ref).state, "dead")
 
     def test_new_owner_cancellation_fences_delayed_unsuspend(self):
         from app.adapters.kubernetes_api import KubernetesApi, KubernetesError
