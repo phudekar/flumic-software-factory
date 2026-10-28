@@ -104,7 +104,12 @@ class ReleaseHarnessSafetyTests(unittest.TestCase):
             {
                 "app": Mock(),
                 "app.database": SimpleNamespace(RuntimeJob=object),
-                "app.job_contracts": SimpleNamespace(RuntimeJobRef=ref),
+                "app.job_contracts": SimpleNamespace(
+                    RuntimeJobRef=ref,
+                    JobLaunch=SimpleNamespace(
+                        model_validate=lambda value: SimpleNamespace(**value)
+                    ),
+                ),
                 "app.project_context": SimpleNamespace(
                     decrypt=lambda value, _: {"launch": {"id": value}}
                 ),

@@ -22,6 +22,14 @@ on:
         description: Approve temporary CI/default-branch commits and their guarded cleanup in the disposable GitLab project
         type: boolean
         default: false
+      run_kubernetes_contracts:
+        description: Run native Kubernetes contracts in a new disposable k3d cluster (test Hatchet tenant required)
+        type: boolean
+        default: false
+      allow_kubernetes_writes:
+        description: Approve fixture writes within the disposable k3d cluster and test Hatchet tenant
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -221,3 +229,116 @@ jobs:
           name: gitlab-protocol-evidence
           if-no-files-found: ignore
           path: output/gitlab-evidence/gitlab-contract-*.json
+
+
+  kubernetes-contracts:
+    name: Opt-in native Kubernetes contracts
+    if: github.event_name == 'workflow_dispatch' && inputs.run_kubernetes_contracts && inputs.allow_kubernetes_writes
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      PYTHONPATH: tests:worker:control-plane/backend:control-plane/backend/tests
+      FLUMIC_LIVE_KUBERNETES: '1'
+      FLUMIC_KUBERNETES_ALLOW_WRITES: '1'
+      CONTROL_TEST_DATABASE_URL: postgresql+psycopg://postgres:flumic-ci-test@127.0.0.1:5432/flumic_test
+      HATCHET_CLIENT_TOKEN: ${{ secrets.FLUMIC_RELEASE_HATCHET_TOKEN }}
+      HATCHET_CLIENT_HOST_PORT: ${{ secrets.FLUMIC_RELEASE_HATCHET_HOST_PORT }}
+      HATCHET_CLIENT_SERVER_URL: ${{ secrets.FLUMIC_RELEASE_HATCHET_SERVER_URL }}
+      HATCHET_CLIENT_TLS_STRATEGY: ${{ vars.FLUMIC_RELEASE_HATCHET_TLS_STRATEGY || 'tls' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+          cache: pip
+          cache-dependency-path: control-plane/backend/requirements.lock
+      - name: Start a fresh public evidence inventory
+        run: python -c "from pathlib import Path; from integration.kubernetes_evidence import FIELDS; root=Path('output/kubernetes-evidence'); [root.joinpath(name).unlink(missing_ok=True) for name in FIELDS]"
+      - name: Require the isolated test tenant
+        run: python -c "import os; assert all(os.environ.get(k) for k in ('HATCHET_CLIENT_TOKEN','HATCHET_CLIENT_HOST_PORT','HATCHET_CLIENT_SERVER_URL')), 'Configure the test-tenant transport secrets first'"
+      - run: python -m pip install -r control-plane/backend/requirements.lock
+      - name: Install pinned local-cluster tools
+        run: |
+          curl --fail --retry 3 -L https://github.com/k3d-io/k3d/releases/download/v5.9.0/k3d-linux-amd64 -o /tmp/k3d-linux-amd64
+          curl --fail --retry 3 -L https://github.com/k3d-io/k3d/releases/download/v5.9.0/checksums.txt -o /tmp/k3d-checksums.txt
+          (cd /tmp && sha256sum --check --ignore-missing k3d-checksums.txt)
+          sudo install -m 0755 /tmp/k3d-linux-amd64 /usr/local/bin/k3d
+          curl --fail --retry 3 -L https://dl.k8s.io/release/v1.35.9/bin/linux/amd64/kubectl -o /tmp/kubectl
+          curl --fail --retry 3 -L https://dl.k8s.io/release/v1.35.9/bin/linux/amd64/kubectl.sha256 -o /tmp/kubectl.sha256
+          echo "$(cat /tmp/kubectl.sha256)  /tmp/kubectl" | sha256sum --check
+          sudo install -m 0755 /tmp/kubectl /usr/local/bin/kubectl
+      - name: Create only the owned registry, cluster and fixture database
+        run: |
+          umask 077
+          k3d registry create flumic-issue17-registry --port 127.0.0.1:5117 --no-help
+          touch "$RUNNER_TEMP/flumic-registry-created"
+          python -c 'import os,pathlib; pathlib.Path(os.environ["RUNNER_TEMP"],"flumic-registry.yaml").write_text("mirrors:\n  \"localhost:5117\":\n    endpoint:\n      - \"http://k3d-flumic-issue17-registry:5000\"\n")'
+          k3d cluster create --config deploy/kubernetes/k3d.test.yaml --registry-use k3d-flumic-issue17-registry:5000 --registry-config "$RUNNER_TEMP/flumic-registry.yaml" --wait --timeout 5m
+          touch "$RUNNER_TEMP/flumic-cluster-created"
+          k3d kubeconfig get flumic-issue17 > "$RUNNER_TEMP/flumic-kubeconfig.yaml"
+          docker run -d --name flumic-runtime-test-postgres --label flumic.io/qualification=issue17-ci -e POSTGRES_PASSWORD=flumic-ci-test -e POSTGRES_DB=flumic_test -p 127.0.0.1:5432:5432 postgres:16
+          for _ in $(seq 1 30); do docker exec flumic-runtime-test-postgres pg_isready -U postgres && break; sleep 1; done
+          docker exec flumic-runtime-test-postgres pg_isready -U postgres
+      - name: Build and resolve approved immutable fixture images
+        run: |
+          docker build -f control-plane/kubernetes-helper/Dockerfile -t localhost:5117/flumic-helper:issue17 control-plane/kubernetes-helper
+          docker push localhost:5117/flumic-helper:issue17
+          docker build -f worker/Dockerfile -t localhost:5117/flumic-worker:issue17 .
+          docker push localhost:5117/flumic-worker:issue17
+          docker build -f control-plane/Dockerfile -t localhost:5117/flumic-control-fixture:issue17 .
+          docker pull busybox:1.37.0
+          docker tag busybox:1.37.0 localhost:5117/flumic-probe:issue17
+          docker push localhost:5117/flumic-probe:issue17
+          python - <<'PY'
+          import json, os, pathlib, re, urllib.request
+          with open(os.environ['GITHUB_ENV'], 'a') as env:
+              for role in ('helper', 'worker', 'probe'):
+                  request = urllib.request.Request('http://127.0.0.1:5117/v2/flumic-'+role+'/manifests/issue17', method='HEAD', headers={'Accept':'application/vnd.oci.image.index.v1+json,application/vnd.oci.image.manifest.v1+json,application/vnd.docker.distribution.manifest.v2+json'})
+                  with urllib.request.urlopen(request, timeout=5) as response:
+                      digest = response.headers['Docker-Content-Digest']
+                  assert re.fullmatch(r'sha256:[a-f0-9]{64}', digest)
+                  env.write('FLUMIC_KUBERNETES_'+role.upper()+'_IMAGE=localhost:5117/flumic-'+role+'@'+digest+'\n')
+              path = pathlib.Path(os.environ['RUNNER_TEMP'], 'flumic-transport.env')
+              path.write_text(''.join(key+'='+json.dumps(os.environ.get(key, ''))+'\n' for key in ('HATCHET_CLIENT_TOKEN','HATCHET_CLIENT_HOST_PORT','HATCHET_CLIENT_SERVER_URL','HATCHET_CLIENT_TLS_STRATEGY')))
+              path.chmod(0o600)
+              env.write('FLUMIC_KUBERNETES_TRANSPORT_ENV_FILE='+str(path)+'\n')
+          PY
+      - name: Bootstrap pinned namespaces, admission fencing and restricted controller
+        run: |
+          cluster_uid=$(kubectl --kubeconfig "$RUNNER_TEMP/flumic-kubeconfig.yaml" --context k3d-flumic-issue17 get namespace kube-system -o jsonpath='{.metadata.uid}')
+          python -m integration.kubernetes_cluster_setup --allow-bootstrap --kubeconfig "$RUNNER_TEMP/flumic-kubeconfig.yaml" --context k3d-flumic-issue17 --docker-context default --expected-cluster-uid "$cluster_uid" --fixture-id issue17-ci --state-dir "$RUNNER_TEMP/flumic-controller-state" --github-env "$GITHUB_ENV"
+      - name: Qualify native scheduling, isolation, lifecycle, capture and recovery
+        run: python -m unittest integration.test_kubernetes_contract -v
+      - name: Validate public summaries and reject credential or scope leakage
+        id: public_kubernetes_evidence
+        if: always()
+        run: python -m integration.kubernetes_evidence
+      - name: Upload only allowlisted public qualification summaries
+        if: always() && steps.public_kubernetes_evidence.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: kubernetes-qualification-evidence
+          if-no-files-found: ignore
+          path: output/kubernetes-evidence/qualification-*.json
+      - name: Remove only the job-owned disposable infrastructure
+        if: always()
+        run: |
+          python - <<'PY'
+          import json, os, pathlib, subprocess
+          def inspect(name):
+              result=subprocess.run(['docker','inspect',name],capture_output=True,text=True)
+              return json.loads(result.stdout)[0] if result.returncode==0 else None
+          for name in ('flumic-i17-control-fixture','flumic-runtime-test-postgres'):
+              value=inspect(name)
+              if value and value['Config']['Labels'].get('flumic.io/qualification')=='issue17-ci':
+                  subprocess.run(['docker','rm','-f',value['Id']],check=True)
+          created=pathlib.Path(os.environ['RUNNER_TEMP'])
+          if (created/'flumic-cluster-created').exists():
+              nodes=[inspect('k3d-flumic-issue17-'+suffix) for suffix in ('server-0','agent-0')]
+              assert all(v and v['Config']['Labels'].get('k3d.cluster')=='flumic-issue17' for v in nodes)
+              subprocess.run(['k3d','cluster','delete','flumic-issue17'],check=True)
+          if (created/'flumic-registry-created').exists():
+              value=inspect('k3d-flumic-issue17-registry')
+              assert value and value['Config']['Labels'].get('k3d.role')=='registry'
+              subprocess.run(['k3d','registry','delete','flumic-issue17-registry'],check=True)
+          PY

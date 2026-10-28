@@ -25,16 +25,16 @@ Flumic AI turns issue requirements into draft pull requests through explicit, ob
 | Shared SQLite/files | Factory execution state and claims across workers on one host |
 | Optional SigNoz | OpenTelemetry traces, metrics, logs and infrastructure dashboards |
 
-## Coming soon
+## Source hosts and runtime options
 
 GitLab.com issue-to-merge-request workflows are available; see [GitLab setup](/flumic-software-factory/handbook/gitlab/).
 
-- **Kubernetes workflow and worker orchestration:** planned support for Kubernetes-based execution and operations.
+- **Kubernetes workflow and worker orchestration:** native Deployments and Jobs with private worker history volumes, pinned runtime authority and scoped cleanup. See [Kubernetes setup](/flumic-software-factory/operations/kubernetes/).
 
-Kubernetes is planned. Release timing and final scope are not committed. Current deployments use GitHub or GitLab.com and Docker with Hatchet orchestration.
+GitHub and GitLab.com work with Hatchet orchestration and Docker or a qualified Kubernetes target. Remote function execution remains planned.
 
 ## Scope today
 
-The deployment is for a trusted local developer with Docker access. It does not provide multi-user roles, verified graceful drain, automatic rolling configuration migration or Kubernetes execution. Multiple workers must share execution state on one host. Humans review and merge PRs.
+The Control Pane is for a trusted administrator. Project workflows use PostgreSQL execution state and claims across shared workers, including Kubernetes nodes. Legacy static workers retain shared-host SQLite/files. Multi-user roles, verified graceful drain and automatic rolling configuration migration remain future work. Humans review and merge PRs.
 
 [Start locally](/flumic-software-factory/start/quick-start/) or [explore the architecture](/flumic-software-factory/handbook/architecture/).

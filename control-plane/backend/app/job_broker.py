@@ -8,6 +8,7 @@ are trusted: all are recovered from the owned immutable launch and assignment.
 import hashlib
 from pathlib import Path
 import time
+from app.ports import managed_runtime
 from fastapi import HTTPException
 from sqlalchemy import select
 from app.database import (
@@ -331,110 +332,122 @@ class JobBroker:
                     stop, stop_state = True, "failed"
         if callable(getattr(type(runtime), "for_job", None)):
             runtime = runtime.for_job(ref, claim=claim)
-        if terminal:
-            # Keep tombstones and inspect them on later ticks too: a delayed Docker
-            # create response must never leave a cancelled job running indefinitely.
-            require_runtime_claim(self.sessions, claim, self.clock())
-            runtime.terminate(ref, grace_seconds=5)
-            require_runtime_claim(self.sessions, claim, self.clock())
-            runtime.cleanup(ref)
-            with self.sessions.begin() as db:
-                transition_lock(db)
-                require_runtime_claim(self.sessions, claim, self.clock(), db=db)
-                row = db.get(RuntimeJob, job_id)
-                row.next_cleanup_at = self.clock() + 60
-                row.cleanup_pending = False
-                row.runtime_phase = "removed"
-                row.error = None
-            return
-        with secret_scope(credentials.values()):
-            state = runtime.inspect(ref)
-            if state.state not in {"missing", "intent"}:
-                observed = True
-                with self.sessions.begin() as db:
-                    transition_lock(db)
-                    require_runtime_claim(self.sessions, claim, self.clock(), db=db)
-                    db.get(RuntimeJob, job_id).runtime_observed = True
-            if (
-                state.state == "missing"
-                and started
-                and not observed
-                and not state.creation_inert
-            ):
-                self._unknown(job_id, claim)
-                return
-            if stop:
+        with managed_runtime(runtime):
+            if terminal:
+                # Keep tombstones and inspect them on later ticks too: a delayed Docker
+                # create response must never leave a cancelled job running indefinitely.
                 require_runtime_claim(self.sessions, claim, self.clock())
                 runtime.terminate(ref, grace_seconds=5)
-                state = runtime.inspect(ref)
-                if state.state not in {"missing", "exited", "dead"}:
-                    return
-                result = (
-                    sanitize_capture(runtime.collect(ref), credentials.values())[0]
-                    if state.state in {"exited", "dead"}
-                    else {}
-                )
-                result, final = (
-                    {**result, "output": {}, "error": "Job " + stop_state},
-                    stop_state,
-                )
-            else:
-                if not started or state.state in {"created", "intent"}:
-                    require_runtime_claim(self.sessions, claim, self.clock())
-                    runtime.ensure(
-                        launch.model_copy(update={"credentials": credentials})
-                    )
-                    state = runtime.inspect(ref)
-                if state.state == "missing":
-                    self._unknown(job_id, claim)
-                    return  # Unknown external effects; do not recreate a lost job.
+                require_runtime_claim(self.sessions, claim, self.clock())
+                runtime.cleanup(ref)
                 with self.sessions.begin() as db:
                     transition_lock(db)
                     require_runtime_claim(self.sessions, claim, self.clock(), db=db)
-                    db.get(RuntimeJob, job_id).runtime_observed = True
-                if state.state not in {"exited", "dead"}:
+                    row = db.get(RuntimeJob, job_id)
+                    row.next_cleanup_at = self.clock() + 60
+                    row.cleanup_pending = False
+                    row.runtime_phase = "removed"
+                    row.error = None
+                return
+            with secret_scope(credentials.values()):
+                state = runtime.inspect(ref)
+                if state.state not in {"missing", "intent"}:
+                    observed = True
                     with self.sessions.begin() as db:
                         transition_lock(db)
                         require_runtime_claim(self.sessions, claim, self.clock(), db=db)
-                        row = db.get(RuntimeJob, job_id)
-                        row.state, row.error = "running", None
+                        db.get(RuntimeJob, job_id).runtime_observed = True
+                if (
+                    state.state == "missing"
+                    and started
+                    and not observed
+                    and not state.creation_inert
+                ):
+                    self._unknown(job_id, claim)
                     return
-                result, failed = sanitize_capture(
-                    runtime.collect(ref), credentials.values()
-                )
-                final = "failed" if failed else "completed"
-            with self.sessions.begin() as db:
-                transition_lock(db)
-                require_runtime_claim(self.sessions, claim, self.clock(), db=db)
-                row = db.get(RuntimeJob, job_id)
-                _, _, run = self._authority(db, row)
-                if row.state in TERMINAL:
-                    return
-                # Cancellation is linearized at terminal commit, never at inspect.
-                if row.cancel_requested or run.state in {"cancelling", "cancelled"}:
+                if stop:
+                    require_runtime_claim(self.sessions, claim, self.clock())
+                    runtime.terminate(ref, grace_seconds=5)
+                    state = runtime.inspect(ref)
+                    if state.state not in {"missing", "exited", "dead"}:
+                        return
+                    result = (
+                        sanitize_capture(runtime.collect(ref), credentials.values())[0]
+                        if state.state in {"exited", "dead"}
+                        else {}
+                    )
                     result, final = (
-                        {**result, "output": {}, "error": "Job cancelled"},
-                        "cancelled",
+                        {**result, "output": {}, "error": "Job " + stop_state},
+                        stop_state,
                     )
-                elif self.clock() >= row.deadline:
-                    result, final = (
-                        {**result, "output": {}, "error": "Job timed-out"},
-                        "timed-out",
+                else:
+                    if (
+                        not started
+                        or state.state in {"created", "intent"}
+                        or (
+                            state.state == "missing"
+                            and state.creation_inert
+                            and not observed
+                        )
+                    ):
+                        require_runtime_claim(self.sessions, claim, self.clock())
+                        runtime.ensure(
+                            launch.model_copy(update={"credentials": credentials})
+                        )
+                        state = runtime.inspect(ref)
+                    if state.state == "missing":
+                        self._unknown(job_id, claim)
+                        return  # Unknown external effects; do not recreate a lost job.
+                    with self.sessions.begin() as db:
+                        transition_lock(db)
+                        require_runtime_claim(self.sessions, claim, self.clock(), db=db)
+                        db.get(RuntimeJob, job_id).runtime_observed = True
+                    if state.state not in {"exited", "dead"}:
+                        with self.sessions.begin() as db:
+                            transition_lock(db)
+                            require_runtime_claim(
+                                self.sessions, claim, self.clock(), db=db
+                            )
+                            row = db.get(RuntimeJob, job_id)
+                            row.state, row.error = "running", None
+                        return
+                    result, failed = sanitize_capture(
+                        runtime.collect(ref), credentials.values()
                     )
-                row.state, row.error = final, None
-                row.runtime_phase = "captured"
-                row.cleanup_pending = True
-                binding = db.scalar(
-                    select(RuntimeResourceBinding).where(
-                        RuntimeResourceBinding.job_id == row.id,
-                        RuntimeResourceBinding.project_id == row.project_id,
-                        RuntimeResourceBinding.target_id == row.target_id,
-                        RuntimeResourceBinding.target_revision == row.target_revision,
-                        RuntimeResourceBinding.kind == "Job",
-                        RuntimeResourceBinding.logical_id == row.id,
+                    final = "failed" if failed else "completed"
+                with self.sessions.begin() as db:
+                    transition_lock(db)
+                    require_runtime_claim(self.sessions, claim, self.clock(), db=db)
+                    row = db.get(RuntimeJob, job_id)
+                    _, _, run = self._authority(db, row)
+                    if row.state in TERMINAL:
+                        return
+                    # Cancellation is linearized at terminal commit, never at inspect.
+                    if row.cancel_requested or run.state in {"cancelling", "cancelled"}:
+                        result, final = (
+                            {**result, "output": {}, "error": "Job cancelled"},
+                            "cancelled",
+                        )
+                    elif self.clock() >= row.deadline:
+                        result, final = (
+                            {**result, "output": {}, "error": "Job timed-out"},
+                            "timed-out",
+                        )
+                    row.state, row.error = final, None
+                    row.runtime_phase = "captured"
+                    row.cleanup_pending = True
+                    binding = db.scalar(
+                        select(RuntimeResourceBinding).where(
+                            RuntimeResourceBinding.job_id == row.id,
+                            RuntimeResourceBinding.project_id == row.project_id,
+                            RuntimeResourceBinding.target_id == row.target_id,
+                            RuntimeResourceBinding.target_revision
+                            == row.target_revision,
+                            RuntimeResourceBinding.kind == "Job",
+                            RuntimeResourceBinding.logical_id == row.id,
+                        )
                     )
-                )
-                if binding is not None and binding.uid is not None:
-                    binding.phase = "captured"
-                row.result_ciphertext = encrypt(result, self.settings)
-                row.updated_at = self.clock()
+                    if binding is not None and binding.uid is not None:
+                        binding.phase = "captured"
+                    row.result_ciphertext = encrypt(result, self.settings)
+                    row.updated_at = self.clock()

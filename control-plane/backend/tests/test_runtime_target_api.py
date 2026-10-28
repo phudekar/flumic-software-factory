@@ -40,6 +40,31 @@ class RuntimeTargetApiTests(unittest.TestCase):
 
     tearDown = fixtures.ControlPlaneTests.tearDown
 
+    def test_qualified_native_bridge_can_publish_and_pin_without_docker_network(self):
+        import test_workflow_definitions as definitions
+        from app.workflow_state import WorkflowState
+        from app.projects import ProjectScope
+
+        project, base, repositories, _, graph = (
+            definitions.WorkflowDefinitionTests.setup_graph(self)
+        )
+        graph["stages"][1]["network"] = "bridge"
+        self.assertIsNone(self.settings.job_bridge)
+        response = self.client.post(
+            base + "/workflow-definitions", json={"document": graph}
+        )
+        self.assertEqual(response.status_code, 201, response.text)
+        state = WorkflowState(
+            self.sessions, self.settings, fixtures.Configurations(self.settings.root)
+        )
+        scope = ProjectScope(project)
+        for repository in repositories.values():
+            state.enable_dynamic_repository(scope, repository["id"])
+        run = state.start_run(
+            scope, response.json()["revision_id"], {}, key="native-bridge"
+        )
+        self.assertTrue(run.snapshot_id)
+
     def pool(self):
         return self.client.post(
             "/api/v1/worker-pools", json={"name": "target-pool", "role": "simple"}

@@ -1,6 +1,6 @@
-# Kubernetes deployment assets (qualification pending)
+# Kubernetes deployment assets
 
-These are operator templates, not an installer for existing clusters. Native Kubernetes support remains planned until the real-cluster qualification in issue #17 passes. See [the complete configuration reference](../../docs/kubernetes.md).
+These are operator templates, not an installer for existing clusters. Native adapters are qualified on a dedicated two-node k3d 5.9.0 / K3s 1.35.9 cluster. Repeat network/PID/storage qualification for your environment. See [the complete configuration reference](../../docs/kubernetes.md).
 
 1. Choose a dedicated cluster/context. Every command below must include `--kubeconfig /absolute/private/config --context your-context`. Do not change the global current context. A direct-process controller needs an explicit kubeconfig restricted to the supplied RBAC; an in-cluster controller uses the `flumic-controller` ServiceAccount.
 2. Review namespace names, then apply `namespaces.yaml`. Apply `admission-policy.yaml` as a cluster operator and inspect the policy's `status.typeChecking.expressionWarnings`; it must have no compilation warnings. Wait for the policy binding to take effect.

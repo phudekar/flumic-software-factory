@@ -1,6 +1,6 @@
 # Kubernetes runtime: operator configuration and behavior
 
-**Status: planned; real-cluster qualification pending in issue #17.** The native adapters retain the existing workflow contracts and Docker runtime while adding operator-owned worker Deployments and one-time Jobs. They require a supported Kubernetes API with stable ValidatingAdmissionPolicy, an enforcing CNI, qualified node PID limits and PostgreSQL. Start with the [deployment walkthrough](../deploy/kubernetes/README.md).
+**Status: native adapters implemented; qualified on a dedicated two-node k3d 5.9.0 / K3s 1.35.9 cluster with PostgreSQL.** The native adapters retain the existing workflow contracts and Docker runtime while adding operator-owned worker Deployments and one-time Jobs. They require a supported Kubernetes API with stable ValidatingAdmissionPolicy, an enforcing CNI, qualified node PID limits and PostgreSQL. Start with the [deployment walkthrough](../deploy/kubernetes/README.md).
 
 ## Four different scopes
 
@@ -94,3 +94,22 @@ Project Job pages show target, namespace, Job/Pod UIDs, runtime phase, cleanup p
 - **Running but unregistered:** verify Pod-reachable Control Pane and Hatchet endpoints, transport Secret and protocol compatibility. A process being ready does not prove scheduling eligibility.
 - **Capture unavailable:** inspect deadline, action exit/OOM and collector state. Output recovery after hard termination is not guaranteed. Declared AI usage is independent from resource metrics.
 - **Cleanup pending:** inspect exact recorded UIDs, ownership/spec drift and admission/network/API availability. Preserve durable evidence; do not delete resources by a broad selector.
+
+
+## Qualification and reproducible CI
+
+The real-cluster gate exercises both nodes: a measured 128-process parent Pod ceiling (including bounded fork rejection), default-deny and approved cross-node egress, rejected DNS/external traffic with positive controls, namespace-fence creates and annotation-stripping updates, restricted controller permissions, native worker registration/heartbeat, retained private PVCs and redacted history replay/deduplication. It also covers actual PostgreSQL/API/Job execution for two projects, frozen grants, combined capture, usage attribution, lost replies, controller restart, idempotent acceptance, nonzero/OOM/malformed output, cancellation without the submitter, hard deadlines during a controller outage and collector loss. Unschedulable and image-pull failures remain unhealthy infrastructure observations.
+
+The test matrix uses fixed fake source/model actions: no source-host writes or paid model calls. Hatchet registration uses an explicitly selected disposable test tenant. A portable-storage failover or a new CNI/distribution is not qualified merely by copying the target file. Standard NetworkPolicy does not provide Docker-style network-interface isolation: traffic to the Pod's own node is subject to Kubernetes' node-traffic exception. Namespace/CNI/node administrators are trusted; restrict node services separately.
+
+Run GitHub Actions **Tests** manually with both `run_kubernetes_contracts` and `allow_kubernetes_writes`. The job creates an isolated k3d cluster/registry/PostgreSQL container on a fresh runner, compiles the admission policy, installs restricted RBAC, builds digest-pinned fixture images and runs the real contracts. It requires the existing `FLUMIC_RELEASE_HATCHET_TOKEN`, `FLUMIC_RELEASE_HATCHET_HOST_PORT`, `FLUMIC_RELEASE_HATCHET_SERVER_URL` test-tenant secrets and optional TLS strategy variable. It never runs this live gate automatically on pull requests. Only `output/kubernetes-evidence/qualification-*.json` summaries are uploaded; kubeconfigs, credentials, inputs, raw logs and spools stay private.
+
+For an explicitly owned fresh local cluster, `tests/integration/kubernetes_cluster_setup.py` verifies the independent kube-system UID, two Docker node ownership labels and an empty application-namespace inventory before bootstrap. It writes private environment/controller/checkpoint files. It refuses an existing application cluster and never deletes a cluster. Qualification processes sharing a checkpoint are serialized by a local fixture lock; product replicas use PostgreSQL leases. See [deployment assets](../deploy/kubernetes/README.md) and the [manual workflow](../.github/workflows/tests.yml) for exact setup commands.
+
+### Inspecting a native Job
+
+The Job detail page shows the selected target, namespace, Job and Pod UIDs, capture and cleanup state, combined action logs, and explicitly reported model usage. These identifiers connect the broker receipt to Kubernetes resources when diagnosing an execution.
+
+![Kubernetes Job details and combined action logs](images/control-plane-kubernetes-job.png)
+
+*Illustrative fixture data; this screenshot is not live cluster qualification evidence.*

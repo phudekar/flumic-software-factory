@@ -23,6 +23,9 @@ TERMINAL = {"completed", "failed", "timed-out", "cancelled"}
 
 
 class KubernetesJobRuntime:
+    def close(self):
+        self.api.close()
+
     def __init__(
         self,
         target,

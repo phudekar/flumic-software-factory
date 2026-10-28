@@ -827,7 +827,12 @@ class KubernetesExecTests(unittest.TestCase):
                 self.buffer = ""
                 self.chunks = [raw]
                 self.closed = False
+                self.socket_closed = False
+                self.sock = SimpleNamespace(shutdown=self.shutdown_socket)
                 self.returncode = code
+
+            def shutdown_socket(self):
+                self.socket_closed = True
 
             def is_open(self):
                 return self.open
@@ -870,6 +875,7 @@ class KubernetesExecTests(unittest.TestCase):
                 )
             finally:
                 self.assertTrue(response.closed)
+                self.assertTrue(response.socket_closed)
             self.assertEqual(call.call_args.kwargs["namespace"], "flumic-actions")
             self.assertEqual(call.call_args.kwargs["container"], "collector")
             self.assertEqual(

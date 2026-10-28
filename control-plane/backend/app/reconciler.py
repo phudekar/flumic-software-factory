@@ -1,5 +1,7 @@
 """Durable operations; adapter calls happen outside the database claim transaction."""
 
+from app.ports import managed_runtime
+
 import hmac
 import time
 import threading
@@ -133,31 +135,32 @@ def reconcile_once(sessions, runtime, settings):
                 if callable(getattr(type(runtime), "for_worker", None))
                 else runtime
             )
-            if worker.protocol == "legacy" and action in {
-                "create",
-                "configure",
-                "configure_start",
-                "start",
-                "restart",
-            }:
-                from app.workflow_state import legacy_guard
-                from app.services import Configurations
+            with managed_runtime(selected):
+                if worker.protocol == "legacy" and action in {
+                    "create",
+                    "configure",
+                    "configure_start",
+                    "start",
+                    "restart",
+                }:
+                    from app.workflow_state import legacy_guard
+                    from app.services import Configurations
 
-                with sessions() as db:
-                    legacy_guard(
-                        db, Configurations(settings.root), document, worker.profile
-                    )
-            if action in {"restart", "configure_start"}:
-                if action == "restart":
-                    invoke("action", worker.id, "stop")
-                invoke("configure", worker, document, token)
-                invoke("action", worker.id, "start")
-            elif action == "configure":
-                invoke("configure", worker, document, token)
-            elif action == "create":
-                invoke("create", worker, document, token)
-            else:
-                invoke("action", worker.id, action)
+                    with sessions() as db:
+                        legacy_guard(
+                            db, Configurations(settings.root), document, worker.profile
+                        )
+                if action in {"restart", "configure_start"}:
+                    if action == "restart":
+                        invoke("action", worker.id, "stop")
+                    invoke("configure", worker, document, token)
+                    invoke("action", worker.id, "start")
+                elif action == "configure":
+                    invoke("configure", worker, document, token)
+                elif action == "create":
+                    invoke("create", worker, document, token)
+                else:
+                    invoke("action", worker.id, action)
         status, error = "completed", None
     except RuntimePending:
         status, error = "pending", None

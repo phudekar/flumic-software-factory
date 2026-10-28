@@ -268,9 +268,33 @@ class TargetRegistry:
         except (ValueError, AttributeError):
             raise ValueError("Worker runtime target pin is not available") from None
 
+    def allows_bridge(self):
+        """Publication policy permits bridge intent when a configured target can run it."""
+        for target_id in self._pins:
+            snapshot = self.snapshot(target_id)
+            config = snapshot.configuration
+            if snapshot.kind == "docker":
+                if config["job_bridge"] is not None:
+                    return True
+            elif (
+                config["network_qualified"]
+                and config["network_evidence"]
+                and "bridge" in config["network_policy_names"]
+                and config["pid_qualified"]
+                and config["pid_evidence"]
+            ):
+                return True
+        return False
+
     def require_stage(self, snapshot, stage, *, protocol="shared-v1"):
         snapshot = self.require_snapshot(snapshot)
         if snapshot.kind == "docker":
+            if (
+                isinstance(stage, DockerStage)
+                and stage.network == "bridge"
+                and snapshot.configuration["job_bridge"] is None
+            ):
+                raise ValueError("Docker action bridge networking is not configured")
             return
         if protocol != "shared-v1":
             raise ValueError("Kubernetes requires shared-v1 workers")
@@ -310,7 +334,9 @@ class TargetRegistry:
                         "Combined action logs",
                         "Retained worker history volume",
                         "Uncaptured output may be unavailable after a hard deadline",
-                    ] if kube else [],
+                    ]
+                    if kube
+                    else [],
                     "capabilities": {
                         "create": True,
                         "start": True,

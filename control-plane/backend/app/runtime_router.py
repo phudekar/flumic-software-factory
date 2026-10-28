@@ -1,6 +1,7 @@
 """Runtime composition: operator authority stays out of browser and project data."""
 
 import re
+from app.ports import managed_runtime
 import time
 from sqlalchemy import select
 from app.database import Worker, RuntimeResourceBinding
@@ -113,7 +114,8 @@ class RuntimeRouter:
         for public in self.targets.public_targets():
             snapshot = self.targets.snapshot(public["id"])
             try:
-                entries = self._workers(snapshot).list()
+                with managed_runtime(self._workers(snapshot)) as adapter:
+                    entries = adapter.list()
                 for entry in entries:
                     if snapshot.kind == "kubernetes":
                         identifier = entry["id"]
@@ -141,23 +143,26 @@ class RuntimeRouter:
         return result
 
     def create(self, worker, document, token):
-        return self._workers(self._worker_pin(worker), worker=worker).create(
-            worker, document, token
-        )
+        with managed_runtime(
+            self._workers(self._worker_pin(worker), worker=worker)
+        ) as adapter:
+            return adapter.create(worker, document, token)
 
     def configure(self, worker, document, token):
-        return self._workers(self._worker_pin(worker), worker=worker).configure(
-            worker, document, token
-        )
+        with managed_runtime(
+            self._workers(self._worker_pin(worker), worker=worker)
+        ) as adapter:
+            return adapter.configure(worker, document, token)
 
     def action(self, worker_id, action):
         with self.sessions() as db:
             worker = db.get(Worker, worker_id)
         if worker is None:
             raise ValueError("Worker not found")
-        return self._workers(self._worker_pin(worker), worker=worker).action(
-            worker_id, action
-        )
+        with managed_runtime(
+            self._workers(self._worker_pin(worker), worker=worker)
+        ) as adapter:
+            return adapter.action(worker_id, action)
 
     def logs(self, handle, limit):
         if handle.startswith(("kubernetes:", "kubernetes/")):
@@ -184,7 +189,8 @@ class RuntimeRouter:
                 worker = db.get(Worker, binding.worker_id) if binding else None
             if worker is None or self._worker_pin(worker) != snapshot:
                 raise ValueError("Unknown Kubernetes runtime log handle")
-            return self._workers(snapshot, worker=worker).logs(pieces[2], limit)
+            with managed_runtime(self._workers(snapshot, worker=worker)) as adapter:
+                return adapter.logs(pieces[2], limit)
         if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}", handle):
             raise ValueError("Invalid Docker runtime log handle")
         return self._workers(self.targets.snapshot("local-docker")).logs(handle, limit)

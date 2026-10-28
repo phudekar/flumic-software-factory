@@ -63,6 +63,7 @@ class KubernetesApi:
             configuration.debug = False
             self.configuration = configuration
             self.api_client = client.ApiClient(configuration)
+            self.bound_error_responses(self.api_client)
             self.clients = {
                 "core": client.CoreV1Api(self.api_client),
                 "apps": client.AppsV1Api(self.api_client),
@@ -73,6 +74,29 @@ class KubernetesApi:
             raise ValueError(
                 "Explicit Kubernetes client configuration is unavailable"
             ) from None
+
+    @staticmethod
+    def bound_error_responses(api_client):
+        # The SDK otherwise reads an entire error body into ApiException and loses
+        # the raw response handle. We only need its status; discard it boundedly.
+        from functools import wraps
+
+        manager = api_client.rest_client.pool_manager
+        request = manager.request
+
+        @wraps(request)
+        def bounded(*args, **kwargs):
+            response = request(*args, **kwargs)
+            if not 200 <= response.status <= 299:
+                status = response.status
+                try:
+                    response.close()
+                finally:
+                    response.release_conn()
+                raise KubernetesError(status)
+            return response
+
+        manager.request = bounded
 
     def _raw(self, group, method, **kwargs):
         response = None
@@ -145,7 +169,9 @@ class KubernetesApi:
             body=body,
             dry_run="All",
         )
-        body["metadata"]["annotations"][NAMESPACE_FENCE] = "invalid-" + uuid.uuid4().hex
+        body["metadata"]["annotations"][NAMESPACE_FENCE] = str(
+            uuid.UUID(int=uuid.UUID(expected).int ^ 1)
+        )
         try:
             self._raw(
                 "core",
@@ -282,6 +308,8 @@ class KubernetesApi:
 
     def close(self):
         if self.api_client is not None:
+            # SDK close() only joins its thread pool; urllib3 owns separate sockets.
+            self.api_client.rest_client.pool_manager.clear()
             self.api_client.close()
 
     def collector_exec(self, name, *, expected_uid, mode):
@@ -375,7 +403,14 @@ class KubernetesApi:
             raise KubernetesError(getattr(error, "status", None)) from None
         finally:
             if response is not None:
-                response.close()
+                try:
+                    response.close()
+                finally:
+                    # websocket-client close() skips shutdown after peer disconnect.
+                    # WSClient retains that WebSocket, so explicitly close its socket.
+                    socket = getattr(response, "sock", None)
+                    if callable(getattr(socket, "shutdown", None)):
+                        socket.shutdown()
 
     @contextmanager
     def exec_client(self):

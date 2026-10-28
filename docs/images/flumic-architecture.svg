@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1110" viewBox="0 0 1600 1110" role="img" aria-labelledby="title description">
 <title id="title">Flumic AI layered architecture</title>
-<desc id="description">Six responsibility layers: developer experience with React UI; Control Plane with API, profiles and reconciler; Hatchet workflow orchestration; simple and developer worker execution with shared application and domain policy; repository, model, state and telemetry adapters; Docker and PostgreSQL control and dynamic execution data plus legacy SQLite state. Observability spans the layers with logs, metrics, traces and model accounting. Arrows indicate conceptual dependencies, not a synchronous request sequence. GitHub and GitLab.com source adapters are supported. Kubernetes remains planned.</desc>
+<desc id="description">Six responsibility layers: developer experience with React UI; Control Plane with API, profiles and reconciler; Hatchet workflow orchestration; simple and developer worker execution with shared application and domain policy; repository, model, state and telemetry adapters; Docker or Kubernetes execution and PostgreSQL control and dynamic execution data plus legacy SQLite state. Observability spans the layers with logs, metrics, traces and model accounting. Arrows indicate conceptual dependencies, not a synchronous request sequence. GitHub and GitLab.com source adapters are supported. Kubernetes uses native Deployments and Jobs with operator-qualified isolation.</desc>
 <defs><marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="m0 0 8 4-8 4Z" fill="#82e4bd"/></marker>
 <symbol id="monitor" viewBox="0 0 32 34"><rect x="3" y="4" width="26" height="19" rx="2"/><path d="M16 23v5m-6 0h12"/></symbol>
 <symbol id="sliders" viewBox="0 0 32 34"><path d="M3 7h8m6 0h12M3 16h17m6 0h3M3 25h5m6 0h15"/><circle cx="14" cy="7" r="3"/><circle cx="23" cy="16" r="3"/><circle cx="11" cy="25" r="3"/></symbol>
@@ -118,8 +118,8 @@
 <path d="M1340 924h40" stroke="#82e4bd" stroke-width="2"/><circle cx="1340" cy="924" r="4" fill="#82e4bd"/>
 <rect x="305" y="882" width="235" height="84" rx="10" fill="#11263b" stroke="#315270"/>
 <use href="#container" x="322" y="905" width="38" height="38" class="icon"/>
-<text x="374" y="918" class="card">Docker</text>
-<text x="374" y="943" class="small">Worker runtime</text>
+<text x="374" y="918" class="card">Runtimes</text>
+<text x="374" y="943" class="small">Docker · Kubernetes</text>
 <rect x="555" y="882" width="365" height="84" rx="10" fill="#11263b" stroke="#315270"/>
 <use href="#db" x="572" y="905" width="38" height="38" class="icon"/>
 <text x="624" y="918" class="card">PostgreSQL</text>
@@ -141,5 +141,5 @@
 <use href="#cost" x="1446" y="795" width="48" height="48" class="icon"/>
 <text x="1470" y="874" class="sub" text-anchor="middle">Cost estimates</text>
 <text x="43" y="1030" class="sub">Layer arrows show conceptual dependencies, not a single request path. Workers share the application core.</text>
-<text x="43" y="1067" class="sub">Current: GitHub / GitLab.com + Docker + PostgreSQL. Planned: Kubernetes and remote functions.</text>
+<text x="43" y="1067" class="sub">Current: GitHub / GitLab.com + Docker or Kubernetes + PostgreSQL. Planned: remote functions.</text>
 </svg>

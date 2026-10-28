@@ -1,6 +1,7 @@
 """Runtime and engine contracts do not expose vendor response objects."""
 
 from typing import Protocol, TYPE_CHECKING
+from contextlib import contextmanager
 
 
 class RuntimePending(RuntimeError):
@@ -34,3 +35,13 @@ class JobRuntime(Protocol):
     def collect(self, ref: "RuntimeJobRef") -> "JobCapture": ...
     def terminate(self, ref: "RuntimeJobRef", grace_seconds: int = 5) -> None: ...
     def cleanup(self, ref: "RuntimeJobRef") -> None: ...
+
+
+@contextmanager
+def managed_runtime(runtime):
+    """Own short-lived adapter resources without changing legacy runtime contracts."""
+    try:
+        yield runtime
+    finally:
+        if callable(getattr(type(runtime), "close", None)):
+            runtime.close()

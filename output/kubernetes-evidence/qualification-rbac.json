@@ -1,0 +1,74 @@
+{
+  "schema_version": 1,
+  "cluster_uid": "e0f5c63a-fd6f-4de5-af53-b130293130d4",
+  "fixture_id": "issue17-q17",
+  "controller_checks": [
+    {
+      "verb": "get",
+      "resource": "namespaces/flumic-i17-worker-q17",
+      "namespace": null,
+      "allowed": true
+    },
+    {
+      "verb": "get",
+      "resource": "namespaces/flumic-i17-action-q17",
+      "namespace": null,
+      "allowed": true
+    },
+    {
+      "verb": "create",
+      "resource": "jobs",
+      "namespace": "flumic-i17-action-q17",
+      "allowed": true
+    },
+    {
+      "verb": "create",
+      "resource": "pods/exec",
+      "namespace": "flumic-i17-action-q17",
+      "allowed": true
+    },
+    {
+      "verb": "create",
+      "resource": "deployments",
+      "namespace": "flumic-i17-worker-q17",
+      "allowed": true
+    },
+    {
+      "verb": "get",
+      "resource": "nodes",
+      "namespace": null,
+      "allowed": false
+    },
+    {
+      "verb": "get",
+      "resource": "nodes/proxy",
+      "namespace": null,
+      "allowed": false
+    },
+    {
+      "verb": "list",
+      "resource": "namespaces",
+      "namespace": null,
+      "allowed": false
+    },
+    {
+      "verb": "patch",
+      "resource": "namespaces/flumic-i17-worker-q17",
+      "namespace": null,
+      "allowed": false
+    },
+    {
+      "verb": "create",
+      "resource": "pods",
+      "namespace": "flumic-i17-action-q17",
+      "allowed": false
+    },
+    {
+      "verb": "get",
+      "resource": "clusterroles",
+      "namespace": null,
+      "allowed": false
+    }
+  ],
+  "template": "deploy/kubernetes/rbac.yaml"
+}

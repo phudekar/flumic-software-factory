@@ -28,7 +28,7 @@ class DockerJobContract(unittest.TestCase):
         from test_docker_jobs import JobBrokerTests
         from app.job_broker import JobBroker
         from app.adapters.docker_jobs import DockerJobRuntime
-        from app.job_contracts import RuntimeJobRef
+        from app.job_contracts import JobLaunch, RuntimeJobRef
         from app.database import RuntimeJob
         from app.project_context import decrypt
 
@@ -58,8 +58,9 @@ class DockerJobContract(unittest.TestCase):
             document = decrypt(
                 db.get(RuntimeJob, receipt.job_id).launch_ciphertext, case.settings
             )
+            launch = JobLaunch.model_validate(document["launch"])
             ref = RuntimeJobRef(
-                **{k: document["launch"][k] for k in RuntimeJobRef.model_fields}
+                **{k: getattr(launch, k) for k in RuntimeJobRef.model_fields}
             )
 
         def cleanup():

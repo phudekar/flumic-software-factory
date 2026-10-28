@@ -21,6 +21,9 @@ def matches_manifest(expected, actual):
 
 
 class KubernetesWorkerRuntime:
+    def close(self):
+        self.api.close()
+
     def __init__(
         self, settings, config_service, target, resources, *, api=None, claim=None
     ):

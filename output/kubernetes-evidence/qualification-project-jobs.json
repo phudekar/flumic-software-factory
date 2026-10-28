@@ -1,0 +1,70 @@
+{
+  "schema_version": 1,
+  "fixture_id": "issue17-q17",
+  "cluster_uid": "e0f5c63a-fd6f-4de5-af53-b130293130d4",
+  "projects": 2,
+  "jobs": 2,
+  "native_network_modes": [
+    "none",
+    "bridge"
+  ],
+  "usage_calls_per_project": 2,
+  "input_tokens_per_project": 4,
+  "output_tokens_per_project": 6,
+  "reported_usd_per_project": 0.03,
+  "resources": [
+    {
+      "kind": "Pod",
+      "uid": "57ec5b92-a686-4d72-baee-659742344902"
+    },
+    {
+      "kind": "ConfigMap",
+      "uid": "ec680140-76fd-4e17-b608-38b83197bf70"
+    },
+    {
+      "kind": "ConfigMap",
+      "uid": "158b647b-9671-48b5-b066-cacdb3e0ef23"
+    },
+    {
+      "kind": "Pod",
+      "uid": "efdd354e-ae05-4834-a84f-e04f0e6b4997"
+    },
+    {
+      "kind": "Secret",
+      "uid": "06c27893-71e7-47d6-bc60-19144dcc7111"
+    },
+    {
+      "kind": "ConfigMap",
+      "uid": "38781b43-fa8d-4700-850e-aa590f502591"
+    },
+    {
+      "kind": "Job",
+      "uid": "98a534bc-1bc3-4323-a33f-00376bbafe33"
+    },
+    {
+      "kind": "ConfigMap",
+      "uid": "00abd04c-ee29-42e4-a2a8-ef38a2aa9d60"
+    },
+    {
+      "kind": "Secret",
+      "uid": "18d7662d-e566-4790-a42b-42e1b7c47dad"
+    },
+    {
+      "kind": "Job",
+      "uid": "a9379f6f-d136-40f2-b929-ae690c2c76c6"
+    }
+  ],
+  "real_components": [
+    "PostgreSQL",
+    "HTTP routes",
+    "shared assignment protocol",
+    "native SDK",
+    "Kubernetes Jobs",
+    "init and collector",
+    "bounded combined logs"
+  ],
+  "fixture_components": [
+    "source host and model actions",
+    "in-process shared-worker transport; real Pod worker qualification is separate"
+  ]
+}

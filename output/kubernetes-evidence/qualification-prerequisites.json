@@ -1,0 +1,56 @@
+{
+  "schema_version": 1,
+  "fixture_id": "issue17-q17",
+  "cluster_uid": "e0f5c63a-fd6f-4de5-af53-b130293130d4",
+  "probe_image": "localhost:5117/flumic-probe@sha256:d82c2ab94640ded77cf76514ce6a84870761105058a4a9e51b05a8a79be97a6c",
+  "observations": [
+    {
+      "node": "k3d-flumic-issue17-agent-0",
+      "pid_probe_spawned": 126,
+      "fork_rejected": true,
+      "parent_pod_pid_ceiling": 128
+    },
+    {
+      "node": "k3d-flumic-issue17-server-0",
+      "pid_probe_spawned": 126,
+      "fork_rejected": true,
+      "parent_pod_pid_ceiling": 128
+    },
+    {
+      "node": "k3d-flumic-issue17-agent-0",
+      "mode": "none",
+      "pod_pid_ceiling": 128,
+      "approved_egress": false,
+      "dns_denied": true,
+      "external_denied": true
+    },
+    {
+      "node": "k3d-flumic-issue17-agent-0",
+      "mode": "bridge",
+      "pod_pid_ceiling": 128,
+      "approved_egress": true,
+      "dns_denied": true,
+      "external_denied": true
+    },
+    {
+      "node": "k3d-flumic-issue17-server-0",
+      "mode": "none",
+      "pod_pid_ceiling": 128,
+      "approved_egress": false,
+      "dns_denied": true,
+      "external_denied": true
+    },
+    {
+      "node": "k3d-flumic-issue17-server-0",
+      "mode": "bridge",
+      "pod_pid_ceiling": 128,
+      "approved_egress": true,
+      "dns_denied": true,
+      "external_denied": true
+    }
+  ],
+  "cleanup_inventory": [],
+  "limitations": [
+    "Standard NetworkPolicy does not isolate traffic to the Pod's own node; namespace/CNI/node administrators are trusted."
+  ]
+}

@@ -711,6 +711,31 @@ class JobBrokerTests(unittest.TestCase):
         self.broker.reconcile_once(self.jobs)
         self.assertEqual(self.submit().state, "cancelled")
 
+    def test_proven_inert_unobserved_launch_retries_after_initial_inspection_failure(
+        self,
+    ):
+        self.arrange()
+        from app.database import RuntimeJob
+        from app.job_contracts import RuntimeJobState
+
+        receipt = self.submit()
+        # Launch intent committed before the first SDK inspection failed.
+        with self.sessions.begin() as db:
+            db.get(RuntimeJob, receipt.job_id).launch_started = True
+        inspect = self.jobs.inspect
+        self.jobs.inspect = lambda ref: (
+            inspect(ref)
+            if ref.job_id in self.jobs.jobs
+            else RuntimeJobState(state="missing", creation_inert=True)
+        )
+        self.broker.reconcile_once(self.jobs)
+        self.assertEqual(len(self.jobs.launches), 1)
+        # An observed execution can never be recreated, even if a driver says inert.
+        self.jobs.jobs.pop(receipt.job_id)
+        self.broker.reconcile_once(self.jobs)
+        self.assertEqual(len(self.jobs.launches), 1)
+        self.assertEqual(self.submit().state, "unknown")
+
     def test_missing_started_job_is_unknown_and_never_automatically_recreated(self):
         self.arrange()
         receipt = self.submit()

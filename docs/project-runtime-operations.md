@@ -2,15 +2,15 @@
 
 Flumic AI supports multiple projects, multiple repositories per project,
 versioned data-defined workflows, shared simple/developer worker pools and
-one-time Docker actions. The Control Pane publishes and inspects this runtime;
+one-time container actions on Docker or a qualified Kubernetes target. The Control Pane publishes and inspects this runtime;
 legacy static workflows remain separate and retain their existing IDs/history.
-GitHub and GitLab.com repositories are supported. Kubernetes and remote function execution remain planned.
+GitHub and GitLab.com repositories are supported. Native Kubernetes execution is qualified on a dedicated two-node k3d/K3s cluster; remote function execution remains planned. See [the operator guide](kubernetes.md) for deployment prerequisites and limits.
 
 ## Choose the configuration owner
 
 | Owner | Values and effects | When changes apply |
 | --- | --- | --- |
-| Deployment | PostgreSQL/encryption/session settings, Hatchet transport, runtime namespace, Docker broker host/network, infrastructure telemetry | Recreate the affected control service deliberately. Keep the encryption key with database backups. |
+| Deployment | PostgreSQL/encryption/session settings, Hatchet transport, runtime namespace, Docker broker host/network, operator-owned Kubernetes targets, infrastructure telemetry | Recreate the affected control service deliberately. Keep the encryption key with database backups. |
 | Worker pool | Role, installed action/executor allowlists, normal/durable slots, image/startup transport | Rebuild/recreate affected shared workers deliberately; a database capability string cannot install code. |
 | Project | Default models/prompts, behavior profiles, repository connections, encrypted secret versions, pool membership | New runs resolve and pin saved revisions; active runs retain their launch pins. |
 | Repository connection | Stable alias, GitHub owner/name, credential reference and behavior overrides | Publish another repository revision. IDs and aliases are project-owned. |

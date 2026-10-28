@@ -148,6 +148,6 @@ The control runtime polls one leased binding at a time, at most five listed and 
 Ready issues run once per observed not-ready → ready transition. Routine comments do not rearm them. Feedback uses increasing human note IDs, retains pending feedback during an active run, and ignores system notes. Editing an existing note does not create a new note ID; add a new comment or launch manually. Verification requires a merged MR with a merge commit, and queues the verification workflow; its checks still determine success. Closed-unmerged changes never imply success. Fork merge requests are excluded. Polling cannot reconstruct a readiness toggle that occurs entirely between observations. Retry a `409` caused by an in-flight configuration/source-observation change; fresh acceptance rechecks current state and credentials.
 
 
-## Kubernetes runtime configuration (planned)
+## Kubernetes runtime configuration
 
-Native Kubernetes worker Deployments and one-time Jobs are under qualification in issue #17. See the [operator configuration reference](kubernetes.md) for every target setting, explicit controller authentication, namespace fencing, storage, networking, PID limits and capture/cleanup behavior. Docker remains the current qualified runtime.
+Native Kubernetes worker Deployments and one-time Jobs are implemented and qualified on a dedicated two-node k3d/K3s cluster. See the [operator configuration reference](kubernetes.md) for every target setting, explicit controller authentication, namespace fencing, storage, networking, PID limits and capture/cleanup behavior. Docker remains available alongside the operator-configured Kubernetes target.

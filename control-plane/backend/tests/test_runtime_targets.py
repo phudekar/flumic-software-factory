@@ -97,6 +97,30 @@ class RuntimeTargetsTests(unittest.TestCase):
             settings = replace(settings, runtime_targets_file=path)
         return TargetRegistry(settings)
 
+    def test_bridge_policy_and_worker_eligibility_follow_each_runtime(self):
+        from app.runtime_targets import TargetRegistry
+
+        registry = self.registry()
+        self.assertFalse(registry.allows_bridge())
+        with self.assertRaises(ValueError):
+            registry.require_stage(
+                registry.snapshot("local-docker"), stage(network="bridge")
+            )
+        registry = TargetRegistry(
+            replace(self.settings, job_bridge="dedicated-test-net")
+        )
+        self.assertTrue(registry.allows_bridge())
+        registry.require_stage(
+            registry.snapshot("local-docker"), stage(network="bridge")
+        )
+        registry = self.registry({"schema_version": 1, "targets": [target()]})
+        self.assertTrue(registry.allows_bridge())
+        value = target()
+        value["network_qualified"] = False
+        self.assertFalse(
+            self.registry({"schema_version": 1, "targets": [value]}).allows_bridge()
+        )
+
     def test_default_docker_and_unknown_target_are_explicit(self):
         registry = self.registry()
         snapshot = registry.snapshot("local-docker")
