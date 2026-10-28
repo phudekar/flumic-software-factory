@@ -10,10 +10,22 @@ Overview summarizes managed workers, the latest page of workflow runs, recorded 
 
 ![Overview with recent runs, worker totals and usage estimates](/flumic-software-factory/images/control-plane-overview.png)
 
+## Project work and global infrastructure
+
+Start in **Projects** for project-scoped setup and execution. **Workers** and
+**Runtime targets** describe shared infrastructure. The remaining legacy views
+retain static workflow IDs and history; selecting a project does not convert
+legacy executions into project workflows.
+
+Follow [First project and workflow](/flumic-software-factory/start/project-onboarding/)
+for the setup sequence.
+
 ## Where to go
 
 | Screen | Use it for |
 | --- | --- |
+| Projects | Select a project; manage workflows/runs, repositories, triggers, credentials, project configuration and pool membership |
+| Runtime targets | Inspect operator-approved destinations and runtime availability |
 | Workers | Create instances, inspect registration, start/stop/restart and read build/startup logs |
 | Workflows | Trigger definitions, pause/resume supported workflows, inspect action history |
 | Workflow runs | Follow stages, attempts, status and scoped logs/model calls |

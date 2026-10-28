@@ -34,6 +34,14 @@ including Hatchet, keep their own licenses.
 
 ## Quick start
 
+Choose your execution path before starting workers:
+
+- **New multi-project installation:** use the [project onboarding guide](website/src/content/docs/start/project-onboarding.md). Projects own repository connections and immutable workflow revisions; shared pools provide execution capacity.
+- **Existing profile-based installation:** follow the steps below. These start the legacy issue-to-PR workflows and use shared-host SQLite state.
+
+Do not run both paths against the same repository. Moving an existing repository
+requires the explicit [dynamic-mode handover](docs/project-runtime-operations.md#roll-out-from-a-current-checkout).
+
 ### 1. Prepare your environment
 
 You need:
@@ -332,6 +340,7 @@ for local preview commands and Pages setup. The expected deployment address is
 
 ## Further reading
 
+- [Module map and configuration ownership](website/src/content/docs/start/modules.md)
 - [Issue lifecycle, GitHub webhooks, labels, and security boundaries](docs/issue-lifecycle.md)
 - [Control-plane operation and troubleshooting](docs/control-plane.md)
 - [Worker configuration reference](docs/worker-configuration.md)

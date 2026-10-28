@@ -2,6 +2,21 @@
 title: "Core concepts"
 ---
 
+## Project, repository, pool and runtime target
+
+A **project** groups repository connections, credentials, behavior configuration,
+workflow revisions and execution history. A project can use multiple repositories;
+workflow documents refer to their stable project-local aliases.
+
+A **pool** authorizes shared worker capacity for selected projects and advertises
+installed actions/executors. Adding a capability name does not install code. A
+**runtime target** is an operator-approved Docker or Kubernetes destination with
+its own infrastructure policy. Project workflow text cannot supply controller
+credentials or arbitrary Pod settings.
+
+Project selection scopes project views. The global Workers screen manages worker
+infrastructure; legacy views show the older profile-based execution path.
+
 ## Workflow, run, stage and attempt
 
 A workflow is a registered definition. A run is one execution of that definition. A stage corresponds to a task in that execution. An attempt is a particular try, including retries. A model call belongs to the active stage/attempt when instrumentation is available.

@@ -7,6 +7,10 @@ title: "Configuration ownership and precedence"
 | Scope | Authoritative surface | Application |
 | --- | --- | --- |
 | Credentials | Private `.env` / Hatchet profile / `.env.control-plane` | Runtime injection; never store in profile text |
+| Project behavior | Project configuration and repository overrides | New runs pin their resolved values |
+| Workflow graph and stage behavior | Published project workflow revision | New runs; admitted runs keep the original revision |
+| Shared capacity | Pool membership/capabilities and worker startup settings | Authorize membership; explicitly recreate affected workers for image/startup changes |
+| Runtime infrastructure | Operator target settings | Deliberate control-service recreation; existing target pins remain authoritative |
 | Standalone worker behavior | Manifest plus `config/` includes | Loaded on process startup |
 | Managed worker behavior | Saved worker profile | Loaded on next compatible startup/restart |
 | Shared orchestration | Factory revision pinned by profiles | Adopt across participating workers consistently |
@@ -15,6 +19,18 @@ title: "Configuration ownership and precedence"
 The manifest includes runtime settings, models, workflow definitions and bootstrap profiles. Later files and inline values override earlier values. Mappings merge recursively; lists/scalars replace. Duplicate keys, cycles, missing files, unknown fields and includes outside the manifest directory fail validation. There is no environment interpolation or executable template language in these files.
 
 Task settings resolve from code compatibility defaults → task defaults → named task template → task override. Model overrides at task level take precedence over backend defaults. Worker profiles override relevant shared defaults.
+
+## Project behavior precedence
+
+Project defaults → repository overrides → workflow values → stage values,
+subject to trusted deployment limits. This is distinct from the legacy task
+configuration precedence above. Editing a repository YAML file does not update a
+saved project revision. A configuration save does not hot-patch an admitted run.
+
+Use the [module map](/flumic-software-factory/start/modules/) to find the owner,
+configuration guide and diagnostic view for each part of the system, and the
+[project runtime guide](/flumic-software-factory/handbook/project-runtime-operations/)
+for rollout and revision adoption.
 
 ## Field-by-field effects and examples
 
