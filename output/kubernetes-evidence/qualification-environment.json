@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "fixture_id": "issue17-q17",
+  "cluster_uid": "e0f5c63a-fd6f-4de5-af53-b130293130d4",
+  "source_commit": "16f3e1c98f5e664757bd0990b7bf1e92cde5539d",
+  "versions": {
+    "python": "3.14.8",
+    "kubernetes_sdk": "35.0.0",
+    "k3d": "5.9.0",
+    "k3s": "v1.35.9+k3s1",
+    "helper_multiarch": [
+      "linux/amd64",
+      "linux/arm64"
+    ]
+  },
+  "platforms": [
+    "linux/amd64",
+    "linux/arm64"
+  ],
+  "images": {
+    "helper": "sha256:64cab7c9c59b4aba265c029060f51b8dd1933faabcfb3e944ed99d34ce34e202",
+    "helper_multiarch": "sha256:4929b9c8bf3e9d2d9008341fe9a1b4dcecd57c90495c01031b12f3485802c54f",
+    "worker": "sha256:85bfe8472c51d423097b2c4cbce982f7f0f5173b5137f088f03c470f06ea3ac2",
+    "probe": "sha256:d82c2ab94640ded77cf76514ce6a84870761105058a4a9e51b05a8a79be97a6c"
+  },
+  "existing_workloads_restarted": false
+}
