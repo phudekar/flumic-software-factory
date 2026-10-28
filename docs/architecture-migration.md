@@ -1,5 +1,7 @@
 # Software factory architecture migration
 
+This is the original migration analysis. The [current architecture](architecture.md) and [accepted ADRs](adr/index.md) describe implemented project, shared-worker and runtime boundaries.
+
 ## Objective
 
 Separate factory behavior from workflow orchestration, coding tools, and

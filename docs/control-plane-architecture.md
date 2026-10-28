@@ -1,6 +1,6 @@
 # Software factory control plane: architecture and implementation plan
 
-Status: target architecture; an initial local implementation is available.
+Status: historical design and implementation plan. For implemented project/shared-worker and Docker/Kubernetes behavior, read the [current architecture](architecture.md), [accepted ADRs](adr/index.md) and [operator guide](control-plane.md). Requirements below preserve the original delivery scope; they are not a current support matrix.
 Date: 2026-10-20.
 
 Implementation update: saved worker profiles now have a stable identity and

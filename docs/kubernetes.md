@@ -62,7 +62,7 @@ All target settings below apply to newly pinned workers/Jobs after **both proces
 
 ## Worker lifecycle, configuration and storage
 
-**Workers → Add shared worker** selects a pool, name and registered target. Legacy worker creation remains Docker-only. Native workers use one-replica Deployments with Recreate strategy; creation begins stopped. Start changes desired state and waits for Pod readiness; runtime `running` means a ready process, while Hatchet registration and heartbeat are separate observations. Pending, image pull failures, crash loops and unschedulable Pods must never be interpreted as healthy registration.
+**Workers → Add shared worker** selects a pool, name and registered target. Legacy worker creation remains Docker-only. Native workers use one-replica Deployments with Recreate strategy; creation begins stopped. Start changes desired state and waits for the Deployment to observe its generation; it does not wait for Pod readiness. Runtime `running` means a ready process, while Hatchet registration and heartbeat are separate observations. Pending, image pull failures, crash loops and unschedulable Pods must never be interpreted as healthy registration.
 
 ![Selecting a Kubernetes target for a shared worker](images/control-plane-shared-worker-target.png)
 
@@ -80,7 +80,7 @@ Kubernetes scratch is **executable**. Action resource limits do not include all 
 
 Action exit, collector capture and cleanup are separate phases. Successful capture is persisted before collector release. Logs are **combined**, unlike split Docker stdout/stderr. Hard deadlines, eviction and collector loss can make uncaptured output unavailable. A missing result remains unknown rather than fabricated success. Kubernetes controller scheduling/termination is distributed: native activeDeadlineSeconds complements the backend's absolute result-acceptance cutoff but does not guarantee instantaneous process death at the wall-clock deadline.
 
-Cancellation suspends the Job before cascading deletion. UID/resourceVersion preconditions, ownership proofs and manifest fingerprints prevent deletion/adoption of replacements. Late creates remain tombstones for guarded reconciliation. Cleanup-pending warnings are retried independently of the terminal result. A changed or foreign payload requires operator investigation rather than blind deletion. No exactly-once external-side-effect guarantee applies: inspect source/provider effects before retrying a failed action.
+Start retries and cancellation write a fresh approved metadata nonce under UID/resourceVersion preconditions; reasserting an already-true suspension alone does not change the resource version or fence a delayed unsuspend. Approved pending metadata is retained for lost-reply recovery. Cancellation fences and suspends the Job before cascading deletion; it cannot settle while multiple owned action Pods remain live. UID/resourceVersion preconditions, ownership proofs and manifest fingerprints prevent deletion/adoption of replacements. Late creates remain tombstones for guarded reconciliation. Cleanup-pending warnings are retried independently of the terminal result. All candidate Pods are checked against expected execution metadata/specs before binding or deletion. Worker removal checks current and previous recorded Secret/ConfigMap generations before deleting the Deployment. A changed or foreign payload requires operator investigation rather than blind deletion. No exactly-once external-side-effect guarantee applies: inspect source/provider effects before retrying a failed action.
 
 Project Job pages show target, namespace, Job/Pod UIDs, runtime phase, cleanup pending state and combined logs. These are scoped through project APIs; switching projects cancels old requests and must not reveal another project's runtime metadata. The public target catalog exposes safe capabilities and limitations, not kubeconfig paths or credentials. `configured` means loaded registry configuration, not live connectivity.
 
@@ -113,3 +113,7 @@ The Job detail page shows the selected target, namespace, Job and Pod UIDs, capt
 ![Kubernetes Job details and combined action logs](images/control-plane-kubernetes-job.png)
 
 *Illustrative fixture data; this screenshot is not live cluster qualification evidence.*
+
+## Architecture decisions
+
+See the [overall architecture](architecture.md) and [accepted ADRs](adr/index.md) for why native adapters, PostgreSQL authority, admission/resource fencing, guarded cleanup and private worker history are separate responsibilities.

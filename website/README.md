@@ -33,16 +33,17 @@ landing-page logo. Edit only that canonical source when changing the icon.
 - `src/content/docs/`: maintained tutorial and focused task guides.
 - `scripts/prepare_content.py`: explicit allowlist of canonical repository guides,
   relative-link rewriting, images, Python AST route/configuration inventories.
-- `src/content/docs/handbook/`, `reference/` and `start/quick-start.md`: generated
+- `src/content/docs/handbook/`, `reference/`, `architecture/decisions/` and `start/quick-start.md`: generated
   and ignored. Edit the source guides or generator, not these outputs.
 - `public/images/` and `coverage.json`: generated from tracked screenshots and
   source coverage; do not copy live state or environment files into public assets.
 - `scripts/check_site.py`: checks built links, anchors, assets, project prefix,
   API inventory coverage, canonical guides and search output.
 
-README Quick start remains the canonical first-run guide. Nine source handbooks
-are built directly from their repository Markdown. Internal plans and historical
-migration proposals are not part of website navigation/search. Additional authored
+README Quick start remains the canonical first-run guide. Source handbooks and
+accepted ADRs in `docs/adr/` are built directly from their repository Markdown.
+Add or update ADRs there; their index, pages and sidebar entries are generated.
+Internal plans and historical migration proposals are not part of website navigation/search. Additional authored
 pages explain specific UI tasks and link to the complete handbooks/reference.
 
 After editing a canonical source during `dev`, rerun `npm run prepare-content`

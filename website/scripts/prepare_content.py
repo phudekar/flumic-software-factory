@@ -38,7 +38,15 @@ GUIDES = {
 }
 
 
+# Publish only canonical ADRs; implementation ledgers/plans remain private history.
+for adr in sorted((ROOT / 'docs/adr').glob('*.md')):
+    title = adr.read_text().splitlines()[0].removeprefix('# ')
+    GUIDES[adr.relative_to(ROOT).as_posix()] = title
+
+
 def route(path):
+    if path.startswith('docs/adr/'):
+        return 'architecture/decisions/' + ('' if Path(path).stem == 'index' else Path(path).stem + '/')
     return 'handbook/' + ('bootstrap-profiles' if path.startswith('config/') else Path(path).stem) + '/'
 
 
