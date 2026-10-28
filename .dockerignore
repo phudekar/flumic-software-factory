@@ -10,3 +10,8 @@ shared/
 control-plane/frontend/node_modules/
 control-plane/frontend/dist/
 control-plane/frontend/*.tsbuildinfo
+
+# Local qualification credentials, spools, checkpoints and browser artifacts.
+.superpowers/
+output/
+.playwright-cli/

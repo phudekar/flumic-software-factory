@@ -290,11 +290,7 @@ healthcheck also makes a small billable completion request.
 
 ### Can I run this across hosts or expose the UI to a team?
 
-The current deployment supports local Docker and a trusted administrator.
-The API/reconciler have Docker socket access. Multi-user roles and Kubernetes
-execution are not implemented. Legacy static workers still require shared local
-SQLite/file locks. Project workflows use PostgreSQL state and a trusted Docker
-broker host; see [runtime rollout and limits](docs/project-runtime-operations.md).
+The Control Pane supports Docker and an operator-configured Kubernetes target for a trusted administrator. Docker management requires socket access; Kubernetes uses explicit, scoped controller credentials. Project workflows use PostgreSQL state and claims across shared workers, including workers on different Kubernetes nodes. Legacy static workers retain their shared-host SQLite/file locks. Multi-user roles remain future work; see [Kubernetes setup and limits](docs/kubernetes.md) and [runtime rollout](docs/project-runtime-operations.md).
 
 ### What data reaches model providers?
 
@@ -305,12 +301,12 @@ prove content is free of confidential data. Review generated changes, especially
 CI and infrastructure changes. Read the [security boundary](docs/issue-lifecycle.md#security-boundary-and-limitations)
 before enabling automation on sensitive repositories.
 
-## Source hosts and upcoming deployment options
+## Source hosts and runtime options
 
 - **GitLab.com workflows:** issue-to-merge-request collaboration with repository-scoped credentials, webhook/poll triggers and commit-specific CI. See [connection, trigger and CI configuration](docs/gitlab.md).
-- **Kubernetes orchestration:** planned support for running and orchestrating workflows and workers on Kubernetes.
+- **Kubernetes orchestration:** native worker Deployments, private retained history volumes and one-time action Jobs, with scoped credentials, admission fencing and qualified network/PID limits. See [configuration and operations](docs/kubernetes.md).
 
-Kubernetes is planned; no release date is committed. Current integrations use GitHub or GitLab.com, Hatchet and Docker on a shared host.
+Current integrations support GitHub or GitLab.com, Hatchet, and Docker or qualified Kubernetes execution. Remote function executors remain planned.
 
 The [project and dynamic-workflow implementation roadmap](docs/project-workflow-roadmap.md)
 tracks multi-repository projects, shared worker pools, and built-in/Docker actions
@@ -325,7 +321,7 @@ Use the runtime API guide to activate the fixed control service, seed workflows 
 launch pinned runs.
 [Project-scoped history, traces and AI accounting](docs/project-observability.md)
 now follow authoritative assignments, including delayed spool delivery and explicit
-Docker usage reports. See [rollout, recovery and release qualification](docs/project-runtime-operations.md) for configuration ownership, action-image contracts and infrastructure test boundaries. GitLab.com is supported; Kubernetes and remote function executors remain planned.
+Docker usage reports. See [rollout, recovery and release qualification](docs/project-runtime-operations.md) for configuration ownership, action-image contracts and infrastructure test boundaries. GitLab.com and native Kubernetes targets are supported; remote function executors remain planned.
 
 ## Website and documentation
 
@@ -344,3 +340,8 @@ for local preview commands and Pages setup. The expected deployment address is
 - [Architecture diagram, component responsibilities and extension points](docs/architecture.md#architecture-at-a-glance)
 - [Optional SigNoz observability](docs/observability.md)
 - [Architecture migration history](docs/architecture-migration.md)
+
+
+## Kubernetes runtime configuration
+
+Native Kubernetes worker Deployments and one-time Jobs are implemented and qualified on a dedicated two-node k3d/K3s cluster. See the [operator configuration reference](docs/kubernetes.md) for every target setting, explicit controller authentication, namespace fencing, storage, networking, PID limits and capture/cleanup behavior. Docker remains available alongside the operator-configured Kubernetes target.

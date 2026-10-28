@@ -1,0 +1,21 @@
+# Dedicated disposable cluster only; never apply these settings to a shared cluster.
+apiVersion: k3d.io/v1alpha5
+kind: Simple
+metadata:
+  name: flumic-issue17
+servers: 1
+agents: 1
+image: rancher/k3s:v1.35.9-k3s1
+kubeAPI:
+  hostIP: 127.0.0.1
+  hostPort: "6551"
+options:
+  kubeconfig:
+    updateDefaultKubeconfig: false
+    switchCurrentContext: false
+  k3s:
+    extraArgs:
+      - arg: --disable=traefik,servicelb
+        nodeFilters: [server:*]
+      - arg: --kubelet-arg=pod-max-pids=128
+        nodeFilters: [server:*, agent:*]

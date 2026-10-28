@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "fixture_id": "issue17-q17",
+  "cluster_uid": "e0f5c63a-fd6f-4de5-af53-b130293130d4",
+  "cases": [
+    {
+      "case": "lost-create-and-capture-replies",
+      "job_id": "49a4c3b366e58143a96206598fa4aaf6dec65ce093a118c39c9e31f8d51c9ff5",
+      "state": "completed",
+      "capture_attempts": 2,
+      "cleanup_pending": false
+    },
+    {
+      "case": "nonzero-exit",
+      "job_id": "98ada6bfc3af8605323d607000c24325e6c2ebf11b4ac101e68aea6ed00f771a",
+      "state": "failed",
+      "capture_attempts": 1,
+      "cleanup_pending": false
+    },
+    {
+      "case": "malformed-output",
+      "job_id": "9b6e7f6a56f96416f775a0036b040637d2ff6067209d34d84409012337cf431a",
+      "state": "failed",
+      "capture_attempts": 1,
+      "cleanup_pending": false
+    },
+    {
+      "case": "oom",
+      "job_id": "bff118be65b9ad827b4918d8f65a9b6a36a30be45647d161389ea059d463ed6c",
+      "state": "failed",
+      "capture_attempts": 1,
+      "cleanup_pending": false
+    },
+    {
+      "case": "cancel-without-submitter",
+      "job_id": "584982262e8c486805f689a2e2e81e41f59c6efd85c948d627c02ec4aafba379",
+      "state": "cancelled",
+      "capture_attempts": 0,
+      "cleanup_pending": false
+    },
+    {
+      "case": "deadline-during-controller-outage",
+      "job_id": "331ca41c96fb0d58a0b314cdb753544cf9d535b21fc3cefc2e98dd6ea0b98975",
+      "state": "timed-out",
+      "capture_attempts": 1,
+      "cleanup_pending": false
+    },
+    {
+      "case": "collector-crash",
+      "job_id": "d94149cbe79f0eff024864d4e8a9000a20cf72c6b81828c8fdda6187208f2bef",
+      "state": "failed",
+      "capture_attempts": 1,
+      "cleanup_pending": false
+    }
+  ],
+  "one_root_uid_per_create": true,
+  "controller_restart_recovered": true,
+  "duplicate_acceptance_idempotent": true,
+  "initial_adapter_outage_recovered": true,
+  "source_host_writes": 0,
+  "paid_model_calls": 0
+}

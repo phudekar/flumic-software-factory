@@ -57,6 +57,7 @@ class CreateWorker(BaseModel):
 
 
 class Action(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     config_id: str | None = None
     action: str = Field(pattern=r"^(start|restart|stop|remove|configure)$")
     revision_id: str | None = None
@@ -97,6 +98,13 @@ def create_app(settings=None, sessions=None, runtime=None, workflow=None):
     if sessions is None:
         _, sessions = database(settings.database_url)
     config = Configurations(settings.root)
+    from app.runtime_targets import TargetRegistry
+
+    targets_registry = TargetRegistry(settings)
+    if runtime is None:
+        from app.runtime_router import RuntimeRouter
+
+        runtime = RuntimeRouter(settings, config, sessions)
     cipher = Fernet(settings.encryption_key.encode())
     hasher = PasswordHasher()
     password_hash = hasher.hash(settings.admin_password)
@@ -152,6 +160,7 @@ def create_app(settings=None, sessions=None, runtime=None, workflow=None):
 
     install_project_context(app, sessions, settings)
     from app.repository_validation import install as install_repository_validation
+
     install_repository_validation(app, sessions, settings, row)
     from app.worker_pools import install as install_worker_pools
 
@@ -166,9 +175,9 @@ def create_app(settings=None, sessions=None, runtime=None, workflow=None):
     def runtime_adapter():
         nonlocal runtime
         if runtime is None:
-            from app.adapters.docker import DockerRuntime
+            from app.runtime_router import RuntimeRouter
 
-            runtime = DockerRuntime(settings, config)
+            runtime = RuntimeRouter(settings, config, sessions)
         return runtime
 
     workflow_clients = {}
@@ -334,27 +343,16 @@ def create_app(settings=None, sessions=None, runtime=None, workflow=None):
 
     @app.get("/api/v1/targets")
     def targets():
-        return [
-            {
-                "id": "local-docker",
-                "name": "Local Docker",
-                "runtime": "docker",
-                "capabilities": {
-                    "create": True,
-                    "start": True,
-                    "stop": True,
-                    "drain": False,
-                    "kubernetes": False,
-                },
-                "drain_reason": "Drain requires assignment and pause-race verification against this Hatchet server.",
-            }
-        ]
+        return targets_registry.public_targets()
 
     @app.get("/api/v1/workers")
     def workers():
         warnings = []
         try:
-            actual = runtime_adapter().list()
+            adapter = runtime_adapter()
+            actual = adapter.list()
+            if isinstance(getattr(adapter, "warnings", None), list):
+                warnings.extend(adapter.warnings)
         except Exception:
             actual = []
             warnings.append("Docker unavailable; observed runtime state is unknown.")
@@ -370,7 +368,7 @@ def create_app(settings=None, sessions=None, runtime=None, workflow=None):
                 item = {
                     key: value
                     for key, value in row(worker).items()
-                    if key != "credential_hash"
+                    if key not in {"credential_hash", "target_snapshot"}
                 }
                 current = (
                     db.get(WorkerConfiguration, worker.config_id)
@@ -398,6 +396,7 @@ def create_app(settings=None, sessions=None, runtime=None, workflow=None):
                 )
                 if (
                     item["runtime"]
+                    and worker.protocol != "shared-v1"
                     and item["runtime"].get("revision_id") != worker.revision_id
                 ):
                     item["profile_update_pending"] = True

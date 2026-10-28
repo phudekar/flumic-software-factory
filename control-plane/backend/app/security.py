@@ -12,6 +12,7 @@ def digest(value):
 
 def redact(value):
     from factory.workflows.redaction import redact as action_redact
+
     value = action_redact(value)
     if isinstance(value, dict):
         return {str(k): redact(v) for k, v in value.items()}
@@ -43,3 +44,29 @@ def redact(value):
     return raw[:65536].decode("utf-8", errors="ignore") + (
         "\n[TRUNCATED]" if len(raw) > 65536 else ""
     )
+
+
+def redact_truncated_secret_tail(value, secrets):
+    """Mask a known credential cut at the read boundary, in linear bounded work."""
+    for secret in sorted(set(filter(None, secrets)), key=len, reverse=True):
+        if not isinstance(secret, str) or value.endswith(secret):
+            continue
+        # Prefix-function matching avoids building thousands of regex prefixes
+        # for the largest allowed grant. None cannot collide with a character.
+        sequence = (
+            list(secret)
+            + [None]
+            + list(value[-max(0, len(secret) - 1) :] if len(secret) > 1 else "")
+        )
+        prefixes = [0] * len(sequence)
+        for index in range(1, len(sequence)):
+            matched = prefixes[index - 1]
+            while matched and sequence[index] != sequence[matched]:
+                matched = prefixes[matched - 1]
+            if sequence[index] == sequence[matched]:
+                matched += 1
+            prefixes[index] = matched
+        overlap = prefixes[-1]
+        if overlap:
+            value = value[:-overlap] + "[REDACTED]"
+    return value

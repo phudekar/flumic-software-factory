@@ -33,6 +33,8 @@ import { UsagePage } from "../features/usage";
 import { WorkflowsPage } from "../features/workflows";
 import { WorkerPage, WorkersPage } from "../features/workers";
 
+import { RuntimeTargetsPage } from "../features/runtime-targets";
+
 export function App() {
   const queryClient = useQueryClient();
   const [signedIn, setSignedIn] = useState(false);
@@ -94,6 +96,7 @@ export function App() {
           {[
             ["/", "Overview", Activity],
             ["/workers", "Workers", Server],
+            ["/runtime-targets", "Runtime targets", Box],
             ["/workflows", "Workflows", Workflow],
             ["/runs", "Workflow runs", Workflow],
             ["/history", "Model history", MessageSquareText],
@@ -114,14 +117,11 @@ export function App() {
           <div className="target-note">
             <span className="target-dot" />
             <div>
-              Docker target<small>local-docker</small>
+              Runtime targets<small>Operator configured</small>
             </div>
             <Box size={16} />
           </div>
-          <p>
-            Runtime adapters keep your factory ready for future Kubernetes
-            targets.
-          </p>
+          <p>Shared workers run on configured Docker and Kubernetes targets.</p>
           <button
             className="user-button"
             onClick={async () => {
@@ -162,6 +162,7 @@ export function App() {
             <Route path="/projects" element={<ProjectsPage />} />
             <Route path="/projects/:projectId/*" element={<ProjectPages />} />
             <Route path="/" element={<Overview />} />
+            <Route path="/runtime-targets" element={<RuntimeTargetsPage />} />
             <Route path="/workers" element={<WorkersPage />} />
             <Route path="/workers/:id" element={<WorkerPage />} />
             <Route path="/workflows" element={<WorkflowsPage />} />

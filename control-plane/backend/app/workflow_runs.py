@@ -425,6 +425,41 @@ class DynamicRuntime:
         return result
 
 
+def job_metadata(db, item):
+    """Historical target/UID observation, without auth, payloads or private pins."""
+    from app.runtime_targets import TargetSnapshot
+    from app.database import RuntimeResourceBinding
+
+    snapshot = (
+        TargetSnapshot.model_validate(item.target_snapshot)
+        if item.target_snapshot
+        else None
+    )
+    kind = snapshot.kind if snapshot else "docker"
+    bindings = db.scalars(
+        select(RuntimeResourceBinding).where(
+            RuntimeResourceBinding.project_id == item.project_id,
+            RuntimeResourceBinding.job_id == item.id,
+            RuntimeResourceBinding.target_id == item.target_id,
+            RuntimeResourceBinding.target_revision == item.target_revision,
+        )
+    ).all()
+    root = next((row for row in bindings if row.kind == "Job"), None)
+    return {
+        "kind": kind,
+        "target_id": item.target_id,
+        "target_revision": item.target_revision,
+        "namespace": snapshot.configuration["job_namespace"]
+        if kind == "kubernetes"
+        else None,
+        "job_uid": root.uid if root else None,
+        "pod_uids": [row.uid for row in bindings if row.kind == "Pod" and row.uid],
+        "phase": item.runtime_phase,
+        "cleanup_pending": item.cleanup_pending,
+        "log_stream": "combined" if kind == "kubernetes" else "split",
+    }
+
+
 def install(app, sessions, settings, config):
     runtime = DynamicRuntime(sessions, settings, config)
     app.state.dynamic_runtime = runtime
@@ -544,6 +579,8 @@ def install(app, sessions, settings, config):
             item = require_owned(db, request_scope(request, db), RuntimeJob, identifier)
             return {
                 **runtime.broker._receipt(item).model_dump(),
+                "target_id": item.target_id,
+                "runtime": job_metadata(db, item),
                 "cancel_requested": item.cancel_requested,
                 "error": item.error,
             }

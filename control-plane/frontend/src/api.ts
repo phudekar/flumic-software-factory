@@ -50,6 +50,10 @@ export async function api<T>(
   return response.json();
 }
 export interface Runtime {
+  runtime_kind?: string;
+  namespace?: string;
+  deployment_uid?: string;
+  pod_uids?: string[];
   profile_refresh_supported?: boolean;
   protocol_current?: boolean;
   id: string;

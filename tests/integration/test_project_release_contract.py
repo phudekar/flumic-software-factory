@@ -312,14 +312,15 @@ class LiveProjectReleaseContract(unittest.TestCase):
 
     def cleanup_jobs(self):
         from app.database import RuntimeJob
-        from app.job_contracts import RuntimeJobRef
+        from app.job_contracts import JobLaunch, RuntimeJobRef
         from app.project_context import decrypt
         from sqlalchemy import select
 
         def clean(row):
             value = decrypt(row.launch_ciphertext, self.fixture.settings)["launch"]
+            launch = JobLaunch.model_validate(value)
             ref = RuntimeJobRef(
-                **{key: value[key] for key in RuntimeJobRef.model_fields}
+                **{key: getattr(launch, key) for key in RuntimeJobRef.model_fields}
             )
             cleanup_all(
                 [

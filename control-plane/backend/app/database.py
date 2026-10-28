@@ -10,6 +10,8 @@ from sqlalchemy import (
     ForeignKey,
     ForeignKeyConstraint,
     UniqueConstraint,
+    CheckConstraint,
+    false,
     create_engine,
     event,
 )
@@ -100,6 +102,9 @@ class Worker(Base):
     revision_id: Mapped[str] = mapped_column(String(36))
     config_id: Mapped[str | None] = mapped_column(String(36))
     target_id: Mapped[str] = mapped_column(String(80), default="local-docker")
+    target_snapshot: Mapped[dict] = mapped_column(
+        JSON, default=dict, server_default="{}"
+    )
     credential_hash: Mapped[str] = mapped_column(String(64))
     desired_state: Mapped[str] = mapped_column(String(32), default="created")
     created_at: Mapped[float] = mapped_column(Float, default=time.time)
@@ -512,6 +517,7 @@ class RepositoryExecutionMode(Base):
 class RuntimeJob(ProjectOwned, Base):
     __tablename__ = "runtime_jobs"
     __table_args__ = (
+        UniqueConstraint("project_id", "id", name="uq_runtime_job_project_identity"),
         UniqueConstraint("project_id", "execution_id", name="uq_runtime_job_execution"),
         ForeignKeyConstraint(
             ["project_id", "execution_id"],
@@ -538,6 +544,77 @@ class RuntimeJob(ProjectOwned, Base):
     updated_at: Mapped[float] = mapped_column(Float, default=time.time)
     next_cleanup_at: Mapped[float] = mapped_column(Float, default=0)
     error: Mapped[str | None] = mapped_column(String(120))
+    target_id: Mapped[str] = mapped_column(
+        String(80), default="local-docker", server_default="local-docker"
+    )
+    target_revision: Mapped[str] = mapped_column(
+        String(64), default="", server_default=""
+    )
+    target_snapshot: Mapped[dict] = mapped_column(
+        JSON, default=dict, server_default="{}"
+    )
+    runtime_phase: Mapped[str] = mapped_column(
+        String(24), default="intent", server_default="intent"
+    )
+    cleanup_pending: Mapped[bool] = mapped_column(default=False, server_default=false())
+
+
+class RuntimeLease(Base):
+    __tablename__ = "runtime_leases"
+    resource_key: Mapped[str] = mapped_column(String(160), primary_key=True)
+    owner: Mapped[str | None] = mapped_column(String(36))
+    epoch: Mapped[int] = mapped_column(default=0)
+    expires_at: Mapped[float] = mapped_column(Float, default=0)
+
+
+class RuntimeResourceBinding(Base):
+    __tablename__ = "runtime_resource_bindings"
+    __table_args__ = (
+        UniqueConstraint(
+            "target_id",
+            "target_revision",
+            "kind",
+            "logical_id",
+            name="uq_runtime_binding_logical",
+        ),
+        UniqueConstraint(
+            "target_id",
+            "target_revision",
+            "namespace",
+            "kind",
+            "uid",
+            name="uq_runtime_binding_remote",
+        ),
+        ForeignKeyConstraint(
+            ["project_id", "job_id"],
+            ["runtime_jobs.project_id", "runtime_jobs.id"],
+            name="fk_runtime_binding_job",
+        ),
+        CheckConstraint(
+            "(phase = 'intent' AND uid IS NULL) OR (phase <> 'intent' AND uid IS NOT NULL)",
+            name="ck_runtime_binding_observation",
+        ),
+        CheckConstraint(
+            "(worker_id IS NOT NULL AND job_id IS NULL AND project_id IS NULL) OR (worker_id IS NULL AND job_id IS NOT NULL AND project_id IS NOT NULL)",
+            name="ck_runtime_binding_owner",
+        ),
+    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=identity)
+    target_id: Mapped[str] = mapped_column(String(80))
+    target_revision: Mapped[str] = mapped_column(String(64))
+    kind: Mapped[str] = mapped_column(String(40))
+    logical_id: Mapped[str] = mapped_column(String(160))
+    namespace: Mapped[str] = mapped_column(String(63))
+    name: Mapped[str] = mapped_column(String(253))
+    uid: Mapped[str | None] = mapped_column(String(128))
+    owner_uid: Mapped[str | None] = mapped_column(String(128))
+    spec_digest: Mapped[str] = mapped_column(String(64))
+    pending_spec_digest: Mapped[str | None] = mapped_column(String(64))
+    phase: Mapped[str] = mapped_column(String(24), default="prepared")
+    project_id: Mapped[str | None] = mapped_column(ForeignKey("projects.id"))
+    worker_id: Mapped[str | None] = mapped_column(ForeignKey("worker_instances.id"))
+    job_id: Mapped[str | None] = mapped_column(String(64))
+    details: Mapped[dict] = mapped_column(JSON, default=dict)
 
 
 class DynamicDispatch(ProjectOwned, Base):

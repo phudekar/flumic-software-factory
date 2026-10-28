@@ -12,7 +12,7 @@ boundaries and operational limits.
 The diagram groups the implemented system into six responsibility layers.
 Its arrows show conceptual dependencies rather than a single synchronous request
 path; the application core is shared worker code, not another deployed service.
-The observability rail represents logs, metrics, traces and model accounting. GitHub and GitLab.com are supported source adapters; Kubernetes remains planned.
+The observability rail represents logs, metrics, traces and model accounting. GitHub and GitLab.com are supported source adapters. Docker and native Kubernetes adapters implement the runtime boundary; PostgreSQL holds project execution state and claims.
 
 The **Control Plane** governs configuration, operator access, lifecycle commands
 and execution visibility. The **execution plane** runs the development workflow.
@@ -56,7 +56,7 @@ when starting, and the current runtime does not provide graceful drain guarantee
 | FastAPI Control API | Authentication, validated commands, versioned settings and bounded query responses | Browser code does not need Docker, Hatchet or model credentials; adapters normalize external responses. | Workflow examples and repository validation read the latest saved factory revision; worker adoption still follows the profile/restart path. |
 | Control Plane PostgreSQL | Saved profiles/revisions, sessions, events, audits and operation receipts | Desired configuration and command state survive API process restarts and remain distinct from a particular container. | Several worker instances can follow one profile family; an accepted lifecycle command remains inspectable if a request ends. PostgreSQL also stores project-qualified dynamic run state and claims; legacy workers retain their separate SQLite/file-lock adapter. |
 | Background reconciler | Applying durable worker lifecycle requests outside HTTP handlers | Long builds/restarts and interrupted operations can be handled through one execution path rather than embedded in UI requests. | The reconciler can reclaim an expired operation lease. This does not make every external side effect exactly once or provide zero-downtime rollout. |
-| Runtime adapter | Container creation, configuration, lifecycle and logs | Runtime-specific Docker operations sit behind a backend boundary rather than inside application stages. | A future Kubernetes runtime would implement lifecycle behavior here; worker state, credentials, networking and deployment semantics also need work. Docker is the current implementation. |
+| Runtime adapter | Container creation, configuration, lifecycle and logs | Docker operations and native Kubernetes Deployment/Job operations sit behind the same backend boundary rather than inside application stages. | Kubernetes targets pin operator-approved images, namespace UIDs and controller authority. Private worker PVCs, immutable payloads, database claims and UID-bound cleanup preserve ownership across nodes. Networking and PID enforcement require operator qualification. |
 | Hatchet orchestration adapter | Workflow/task registration, dependency graph, scheduling, routing, retry and wait semantics | Task operations are separate from the scheduler, so orchestration policy can be tuned without embedding engine calls in use-case logic. | Route coding to `developer` workers and adjust task timeouts/concurrency. Another production engine needs explicit adapter/bootstrap integration, not a configuration string alone. |
 | Worker roles and instances | Executing registered tasks with role-specific profiles | Capacity and tool choices can vary by workload while operations share the same application/domain code. | Add developer workers for coding capacity independently of simple workers. Task/workflow concurrency, provider quotas and shared-state constraints still apply. |
 | Application service and ports | Planning, triage, implementation, review, feedback and merge-verification operations | Business operations depend on interfaces and typed requests/results instead of Hatchet/OpenAI clients; fakes can exercise behavior without a live engine or paid model call. | The same operations support the Hatchet adapter and one-shot local runner. There is one cohesive service, not a microservice per stage. |
@@ -89,7 +89,7 @@ fields cover the specific extension points listed below, not every integration.
   around existing operations, including retries, cancellation, routing and
   durable waits. The local runner demonstrates separation; it does not provide
   production scheduling or universal workflow-engine parity.
-- **Different source host or worker runtime:** GitLab.com has a dedicated adapter; self-managed GitLab and Kubernetes orchestration remain planned. Their boundaries reduce the amount
+- **Different source host or worker runtime:** GitLab.com has a dedicated adapter; self-managed GitLab remains planned; native Kubernetes runtime adapters share the existing worker/action contracts. Their boundaries reduce the amount
   of application code that needs to change, but host-specific collaboration,
   persistence, claims, image/network setup and lifecycle behavior still need
   implementation and validation.
@@ -323,7 +323,7 @@ stale revisions, duplicated feedback, independent factories, clean imports, and
 Hatchet SDK workflow serialization without a server. Token-budget tests require
 the normal tiktoken vocabulary cache on first use.
 
-The project runtime supports one-time Docker action containers, immutable workflow revisions and canonical cancellation/deadlines. See [rollout and qualification](project-runtime-operations.md) for the tested boundaries. Alternative workflow engines, Kubernetes, remote functions and other vendor telemetry integrations remain extension work.
+The project runtime supports one-time Docker action containers, immutable workflow revisions and canonical cancellation/deadlines. See [rollout and qualification](project-runtime-operations.md) for the tested boundaries. Native Kubernetes Deployments and Jobs use the same workflow contracts; see [configuration, qualification and operational limits](kubernetes.md). Alternative workflow engines, remote functions and other vendor telemetry integrations remain extension work.
 The built-in CLI execution still uses the existing unprivileged subprocess
 boundary and shared provider home. No live deployment, paid agent run, or GitHub
 mutation is part of the automated validation.

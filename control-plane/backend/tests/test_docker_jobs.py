@@ -137,7 +137,20 @@ class DockerJobRuntimeTests(unittest.TestCase):
                 )
                 self.assertFalse(failed)
                 self.assertEqual(result["output"], {"value": "[REDACTED]"})
-                self.assertEqual(set(result), set(JobCapture.model_fields))
+                self.assertEqual(
+                    set(result),
+                    {
+                        "error",
+                        "exit_code",
+                        "oom",
+                        "output",
+                        "usage",
+                        "stdout",
+                        "stderr",
+                        "stdout_truncated",
+                        "stderr_truncated",
+                    },
+                )
 
     def test_parser_recursion_is_a_failed_capture_with_logs(self):
         from unittest.mock import patch
@@ -194,6 +207,20 @@ class DockerJobRuntimeTests(unittest.TestCase):
         self.capture(b'{"output":{"ok":true}}')
         self.runtime.cleanup(self.runtime.reference(self.launch))
         self.assertFalse((Path(self.tmp.name) / self.launch.job_id).exists())
+
+    def test_truncated_log_cannot_reveal_an_almost_complete_grant(self):
+        from app.job_contracts import JobCapture, sanitize_capture
+
+        secret = "a" * 64
+        capture = JobCapture(
+            output={},
+            exit_code=0,
+            stdout="x" * (262144 - 63) + secret[:-1],
+            stdout_truncated=True,
+        )
+        result, failed = sanitize_capture(capture, [secret])
+        self.assertFalse(failed)
+        self.assertFalse(secret[:-1] in result["stdout"])
 
 
 class FakeJobRuntime:
@@ -623,6 +650,10 @@ class JobBrokerTests(unittest.TestCase):
 
         self.jobs.collect = cross_deadline
         self.broker.reconcile_once(self.jobs)
+        # The artificial clock jump also expires the reconciliation claim. It
+        # cannot publish an outcome; the next valid owner confirms termination.
+        self.assertNotEqual(self.submit().state, "completed")
+        self.broker.reconcile_once(self.jobs)
         self.assertEqual(self.submit().state, "timed-out")
 
     def test_capture_identity_error_is_not_terminal_proof(self):
@@ -679,6 +710,31 @@ class JobBrokerTests(unittest.TestCase):
         self.jobs.jobs[receipt.job_id] = "running"
         self.broker.reconcile_once(self.jobs)
         self.assertEqual(self.submit().state, "cancelled")
+
+    def test_proven_inert_unobserved_launch_retries_after_initial_inspection_failure(
+        self,
+    ):
+        self.arrange()
+        from app.database import RuntimeJob
+        from app.job_contracts import RuntimeJobState
+
+        receipt = self.submit()
+        # Launch intent committed before the first SDK inspection failed.
+        with self.sessions.begin() as db:
+            db.get(RuntimeJob, receipt.job_id).launch_started = True
+        inspect = self.jobs.inspect
+        self.jobs.inspect = lambda ref: (
+            inspect(ref)
+            if ref.job_id in self.jobs.jobs
+            else RuntimeJobState(state="missing", creation_inert=True)
+        )
+        self.broker.reconcile_once(self.jobs)
+        self.assertEqual(len(self.jobs.launches), 1)
+        # An observed execution can never be recreated, even if a driver says inert.
+        self.jobs.jobs.pop(receipt.job_id)
+        self.broker.reconcile_once(self.jobs)
+        self.assertEqual(len(self.jobs.launches), 1)
+        self.assertEqual(self.submit().state, "unknown")
 
     def test_missing_started_job_is_unknown_and_never_automatically_recreated(self):
         self.arrange()

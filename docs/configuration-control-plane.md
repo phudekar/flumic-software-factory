@@ -30,7 +30,7 @@ Standalone workers use `Settings.load`, which reads the selected YAML file/profi
 
 ### `CONTROL_JOB_BRIDGE`
 
-Configures optional `job_bridge` (default `None`): the fixed, pre-created dedicated Docker network used by internal one-time job stages declaring `network: bridge`. Example: `CONTROL_JOB_BRIDGE=flumic-action-network`. Reserved `host`, `bridge` and `none` names are rejected. Jobs default to no network; this is not a host/metadata egress firewall. The base Compose manifest forwards it to the API and reconciler. Recreate both after changing it: publication policy and broker execution must agree. A graph may use bridge mode only when this fixed deployment network is configured. See the [job contract](docker-action-jobs.md).
+Configures optional `job_bridge` (default `None`): the fixed, pre-created dedicated Docker network used by internal one-time job stages declaring `network: bridge`. Example: `CONTROL_JOB_BRIDGE=flumic-action-network`. Reserved `host`, `bridge` and `none` names are rejected. Jobs default to no network; this is not a host/metadata egress firewall. The base Compose manifest forwards it to the API and reconciler. Recreate both after changing it: publication policy and broker execution must agree. For Docker execution, bridge stages require this fixed deployment network. A qualified Kubernetes target can independently enable bridge stages through its approved `network_policy_names.bridge` policy; it does not require `CONTROL_JOB_BRIDGE`. Workers claim only stages supported by their selected target. See the [job contract](docker-action-jobs.md).
 
 ### `CONTROL_DATABASE_URL`
 
@@ -219,3 +219,12 @@ that a process is alive or that those slots are free. Heartbeats may be unknown.
 Check runtime health and current assignments before relying on capacity. An image
 that lacks a required version needs the appropriate rebuild/recreation; changing
 project settings cannot load new code into it.
+
+
+## Kubernetes runtime configuration
+
+Native Kubernetes worker Deployments and one-time Jobs are implemented and qualified on a dedicated two-node k3d/K3s cluster. See the [operator configuration reference](kubernetes.md) for every target setting, explicit controller authentication, namespace fencing, storage, networking, PID limits and capture/cleanup behavior. Docker remains available alongside the operator-configured Kubernetes target.
+
+### `CONTROL_RUNTIME_TARGETS_FILE`
+
+Configures `runtime_targets_file`, default `None`. Example `/run/flumic/runtime-targets.json` is a process-visible absolute path to the operator-owned JSON target registry. Mount it read-only and forward the environment variable to both API and reconciler; recreate both to reload it. It adds at most one Kubernetes target alongside Docker. Strict validation rejects duplicate keys, unknown fields and files larger than 1 MiB. Existing worker/Job pins do not silently change; revision drift fails closed. The public catalog excludes authentication references. See [the complete target key reference](kubernetes.md) before enabling native execution.

@@ -29,8 +29,7 @@ bound to loopback. Both Hatchet and SigNoz remain independent services.
 The local trusted backend and reconciler receive Docker socket access. They
 restrict API actions to factory-owned worker resources, but the socket itself
 is privileged host access. This release is for a trusted local operator, with a
-single administrator session model. Multi-user roles, OIDC, remote target
-credentials, and Kubernetes execution are future work. Do not publish it as a
+single administrator session model. Native Kubernetes targets use explicit operator-owned credentials and scoped RBAC; multi-user roles and OIDC remain future work. Do not publish it as a
 multi-user or Internet-facing service.
 
 ## Included in the first implementation
@@ -54,8 +53,7 @@ multi-user or Internet-facing service.
   content storage, and token/cost accounting events. API requests include the
   assembled system messages. Coding CLIs provide submitted prompts and final
   results, not their full internal conversations.
-- Separate ports for runtime and workflow adapters. Only the `local-docker`
-  target is enabled; Kubernetes is not implemented.
+- Separate runtime and workflow adapters. Docker is available by default; an operator can register one Kubernetes target for shared workers and native Jobs. **Runtime targets** shows safe capabilities; **Add shared worker** selects a pool and destination. See [Kubernetes configuration](kubernetes.md).
 
 ## Worker lifecycle and configuration
 
@@ -229,7 +227,7 @@ This is the first integrated local release, not completion of every item in the
 architecture plan. Remaining work includes verified drain, explicit adoption,
 automatic coordinated rollouts, a source-fragment YAML editor and richer diff
 review, role-based multi-user authorization, SSE, direct SigNoz log querying,
-more scalable paginated cost rollups, and a Kubernetes runtime adapter.
+more scalable paginated cost rollups.
 
 Stage logs currently combine the instrumented worker event stream with Hatchet
 logs when available. SigNoz continues receiving standard OpenTelemetry signals,
@@ -237,9 +235,7 @@ but its query adapter is not yet implemented in the control plane. The run view
 shows stage cards, not a reconstructed DAG with full dependency edges. Every
 adapter returns unavailable/unknown states instead of fabricated monitoring data.
 
-A PostgreSQL control-plane database does not remove the factory's single-host
-SQLite/file-lock constraint. A shared execution-state/claim adapter is required
-before workers can safely execute across Kubernetes nodes or multiple hosts.
+Project workflows use PostgreSQL execution state and fenced database claims, allowing shared workers on different Kubernetes nodes. Each worker keeps its own retained history PVC; local-path volumes are node-bound and do not provide node-loss HA. Legacy static workers retain their single-host SQLite/file-lock adapter. See [runtime configuration and qualification](kubernetes.md).
 
 ## Development and verification
 

@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "fixture_id": "issue17-q17",
+  "cluster_uid": "e0f5c63a-fd6f-4de5-af53-b130293130d4",
+  "cases": [
+    {
+      "scenario": "unschedulable",
+      "runtime_status": "unschedulable",
+      "registered": false,
+      "worker_id": "56bfc137-5287-438e-82b6-9a499a80f1f7"
+    },
+    {
+      "scenario": "invalid-image",
+      "runtime_status": "image-pull-backoff",
+      "registered": false,
+      "worker_id": "cab4ea6d-4a0f-415a-9f8d-bc93999a5b05"
+    }
+  ]
+}

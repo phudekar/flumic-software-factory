@@ -1,5 +1,7 @@
 """Scoped immutable graph publication and launch-time revision snapshots."""
 
+from app.runtime_targets import TargetRegistry
+
 import hashlib
 import json
 from fastapi import Depends, HTTPException, Request
@@ -215,7 +217,7 @@ def pin_definition(db, scope, revision_id, config, settings, *, frozen=None):
         scope,
         config,
         decrypt(revision.graph_ciphertext, settings),
-        allow_bridge=settings.job_bridge is not None,
+        allow_bridge=TargetRegistry(settings).allows_bridge(),
         frozen=frozen,
     )
     value = {
@@ -302,7 +304,7 @@ def install(app, sessions, config, settings):
                 request_scope(request, db),
                 config,
                 body.document,
-                allow_bridge=settings.job_bridge is not None,
+                allow_bridge=TargetRegistry(settings).allows_bridge(),
             )
             return {
                 "digest": graph_digest(graph.model_dump(mode="json")),
@@ -342,7 +344,7 @@ def install(app, sessions, config, settings):
                 scope,
                 config,
                 body.document,
-                allow_bridge=settings.job_bridge is not None,
+                allow_bridge=TargetRegistry(settings).allows_bridge(),
             )
             if db.scalar(
                 select(WorkflowDefinitionRecord.id).where(
@@ -407,7 +409,7 @@ def install(app, sessions, config, settings):
                 scope,
                 config,
                 body.document,
-                allow_bridge=settings.job_bridge is not None,
+                allow_bridge=TargetRegistry(settings).allows_bridge(),
             )
             if db.scalar(
                 select(WorkflowDefinitionRecord.id).where(

@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "targets": [
+    {
+      "id": "k3d-test",
+      "name": "Local Kubernetes",
+      "kind": "kubernetes",
+      "deployment_id": "flumic-test",
+      "auth": {
+        "mode": "kubeconfig",
+        "kubeconfig": "/run/flumic/kubeconfig",
+        "context": "k3d-flumic-issue17"
+      },
+      "worker_namespace": "flumic-workers",
+      "worker_namespace_uid": "00000000-0000-0000-0000-000000000001",
+      "job_namespace": "flumic-actions",
+      "job_namespace_uid": "00000000-0000-0000-0000-000000000002",
+      "images": {
+        "simple": "registry.example.com/flumic/simple@sha256:0000000000000000000000000000000000000000000000000000000000000000",
+        "developer": "registry.example.com/flumic/developer@sha256:0000000000000000000000000000000000000000000000000000000000000000",
+        "helper": "registry.example.com/flumic/helper@sha256:0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "storage_class": "local-path",
+      "worker_endpoint": "http://flumic-control-api.flumic-control.svc:8000",
+      "image_pull_secrets": [],
+      "node_selector": {},
+      "tolerations": [],
+      "network_policy_names": {
+        "none": "flumic-action-deny",
+        "bridge": "flumic-action-bridge"
+      },
+      "network_qualified": false,
+      "network_evidence": "",
+      "pid_limit": 128,
+      "pid_qualified": false,
+      "pid_evidence": "",
+      "storage_mib": 256,
+      "init_memory_mib": 64,
+      "collector_memory_mib": 96,
+      "helper_cpu_millicores": 100,
+      "hatchet_secret_name": "flumic-hatchet-transport"
+    }
+  ]
+}

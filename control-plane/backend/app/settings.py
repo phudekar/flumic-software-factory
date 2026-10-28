@@ -20,6 +20,7 @@ class AppSettings:
     cookie_secure: bool = False
     job_bridge: str | None = field(default=None, kw_only=True)
     runtime_namespace: str = field(default="flumic-dynamic-v1", kw_only=True)
+    runtime_targets_file: Path | None = field(default=None, kw_only=True)
 
     def __post_init__(self):
         import re
@@ -57,5 +58,10 @@ class AppSettings:
                 "CONTROL_RUNTIME_NAMESPACE", "flumic-dynamic-v1"
             ),
             job_bridge=os.environ.get("CONTROL_JOB_BRIDGE") or None,
+            runtime_targets_file=(
+                Path(os.environ["CONTROL_RUNTIME_TARGETS_FILE"]).expanduser().resolve()
+                if os.environ.get("CONTROL_RUNTIME_TARGETS_FILE")
+                else None
+            ),
             cookie_secure=os.environ.get("CONTROL_COOKIE_SECURE", "false") == "true",
         )

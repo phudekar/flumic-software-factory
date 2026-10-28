@@ -1,0 +1,32 @@
+# Operator installation only. The controller cannot edit admission policy or namespaces.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: flumic-namespace-fence
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    namespaceSelector:
+      matchLabels:
+        flumic.io/namespace-fence: enforced
+    resourceRules:
+      - apiGroups: ["", apps, batch, networking.k8s.io]
+        apiVersions: [v1]
+        operations: [CREATE, UPDATE]
+        resources: [configmaps, secrets, persistentvolumeclaims, pods, deployments, replicasets, jobs, networkpolicies]
+  validations:
+    - expression: >-
+        !((has(object.metadata.annotations) && 'flumic.io/namespace-uid' in object.metadata.annotations) ||
+        (oldObject != null && has(oldObject.metadata.annotations) && 'flumic.io/namespace-uid' in oldObject.metadata.annotations)) ||
+        (has(object.metadata.annotations) && 'flumic.io/namespace-uid' in object.metadata.annotations &&
+        has(namespaceObject.metadata.annotations) && 'flumic.io/namespace-uid' in namespaceObject.metadata.annotations &&
+        object.metadata.annotations['flumic.io/namespace-uid'] == namespaceObject.metadata.annotations['flumic.io/namespace-uid'])
+      message: Flumic resource namespace incarnation does not match the operator fence
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: flumic-namespace-fence
+spec:
+  policyName: flumic-namespace-fence
+  validationActions: [Deny]

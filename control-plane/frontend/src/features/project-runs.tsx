@@ -226,7 +226,7 @@ function RunDetail({ id }: { id: string }) {
                                 new URLSearchParams({ run: id })
                               }
                             >
-                              Docker job {a.job_id}
+                              Job {a.job_id}
                             </Link>
                           </>
                         )}
@@ -307,7 +307,7 @@ export function ProjectJobPage() {
   return (
     <>
       <PageTitle
-        eyebrow="DOCKER EXECUTION"
+        eyebrow="ACTION EXECUTION"
         title={"Job " + jobId}
         description="Durable broker receipt, deadline and bounded capture. CPU and memory are not AI usage."
       />
@@ -323,6 +323,31 @@ export function ProjectJobPage() {
             Exit code: {result?.exit_code ?? "Unknown"} · OOM:{" "}
             {result?.oom === undefined ? "Unknown" : String(result.oom)}
           </p>
+          <p>
+            Target: {job.data.target_id ?? "local-docker"} ·{" "}
+            {job.data.runtime?.kind ?? "docker"}
+          </p>
+          {job.data.runtime?.namespace && (
+            <p>
+              Namespace: <span>{job.data.runtime.namespace}</span>
+            </p>
+          )}
+          {job.data.runtime?.job_uid && (
+            <p>
+              Job UID: <span>{job.data.runtime.job_uid}</span>
+            </p>
+          )}
+          {job.data.runtime?.pod_uids?.map((uid) => (
+            <p key={uid}>
+              Pod UID: <span>{uid}</span>
+            </p>
+          ))}
+          <p>
+            Runtime phase: {job.data.runtime?.phase ?? "unknown"} ·{" "}
+            {job.data.runtime?.cleanup_pending
+              ? "Cleanup pending"
+              : "No cleanup pending"}
+          </p>
           {job.data.cancel_requested && (
             <p>
               Cancellation requested; terminal cleanup must still be confirmed
@@ -336,8 +361,18 @@ export function ProjectJobPage() {
             </Link>
           )}
           {!result && <p>No captured result yet.</p>}
-          {(["stdout", "stderr"] as const).map((stream) => (
-            <Section key={stream} title={stream}>
+          {(job.data.runtime?.log_stream === "combined"
+            ? (["stdout"] as const)
+            : (["stdout", "stderr"] as const)
+          ).map((stream) => (
+            <Section
+              key={stream}
+              title={
+                job.data.runtime?.log_stream === "combined"
+                  ? "Combined action logs"
+                  : stream
+              }
+            >
               <div className="editor-body">
                 <pre>
                   {result?.[stream]?.slice(0, 65536) || "No captured output."}
