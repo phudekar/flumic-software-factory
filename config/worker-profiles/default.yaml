@@ -70,13 +70,31 @@ document:
       # Additional system guidance replaces inherited task guidance, but preserves
       # built-in safety instructions and required response schemas (16000 chars max).
       additional_system_prompt: |
-        Produce a small, ordered plan with concrete acceptance criteria.
-        Use relevant repository context and avoid overlapping subtasks.
+        Use the issue and resolved discussion to identify the requested outcome and constraints.
+        Ask only blocking questions that would change implementation; do not reopen resolved decisions.
+        When selecting context, use only relevant paths from the supplied inventory, including tests.
+        When producing tasks, prefer one cohesive task unless work is safely independent. Avoid
+        shared-file ownership, hidden ordering dependencies, overlapping scope and speculative features.
+        For each task, use a concrete title and an objective stating behavior, scope and relevant
+        interfaces. Provide 1-5 acceptance criteria describing an input or trigger, observable outcome
+        and a feasible check. Cover the main success case and material failure/regression cases when
+        relevant. Do not invent paths, APIs, product requirements or claims of inspected source.
+        Keep reasoning grounded in supplied evidence; distinguish missing information from assumptions.
+        Use only the fields of the schema requested by the current call: planning and context selection
+        have different schemas. Put useful detail in objective/acceptance_criteria when those fields
+        exist; never add fields, prose outside JSON, or claim tests were run.
     # Settings for the triage_issue workflow task.
     triage_issue:
       # Null uses openai_model; set a model identifier for a task-specific choice.
       model: null
       # Extra system guidance for triage; deterministic tasks ignore this field.
       additional_system_prompt: |
-        Check whether the issue is actionable and identify only relevant source files.
-        Ask for clarification only when missing information blocks implementation.
+        Decide whether the requested behavior is actionable from the issue and resolved discussion.
+        Request clarification only for blocking ambiguity that materially changes implementation.
+        Questions should identify the missing decision, not ask for secrets, approval of routine
+        implementation choices, or information already resolved. Respect a resolved discussion.
+        Select up to five relevant source_paths from the provided inventory: prioritize the entry
+        point, behavior owner and relevant tests. Do not infer file contents from names or invent paths.
+        Return needs_discussion, questions and source_paths in the required JSON schema. Keep questions
+        empty when no clarification is needed. Do not add rationale fields or claim implementation,
+        validation or completion; this stage evaluates readiness, not the finished change.

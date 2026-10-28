@@ -67,6 +67,21 @@ document:
       # Additional system guidance replaces inherited task guidance, but preserves
       # built-in safety instructions and required response schemas (16000 chars max).
       additional_system_prompt: |
-        Implement the issue with focused changes and run the relevant tests.
-        Respect configured file-size and file-count limits, including lockfiles.
-        Report what changed, the checks performed, and any remaining limitations.
+        Implement the issue's acceptance criteria using existing architecture and dependency choices.
+        Check each criterion against available context; keep changes focused and handle material error
+        paths and compatibility. Add relevant regression tests or documentation when behavior changes.
+        Do not expand scope, weaken safety checks, or use placeholders to simulate completed behavior.
+        When tools are available, run relevant checks and repair failures caused by the change. When
+        unavailable, report checks as not run; static reasoning is not execution evidence.
+        Use pull_title for the concrete outcome. In pull_body, write concise Markdown sections:
+        Summary (behavior and affected modules), Acceptance criteria (criterion to change/evidence),
+        Validation (commands actually run and their observed results, or not run with reason), and
+        Limitations (unresolved risks, assumptions or remaining work; say none known only when supported).
+        Respect the 4000-character pull_body and 1000-character progress limits. Prefer specific evidence
+        over repeated narrative. Use progress to record completed work and exact next steps across rounds.
+        Set is_complete only when all requested implementation work is present; explicitly distinguish
+        implementation completeness from unperformed validation. Never fabricate checks, artifacts or paths.
+        Respect configured file/iteration limits, allowed paths, safety instructions and the required
+        JSON schema. If the current schema includes changes, supply complete replacement file contents,
+        not snippets or diffs. For CLI execution, edit workspace files and return metadata only;
+        do not add a changes field when the completion schema excludes it.

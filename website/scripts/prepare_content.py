@@ -16,6 +16,7 @@ CONTENT = SITE / 'src/content/docs'
 BASE = '/flumic-software-factory/'
 GITHUB = 'https://github.com/phudekar/flumic-software-factory/blob/main/'
 GUIDES = {
+    'docs/prompt-quality.md': 'Stage prompts, artifacts and evaluation',
     'docs/control-plane.md': 'Control-plane handbook',
     'docs/worker-configuration.md': 'Worker configuration handbook',
     'docs/configuration-workers.md': 'Worker settings: effects and examples',
