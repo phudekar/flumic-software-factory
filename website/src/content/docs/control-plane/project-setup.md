@@ -104,3 +104,5 @@ and [workflow authoring](/flumic-software-factory/handbook/workflow-development/
 for setup requirements and the full schema.
 
 For the full execution journey, follow [the numbered user walkthrough](/flumic-software-factory/start/walkthrough/), including guided pool setup, first run and monitoring.
+
+Standard issue workflows can be set up without an API console: use **Workflows → Install templates**, review **Repository execution** on the repository card, then select the issue number and saved follow-up revisions in **Guided issue launch**. Each action requires its own explicit submission. Existing templates retain their saved settings; custom/multiple-repository launches keep the advanced JSON form.

@@ -83,7 +83,22 @@ Open **View or run this saved revision**, or choose a revision in **Immutable
 revision history**. The saved document is read-only. The run form remains attached
 to that exact revision even if someone publishes another head.
 
-Confirm the definition's default repository, provide **Run input JSON**, and supply
+For the standard single-repository **Issue to pull request** recipe, confirm the
+repository and use **Guided issue launch**: enter a positive issue number, select
+saved feedback/verification revisions for that repository, and inspect their
+links before submitting. The form constructs connection/revision UUID bindings
+and pins the issue follow-up to the root revision you are viewing. It does not
+create the source-host issue. **Advanced JSON** remains available for custom
+workflows, multiple repositories or historical follow-up revisions. Guided fields
+and advanced JSON are separate drafts after the first switch.
+
+To install the standard recipes, use **Workflows → Install templates**. Select
+a repository, compatible authorized role pools and saved provider credentials.
+Existing recipes are retained, including their previous grants/pools; installation
+does not hand over the repository or launch work. Repository handover is an
+explicit, conflict-checked action on **Repositories → Repository execution**.
+
+For advanced/custom launches, confirm the definition's default repository, provide **Run input JSON**, and supply
 **Follow-up bindings JSON** when needed. The selection confirms the repository
 already declared in the saved definition; changing it requires a new publication.
 Follow-up bindings map repository connection UUIDs to workflow-kind revision UUIDs:

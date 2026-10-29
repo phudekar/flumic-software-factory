@@ -1,0 +1,61 @@
+.project-config-editor {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
+.project-config-editor .tabs {
+  flex-wrap: wrap;
+}
+.project-config-editor p {
+  margin: 0;
+  color: var(--muted, #a9b8b0);
+  line-height: 1.6;
+}
+.project-config-editor label {
+  display: grid;
+  gap: 8px;
+}
+.project-editor-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(230px, 100%), 1fr));
+  gap: 18px;
+}
+.project-config-editor details {
+  border-top: 1px solid var(--border, #30423b);
+  padding-top: 14px;
+}
+.project-config-editor summary {
+  cursor: pointer;
+}
+.trigger-table td {
+  vertical-align: top;
+}
+.trigger-table small {
+  display: block;
+  margin-top: 7px;
+}
+.trigger-form {
+  display: grid;
+  gap: 18px;
+}
+.trigger-form fieldset {
+  border: 1px solid var(--border, #30423b);
+  border-radius: 10px;
+  padding: 18px;
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
+.trigger-form legend {
+  padding: 0 8px;
+}
+.trigger-form details > label {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+}
+.trigger-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}

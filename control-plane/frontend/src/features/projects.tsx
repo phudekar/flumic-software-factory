@@ -1,3 +1,6 @@
+import { ProjectConfigEditor } from "./project-config-editor";
+import { localTimestamp } from "../components/project-format";
+import { RepositoryHandover } from "./repository-handover";
 import { PoolCreateForm } from "./pool-create-form";
 import { ProjectOverview, ProjectHistory } from "./project-overview";
 import { ProjectUsagePage } from "./usage";
@@ -26,7 +29,7 @@ import {
 } from "react-router-dom";
 import { api, type RepositoryConnection as Repository } from "../api";
 import { useData, useSetupForm } from "../hooks";
-import { Failure, PageTitle, Section } from "../components/ui";
+import { Failure, PageTitle, Section, Status } from "../components/ui";
 import {
   ProjectProvider,
   projectPath,
@@ -94,7 +97,7 @@ export function ProjectsPage() {
     };
   }, []);
   return (
-    <>
+    <div className="project-space project-directory">
       <PageTitle
         eyebrow="PROJECTS"
         title="Projects"
@@ -121,7 +124,17 @@ export function ProjectsPage() {
             ? "Loading projects…"
             : projects.data?.map((p) => (
                 <article className="setup-card" key={p.id}>
-                  <Link to={projectPath(p.id, "/overview")}>{p.name}</Link>{" "}
+                  <div className="setup-card-heading">
+                    <h3>
+                      <Link to={projectPath(p.id, "/overview")}>{p.name}</Link>
+                    </h3>
+                    <Link
+                      className="secondary"
+                      to={projectPath(p.id, "/overview")}
+                    >
+                      Open project →
+                    </Link>
+                  </div>
                   <p>Manage repositories, workflows and project settings.</p>
                   <details>
                     <summary>Advanced details</summary>
@@ -217,7 +230,7 @@ export function ProjectsPage() {
       <p>
         <Link to="/config">Default legacy profiles and saved history</Link>
       </p>
-    </>
+    </div>
   );
 }
 export function ProjectPages() {
@@ -378,6 +391,7 @@ function Repositories() {
                       <p>Connection ID: {r.id}</p>
                       <p>Revision: {r.revision_id}</p>
                     </details>
+                    <RepositoryHandover key={r.revision_id} repository={r} />
                   </article>
                 ))
               : "No repositories connected."}
@@ -802,8 +816,10 @@ function Credentials() {
                   : "Whole project"}
               </p>
               <p>
-                {s.revoked_at ? "Revoked" : "Saved · value hidden"}. Saving a
-                key does not verify provider access.
+                {s.revoked_at != null
+                  ? "Revoked · " + localTimestamp(s.revoked_at)
+                  : "Saved · value hidden"}
+                . Saving a key does not verify provider access.
               </p>
               {s.revoked_at ? (
                 "revoked"
@@ -952,7 +968,9 @@ function draftFor(revision: ConfigRevision): ConfigDraft {
 }
 export function ProjectConfiguration() {
   const revisions =
-    useProjectData<{ id: string; summary: string }[]>("/config/revisions");
+    useProjectData<{ id: string; summary: string; created_at?: number }[]>(
+      "/config/revisions",
+    );
   const head = revisions.data?.[0]?.id;
   const revision = useProjectData<ConfigRevision>(
     "/config/revisions/" + (head ?? ""),
@@ -1015,19 +1033,21 @@ export function ProjectConfiguration() {
               revision deliberately to discard these edits.
             </p>
           )}
-          <label>
-            Project configuration JSON
-            <textarea
-              rows={20}
+          {draft ? (
+            <ProjectConfigEditor
               disabled={pending || !draft}
               value={draft?.source ?? ""}
-              onChange={(e) =>
-                setDraft((current) =>
-                  current ? { ...current, source: e.target.value } : null,
-                )
+              onChange={(source) =>
+                setDraft((current) => (current ? { ...current, source } : null))
               }
             />
-          </label>
+          ) : (
+            <p role="status">
+              {revisions.isPending || (!!head && revision.isPending)
+                ? "Loading project defaults…"
+                : "No saved project configuration is available."}
+            </p>
+          )}
           <button disabled={pending || !draft}>
             Save project configuration
           </button>
@@ -1056,12 +1076,32 @@ export function ProjectConfiguration() {
         </form>
       </Section>
       <Section title="Saved revisions">
-        <div className="editor-body">
-          {revisions.data?.map((r) => (
-            <p key={r.id}>
-              {r.id} · {r.summary}
-            </p>
-          ))}
+        <div className="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>Revision</th>
+                <th>Change summary</th>
+                <th>Created</th>
+              </tr>
+            </thead>
+            <tbody>
+              {revisions.data?.map((r) => (
+                <tr key={r.id}>
+                  <td>
+                    <code title={r.id}>
+                      {r.id.slice(0, 12)}
+                      {r.id.length > 12 ? "…" : ""}
+                    </code>
+                  </td>
+                  <td>{r.summary || "No summary"}</td>
+                  <td>
+                    <time>{localTimestamp(r.created_at)}</time>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       </Section>
     </>
@@ -1087,6 +1127,7 @@ interface Pool {
     missing_executors: string[];
     capabilities: { actions?: string[]; executors?: string[] };
     last_heartbeat_at: number | null;
+    registered_at?: number | null;
   }[];
 }
 function ProjectPools() {
@@ -1151,11 +1192,14 @@ function ProjectPools() {
               {p.role} · {p.normal_slots} normal / {p.durable_slots} durable
               slots per worker
             </p>
-            <p>
-              Executors: {p.executors.join(", ")}
-              <br />
-              Action versions: {p.actions.join(", ")}
-            </p>
+            <details className="setup-advanced">
+              <summary>Supported actions and executors</summary>
+              <p>
+                Executors: {p.executors.join(", ")}
+                <br />
+                Action versions: {p.actions.join(", ")}
+              </p>
+            </details>
             <button
               disabled={pending}
               onClick={async () => {
@@ -1184,35 +1228,39 @@ function ProjectPools() {
             {p.workers.length === 0 ? (
               <p>No workers in this pool.</p>
             ) : (
-              p.workers.map((w) => (
-                <div key={w.id}>
-                  <strong>{w.name}</strong>
-                  <p>
-                    {w.capability_state} · {w.protocol} · desired{" "}
-                    {w.desired_state}
-                  </p>
-                  <p>
-                    Missing action versions:{" "}
-                    {w.missing_actions.join(", ") || "none"}
-                  </p>
-                  <p>
-                    Missing executor versions:{" "}
-                    {w.missing_executors.join(", ") || "none"}
-                  </p>
-                  <p>
-                    Loaded actions:{" "}
-                    {w.capabilities.actions?.join(", ") || "unknown"}
-                    <br />
-                    Loaded executors:{" "}
-                    {w.capabilities.executors?.join(", ") || "unknown"}
-                    <br />
-                    Last heartbeat:{" "}
-                    {w.last_heartbeat_at
-                      ? new Date(w.last_heartbeat_at * 1000).toLocaleString()
-                      : "unknown"}
-                  </p>
-                </div>
-              ))
+              <div className="project-pool-workers">
+                {p.workers.map((w) => (
+                  <div className="project-pool-worker" key={w.id}>
+                    <div className="setup-card-heading">
+                      <strong>{w.name}</strong>
+                      <Status value={w.capability_state} />
+                    </div>
+                    <p>Desired state: {w.desired_state}</p>
+                    <p>Last heartbeat: {localTimestamp(w.last_heartbeat_at)}</p>
+                    <p>Registered: {localTimestamp(w.registered_at)}</p>
+                    <details className="setup-advanced">
+                      <summary>Capabilities and diagnostics</summary>
+                      <p>
+                        Missing action versions:{" "}
+                        {w.missing_actions.join(", ") || "none"}
+                      </p>
+                      <p>
+                        Missing executor versions:{" "}
+                        {w.missing_executors.join(", ") || "none"}
+                      </p>
+                      <p>
+                        Loaded actions:{" "}
+                        {w.capabilities.actions?.join(", ") || "unknown"}
+                        <br />
+                        Loaded executors:{" "}
+                        {w.capabilities.executors?.join(", ") || "unknown"}
+                        <br />
+                        Protocol: {w.protocol}
+                      </p>
+                    </details>
+                  </div>
+                ))}
+              </div>
             )}
           </div>
         </Section>
@@ -1234,7 +1282,7 @@ function PoolEligibility({ pool: p }: { pool: Pool }) {
       )
     : [];
   return (
-    <div>
+    <div className="project-pool-eligibility">
       <label>
         Required action in {p.name}
         <select value={action} onChange={(e) => setAction(e.target.value)}>

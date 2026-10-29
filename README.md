@@ -12,7 +12,7 @@ The React/TypeScript control plane provides worker lifecycle controls,
 versioned configuration, workflow runs, stage logs, redacted model history, and
 usage estimates. It is intended for a trusted developer running Docker locally.
 
-![Control-plane overview showing worker counts, recent workflow runs, tokens, and estimated spend](docs/images/control-plane-overview.png)
+![Default project overview with repository and workflow counts, recent runs, and known estimated spend](docs/images/control-plane-project-overview-guided.png)
 
 Screenshots show an existing local installation; profiles, counts, and run states
 will differ on a fresh setup. Cost figures are estimates, and missing prices are
@@ -34,15 +34,142 @@ including Hatchet, keep their own licenses.
 
 ## Quick start
 
-For a complete guided journey, follow the [user walkthrough: project creation to monitoring](docs/user-walkthrough.md), including explicit UI/API steps, example inputs and troubleshooting checkpoints.
+Use the existing **Default project** and its installed **Issue to pull request**,
+feedback and verification workflows. The only configuration change in this quick
+start is the **target repository**; keep the existing project, repository alias,
+workflow templates, pool assignments and model settings.
 
-Choose your execution path before starting workers:
+### 1. Prepare your environment
 
-- **New multi-project installation:** use the [project onboarding guide](website/src/content/docs/start/project-onboarding.md). Projects own repository connections and immutable workflow revisions; shared pools provide execution capacity.
-- **Existing profile-based installation:** follow the steps below. These start the legacy issue-to-PR workflows and use shared-host SQLite state.
+This path assumes the Default project is already provisioned with working
+credentials, installed default workflows and authorized, running workers. If it
+is not, use the [complete setup walkthrough](docs/user-walkthrough.md) first.
+Your target repository should be initialized with a default branch and source
+files; the saved source credential must have access to it.
 
-Do not run both paths against the same repository. Moving an existing repository
-requires the explicit [dynamic-mode handover](docs/project-runtime-operations.md#roll-out-from-a-current-checkout).
+For a locally installed factory, open [localhost:3400](http://localhost:3400) and
+sign in with `CONTROL_ADMIN_PASSWORD` from `.env.control-plane`. If the control
+services are stopped, start them from the factory checkout with:
+
+```sh
+just control-up api reconciler dynamic-runtime
+```
+
+See [command shortcuts](#command-shortcuts) for launcher prerequisites. Starting
+the control services does not start stopped workers.
+
+### 2. Update the target repository
+
+1. Select **Default project** in the project selector.
+2. Open **Repositories** and find the existing connection used by the default
+   workflows. Click **Edit connection** on that card.
+3. Update the owner and repository name to your target, for example `YOUR_ORG`
+   and `YOUR_APP`. Keep its existing **Repository alias** unchanged: the saved
+   default workflows refer to that alias.
+4. Keep the assigned source credential if it already has access to the new target.
+   If access is missing, resolve the credential before attempting a run.
+5. Click **Save repository** and confirm the card shows `YOUR_ORG/YOUR_APP` with
+   the same alias and assigned credential. Do not add another connection or
+   reinstall templates for this quick start.
+
+![Edit the existing target repository: change GitHub owner and Repository name, keep Repository alias](docs/images/quick-start-edit-target-repository.png)
+
+In the form above, change **GitHub owner** and **Repository name**, keep
+**Repository alias** unchanged, and click **Save repository**. The shown
+credential name belongs to the example installation; keep your own authorized
+credential. The screenshot shows the example installation’s current values; its edit form was closed without saving.
+
+Your target repository is where Flumic AI will read issues and propose code
+changes. It is separate from this software-factory checkout. Saving its new
+location does not start a workflow or verify provider access. Existing runs keep
+their pinned repository context; the update applies to newly accepted runs.
+
+### 3. Create and label an issue in GitHub
+
+1. Open your **target repository** on GitHub, then **Issues → New issue**.
+   If a template chooser appears, use the relevant issue type or **Open a blank issue**.
+2. Enter a focused title and a description that explains current behavior,
+   the requested change, acceptance criteria and how to verify the result.
+   Use this minimal Python task for your first issue:
+
+   ```text
+   Title: Create a Hello World app in Python
+
+   Create a file named hello.py in the repository root.
+   When run with python3 hello.py, it should print Hello, world! and exit.
+
+   Acceptance criteria:
+   - Uses Python 3 and no third-party dependencies.
+   - Prints exactly Hello, world! followed by a newline.
+   - Exits successfully (exit code 0).
+
+   Validation: Run python3 hello.py and check the output.
+   ```
+
+3. Review the description, then click **Submit new issue** (or **Create**, depending
+   on GitHub's form). Copy the issue number from its heading or URL.
+
+![Actual Hello World issue number 43 in software-factory-test, showing the requirements and acceptance criteria](docs/images/github-hello-world-issue-43.png)
+
+4. On the issue, open **Labels** in the right sidebar, search for
+   `ready-for-agent` and select it. Close the picker and confirm the label appears.
+   This is the default readiness label; use your saved configuration's label if
+   it has been customized. You do not need to assign a GitHub user to launch the
+   manual workflow.
+5. If the label does not exist, open the repository's **Issues → Labels → New
+   label**, name it exactly `ready-for-agent`, and create it. Return to the issue
+   and apply it. If these controls are unavailable, ask a repository maintainer
+   to create/apply the label.
+
+![Actual issue 43 label picker filtered to ready-for-agent](docs/images/github-hello-world-label-picker-43.png)
+
+These screenshots show the actual [Hello World issue #43](https://github.com/phudekar/software-factory-test/issues/43)
+created in the example `phudekar/software-factory-test` repository for this guide.
+That repository is private, so the link requires access. Create your own issue
+in your target repository and use its number. The issue screenshot shows its verified `ready-for-agent` label. The picker
+screenshot shows the label search before selection; that picker was dismissed
+without changing labels. Applying a readiness label may trigger work if automation
+is enabled.
+
+**Checkpoint:** the issue is open in the intended target repository, has a clear
+scope and displays the readiness label. Labeling alone does not start a run in
+this manual quick start. If an enabled repository trigger already handles that
+label, inspect its accepted run and skip the manual launch below to avoid
+submitting the same work twice.
+
+### 4. Run the default workflow and monitor
+
+Using the issue number from step 3, open **Workflows** and choose **Run** on the existing **Issue to pull request** workflow.
+Confirm the unchanged repository alias, enter the issue number, and select the
+existing feedback/verification revisions in **Guided issue launch**.
+
+Review the selections, then click **Run saved revision** explicitly. Execution
+can make paid model calls and write to the target repository. Follow the new run
+in **Workflow runs**, inspect stage attempts/logs, and use **Model history** and
+**Usage & cost** to monitor model calls. Review generated PR diffs and CI before
+approving or merging in your source host.
+
+If execution ownership for the new target has not been enabled, the server can
+refuse the launch. Follow **Repositories → Repository execution** and its linked
+[migration guidance](docs/project-runtime-operations.md#roll-out-from-a-current-checkout)
+to resolve that prerequisite; do not bypass the checks. For detailed stage and
+follow-up explanations, see the [walkthrough](docs/user-walkthrough.md).
+
+For real screenshots of every observed label transition, the captured model
+exchange and the generated PR, see the [recorded Hello World example](docs/hello-world-live-example.md).
+
+#### What a successful run looks like
+
+![Actual completed Hello World implementation run under Default](docs/images/default-project-hello-world-completed.png)
+
+This is the real resumed implementation of child issue #44 under Default. It
+created draft PR #45; it has not merged the change. Completed stage calls alone
+do not prove the business task is finished: another run may finish by requesting
+clarification or finding an existing plan. Inspect stage outcomes and follow-ups,
+then review the PR and CI before merging.
+
+<details>
+<summary>Optional command shortcuts</summary>
 
 ### Command shortcuts
 
@@ -74,86 +201,8 @@ For example, `just docs-dev --port 4323` forwards the port to Astro. Use
 without starting services. Pool creation and project authorization are available
 through **Shared worker pools** in the UI; they do not need shell aliases.
 
-### 1. Prepare your environment
 
-You need:
-
-- Git, Python 3, Docker Engine/Desktop, and the `docker-compose` command used by the launch scripts.
-- Hatchet with a reachable instance and a CLI profile named `development`.
-- An initialized target GitHub repository with a default branch and source files.
-- A fine-grained GitHub token scoped to that repository: Contents, Issues, and
-  Pull requests read/write; Checks and Commit statuses read access.
-- An OpenAI API key for the default planner/reviewer. Claude coding additionally
-  requires an Anthropic key. Configured model IDs must be available to your account.
-
-```sh
-git clone https://github.com/phudekar/flumic-software-factory.git
-cd flumic-software-factory
-cp .env.example .env
-```
-
-Edit `.env` with your credentials. Set `defaults.repository` in
-`config/runtime.yaml` to `YOUR_ORG/YOUR_REPO` before starting any workers.
-Review model choices in `config/models.yaml` and
-`config/worker-profiles/developer.yaml` for your provider account.
-
-The launchers load Hatchet credentials from the `development` CLI profile.
-Keep `.env` private; do not copy Hatchet tokens into repository configuration.
-
-### 2. Start the control plane
-
-```sh
-just control-up
-```
-
-Open [localhost:3400](http://localhost:3400). Sign in with
-`CONTROL_ADMIN_PASSWORD` from the generated, Git-ignored `.env.control-plane`.
-The first build can take several minutes. The launcher builds worker images and
-starts the API, PostgreSQL, and reconciler; existing workers are not restarted.
-
-### 3. Start a simple worker and a developer worker
-
-In **Workers → Create worker**, create one instance using the **Default** profile
-and another using **Developer**. Creation leaves each container stopped.
-Choose **Start** for each, then verify that Runtime is running and Hatchet is
-registered. Starting workers enables issue scanning, GitHub writes, and billable
-model requests.
-
-Simple workers handle intake, planning, and review; developer workers handle code
-changes. Both roles are needed for the complete workflow.
-
-![Workers page showing managed instances, runtime and Hatchet registration, profile revisions, and lifecycle actions](docs/images/control-plane-workers.png)
-
-For a Compose-only deployment, use this instead of creating managed instances:
-
-```sh
-./scripts/start-workers.sh -d
-docker-compose ps
-```
-
-Compose workers appear as discovered, read-only instances in the control plane.
-Manage their lifecycle through Compose. Avoid starting duplicate fleets
-unintentionally.
-
-### 4. Process your first issue
-
-Create a small issue in the configured target repository with clear acceptance
-criteria. The default scan runs every five minutes. To submit an existing issue
-immediately, replace `123` with its number:
-
-```sh
-just issue-send 123
-```
-
-Follow **Workflow runs** for stages and logs. If the issue receives
-`needs-discussion`, answer the questions in GitHub and add `ready-for-agent`.
-The factory decomposes work into sub-issues and opens draft PRs for eligible
-implementation tasks. Review the diff and CI results, mark the PR ready, approve,
-and merge. Durable waits track review and merge; the factory then verifies the
-result and closes the associated issue.
-
-Configure [GitHub webhooks](docs/issue-lifecycle.md#configure-github-webhook-delivery)
-for immediate issue and PR-feedback events. Polling remains available for recovery.
+</details>
 
 ## Configuration
 

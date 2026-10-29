@@ -6,16 +6,10 @@ import type {
   ProjectRun,
   ModelAccountingEvent,
 } from "../workflow-api";
-import {
-  Failure,
-  Metric,
-  money,
-  PageTitle,
-  Section,
-  Status,
-} from "../components/ui";
+import { Failure, Metric, money, PageTitle, Section } from "../components/ui";
 import { projectPath, useProjectData, useProjectId } from "../project-context";
 import { ProjectCalls } from "./project-runs";
+import { ProjectRunTable } from "../components/project-run-table";
 
 export function ProjectOverview() {
   const project = useProjectId();
@@ -80,6 +74,28 @@ export function ProjectOverview() {
           icon={<Layers3 size={17} />}
         />
       </div>
+      <div
+        className="project-next-actions"
+        aria-label="Project setup and monitoring"
+      >
+        <Link to={projectPath(project, "/repositories")}>
+          <GitBranch size={20} />
+          <strong>Connect your code</strong>
+          <span>Manage target repositories and their execution settings.</span>
+        </Link>
+        <Link to={projectPath(project, "/workflows")}>
+          <Workflow size={20} />
+          <strong>Choose a workflow</strong>
+          <span>
+            Understand stages, inspect a saved version and launch a run.
+          </span>
+        </Link>
+        <Link to={projectPath(project, "/history")}>
+          <Layers3 size={20} />
+          <strong>Inspect AI activity</strong>
+          <span>Read captured model exchanges alongside tokens and costs.</span>
+        </Link>
+      </div>
       <Section
         title="Recent project runs"
         aside={<Link to={projectPath(project, "/runs")}>View all runs</Link>}
@@ -88,14 +104,7 @@ export function ProjectOverview() {
           {runs.isPending ? (
             <p>Loading project runs…</p>
           ) : runs.data?.length ? (
-            runs.data.slice(0, 10).map((run) => (
-              <p key={run.id}>
-                <Link to={projectPath(project, "/runs/" + run.id)}>
-                  {run.name}
-                </Link>{" "}
-                · <Status value={run.state} />
-              </p>
-            ))
+            <ProjectRunTable runs={runs.data.slice(0, 8)} compact />
           ) : !runs.error ? (
             <p>
               No project runs yet. Publish a workflow and complete worker setup

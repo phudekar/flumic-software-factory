@@ -266,14 +266,14 @@ it("queries project-only data in overview, usage and model history", async () =>
 
 it("switches model history and exchange queries with the selected project", async () => {
   const fetcher = mount("/projects/a/history");
-  await screen.findByText("example / alpha-model");
+  await screen.findByText("alpha-model");
   fireEvent.click(screen.getByRole("button", { name: "View exchange call-a" }));
   await screen.findByText(/Scoped exchange/);
   fireEvent.change(screen.getByLabelText("Project"), {
     target: { value: "b" },
   });
-  await screen.findByText("example / beta-model");
-  expect(screen.queryByText("example / alpha-model")).not.toBeInTheDocument();
+  await screen.findByText("beta-model");
+  expect(screen.queryByText("alpha-model")).not.toBeInTheDocument();
   expect(screen.queryByText(/Scoped exchange/)).not.toBeInTheDocument();
   expect(
     fetcher.mock.calls.some(

@@ -28,17 +28,28 @@ worker images; existing workers need an explicit lifecycle action to adopt them.
 
 For a screen-by-screen guide, see [guided project setup](/flumic-software-factory/control-plane/project-setup/).
 
-## 2. Create a project and connect repositories
+## 2. Connect your target repository
 
-Open **Projects**, create/select a project, and use its **Credentials** and
-**Repositories** sidebar pages. Add a credential version and validate each repository
-connection. Use aliases such as `backend` and `frontend`; workflow documents refer
-to those aliases rather than borrowing another project's credentials.
+The target repository is where Flumic AI will read issues and propose code changes.
+Cloning the software factory does not connect that repository.
 
-GitHub and GitLab.com have different credential and collaboration requirements.
-Follow [GitLab setup](/flumic-software-factory/handbook/gitlab/) for GitLab.com,
-or the [runtime API recipes](/flumic-software-factory/handbook/project-runtime-api/)
-for the project contracts. Keep secrets out of workflow YAML and screenshots.
+1. Open **Projects → Add project**, enter a name and create it. Select the project.
+2. Open **Credentials → Add credential**. Name it `source-access`, choose purpose
+   `github`, use **Whole project** scope and save your repository-scoped token.
+3. Open **Repositories → Add repository** and choose **GitHub.com**.
+4. Set **Repository alias** to `backend`. Enter your real owner and repository
+   name in their separate fields, for example `YOUR_ORG` and `YOUR_APP`.
+5. Select `source-access` and click **Save repository**.
+6. Confirm the card shows the intended repository, alias and assigned credential.
+   Saving does not verify provider access or start a workflow.
+
+![Repository connection form](/flumic-software-factory/images/control-plane-repositories-guided.png)
+
+Use your own values rather than the screenshot's. Workflows reference the alias;
+**Target repository** in the template installer selects this saved connection.
+For multiple repositories, repeat with distinct aliases. Keep secrets out of YAML
+and screenshots. GitLab.com users must follow [GitLab setup](/flumic-software-factory/handbook/gitlab/)
+for its credentials and repository identity validation.
 
 ## 3. Set behavior and authorize shared capacity
 
@@ -109,3 +120,9 @@ cannot automatically migrate historical SQLite business state.
 Use [rollout and recovery](/flumic-software-factory/handbook/project-runtime-operations/)
 for uncertain attempts. Do not delete claims or force resource cleanup to make a
 run appear complete.
+
+For standard issue workflows, continue with **Workflows → Install templates**,
+review **Repository execution** on the connection card, and use **Guided issue
+launch** to select an issue number and saved follow-up revisions. The
+[complete walkthrough](/flumic-software-factory/start/walkthrough/#14-install-issue-feedback-and-verification-templates--ui)
+explains each explicit action and checkpoint.

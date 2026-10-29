@@ -55,6 +55,51 @@ multi-user or Internet-facing service.
   results, not their full internal conversations.
 - Separate runtime and workflow adapters. Docker is available by default; an operator can register one Kubernetes target for shared workers and native Jobs. **Runtime targets** shows safe capabilities; **Add shared worker** selects a pool and destination. See [Kubernetes configuration](kubernetes.md).
 
+## Project workspace screens
+
+Select a project in the workspace selector before inspecting its repositories,
+workflows, runs, model history, configuration and usage. Each of these views
+stays scoped to the selected project; shared workers are authorized through pools.
+
+![Project overview with setup shortcuts and recent run tables](images/project-workspace-overview.png)
+
+- **Overview:** connection/workflow counts, recent executions and known estimated
+  spend. Open a run to inspect its stages; a completed run does not prove that a
+  pull request was published or approved.
+- **Runs:** search recent runs and filter their controller state. Open **Inspect
+  run**, then select a stage or attempt to narrow captured logs, usage and model
+  calls. **Advanced run identifiers** and stage configuration retain the complete
+  pinned IDs and settings for diagnostics.
+- **Model history:** scan provider/model, stage, tokens, reported and estimated
+  costs, then choose **View exchange**. The detail panel separates request
+  messages from the response. Structured JSON is readable, system/context and
+  original raw payloads remain available on demand, and missing or expired
+  captures remain explicit. Close the panel or press Escape to return to the list.
+- **Repositories, credentials and pools:** inspect current setup first, then use
+  the explicit Add/Edit forms. Saving a credential does not verify its provider
+  access. Authorizing a pool does not start a worker or prove free runtime slots.
+- **Configuration:** use the grouped editor for supported settings or keep the
+  complete configuration document in the advanced editor. A draft only takes
+  effect after saving; new runs pin revisions and existing runs keep their
+  original configuration. Unknown fields are preserved. Resolve a newer-revision
+  conflict explicitly rather than overwriting it silently.
+
+Choose **Models** and a configuration scope to inspect the saved model settings.
+The example below selects the developer profile; selecting a scope does not save changes.
+
+![Guided model settings with field explanations](images/project-configuration-models.png)
+
+**View exchange** opens a readable detail panel. Use **View response** to jump
+past request context. The screenshot shows the actual Hello World planning call;
+unknown reported costs remain unknown.
+
+![Actual Hello World model response in the exchange viewer](images/project-workspace-model-exchange.png)
+
+Times display in the viewer's local timezone. Run **Created** means acceptance,
+not worker execution start. Model/event times describe the captured operation;
+worker **Registered** and **Last heartbeat** describe separate observations.
+Missing timestamps are shown as unknown rather than inferred from another event.
+
 ## Worker lifecycle and configuration
 
 The Workers view separates managed instances from discovered Compose containers.

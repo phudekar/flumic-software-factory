@@ -271,13 +271,13 @@ it("submits only the saved revision and explicit bindings, treating acceptance a
     target: { value: '{"repo":{"issue":"r1"}}' },
   });
   fireEvent.click(screen.getByRole("button", { name: "Run saved revision" }));
-  await screen.findByRole("heading", { name: "Run run-1" });
+  await screen.findByRole("heading", { name: "mixed-check" });
   expect(sent).toEqual({
     revision_id: "r1",
     input: { message: "hello" },
     bindings: { repo: { issue: "r1" } },
   });
-  expect(await screen.findByText(/Dispatch pending/)).toBeInTheDocument();
+  expect(await screen.findByText("pending")).toBeInTheDocument();
   expect(
     screen.getByText("Request accepted; execution is not complete."),
   ).toBeInTheDocument();
@@ -296,7 +296,7 @@ it("shows the pinned graph, retry attempts, skipped stages and unknown usage wit
       return json({ ...receipt, state: "cancelling" });
   });
   mount("/projects/a/runs/run-1");
-  await screen.findByRole("heading", { name: "Run run-1" });
+  await screen.findByRole("heading", { name: "mixed-check" });
   expect(await screen.findByText("Depends on: load")).toBeInTheDocument();
   expect(screen.getByText("skipped")).toBeInTheDocument();
   expect(screen.getByText("Attempt 2")).toBeInTheDocument();
@@ -551,7 +551,7 @@ it.each(["terminal refresh", "later polling"])(
         });
     });
     const client = mount("/projects/a/runs/run-1");
-    await screen.findByText(/Dispatch pending/);
+    await screen.findByText("pending");
     fireEvent.click(
       screen.getByRole("button", { name: "Request cancellation" }),
     );
@@ -596,12 +596,9 @@ it.each([
         ]);
     });
     mount("/projects/a/runs/run-1");
-    await screen.findByText("Unknown provider / cost-model");
-    expect(
-      screen.getByText(
-        new RegExp("reported " + String(want).replace("$", "\\$")),
-      ),
-    ).toBeInTheDocument();
+    await screen.findByText("cost-model");
+    const modelRow = screen.getByText("cost-model").closest("tr");
+    expect(modelRow?.cells[4]).toHaveTextContent(want);
   },
 );
 it.each(["success", "revision failure", "delayed revision"])(
@@ -681,3 +678,19 @@ it.each(["success", "revision failure", "delayed revision"])(
     }
   },
 );
+it("selects stage summaries without losing project-scoped attempt inspection", async () => {
+  fixtures();
+  mount("/projects/a/runs/run-1");
+  const navigation = await screen.findByRole("navigation", {
+    name: "Select workflow stage",
+  });
+  expect(navigation).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: /2.*check/ }));
+  expect(
+    screen.queryByRole("link", { name: "Inspect attempt 1 of load" }),
+  ).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "All stages" }));
+  expect(
+    screen.getByRole("link", { name: "Inspect attempt 1 of load" }),
+  ).toHaveAttribute("href", "/projects/a/runs/run-1?stage=load&execution=e1");
+});

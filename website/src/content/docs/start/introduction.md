@@ -40,3 +40,5 @@ The Control Pane is for a trusted administrator. Project workflows use PostgreSQ
 [Start with projects](/flumic-software-factory/start/project-onboarding/) · [Understand each module](/flumic-software-factory/start/modules/) · [Start locally](/flumic-software-factory/start/quick-start/) or [explore the architecture](/flumic-software-factory/handbook/architecture/).
 
 [Follow the complete walkthrough: project creation to monitoring](/flumic-software-factory/start/walkthrough/).
+
+Start with [how projects, workflows and workers fit together](/flumic-software-factory/handbook/workflow-concepts/) for diagrams, stage inputs/outputs and a glossary.

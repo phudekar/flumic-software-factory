@@ -390,6 +390,7 @@ it("clears project defaults forms and ignores an earlier project save result", a
     }),
   );
   mount("/projects/a/config");
+  fireEvent.click(await screen.findByRole("button", { name: "Advanced JSON" }));
   await waitFor(() =>
     expect(
       (
@@ -406,6 +407,7 @@ it("clears project defaults forms and ignores an earlier project save result", a
   fireEvent.change(screen.getByLabelText("Project"), {
     target: { value: "b" },
   });
+  fireEvent.click(await screen.findByRole("button", { name: "Advanced JSON" }));
   await waitFor(() =>
     expect(
       (
@@ -457,6 +459,7 @@ it("keeps dirty project defaults when head refreshes and submits the draft basel
     }),
   );
   const client = mount("/projects/a/config");
+  fireEvent.click(await screen.findByRole("button", { name: "Advanced JSON" }));
   await waitFor(() =>
     expect(
       (

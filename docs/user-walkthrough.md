@@ -1,9 +1,30 @@
 # Flumic AI walkthrough: from a new project to monitoring
 
 This walkthrough is for a technical developer using the **project workspace** in
-the Control Pane. Follow the numbered steps in order. The current application uses
-a trusted administrator account; named-user roles and LLM gateway integration are
-separate roadmap work, not prerequisites here.
+the Control Pane. Follow the numbered steps in order. Sign in with your installation's administrator account to follow the setup steps.
+
+## Understand the connections first
+
+A **repository connection** identifies where code and issues live. A **workflow**
+defines the work as stages. A **pool** declares which capabilities may execute
+those stages; running **workers** supply the capacity.
+
+![How projects connect repositories, workflows, pools and runs](images/workflow-concepts.svg)
+
+A **workflow template** is a starting definition for an editable workflow.
+**Target repository** means the repository the created workflow operates on,
+not a template repository to clone.
+
+Read [the concepts and stage guide](workflow-concepts.md) for the glossary,
+stage inputs/outputs and an example of sharing workers between projects.
+
+| Part | Steps | What you learn |
+| --- | --- | --- |
+| Connect | 1–5 | Project, credentials and repository connection |
+| Provide capacity | 6–9 | Pools, project authorization and running workers |
+| Define and prove | 10–12 | Link two stages, run them and inspect attempts |
+| Run an AI change | 13–16 | Create workflows from templates and launch an issue |
+| Observe | 17–19 | Results, model calls, cost and recovery |
 
 You will reach two milestones:
 
@@ -49,8 +70,7 @@ but does not restart existing managed workers. Keep all control services on the
 same runtime namespace and deployment configuration.
 
 **If blocked:** inspect control-service startup logs and Hatchet connectivity
-before creating more workers. Do not start a duplicate legacy worker fleet to
-try to make a project run progress.
+before creating more workers.
 
 ## 1. Sign in and open Projects
 
@@ -78,8 +98,9 @@ built from compatible current source and refresh the page.
 
 **Checkpoint:** the sidebar contains this project's Overview, Workflows, Workflow
 runs, Model history, Usage & cost and setup pages. **All projects** returns to
-workspace infrastructure/legacy navigation. The URL contains the project UUID,
-not the human-readable key. Copy that UUID for the API steps below.
+workspace infrastructure navigation. The URL contains the project UUID,
+not the human-readable key. The guided forms select the project and repository
+without requiring you to copy that UUID.
 
 ![Project workspace and project-scoped overview](images/control-plane-project-overview-guided.png)
 
@@ -125,9 +146,8 @@ credential does not prove provider access. Cancel clears an unsaved secret.
 ![Repository alias, provider and assigned credential](images/control-plane-repositories-guided.png)
 
 **Checkpoint:** the card shows your actual `OWNER/REPO` and alias `backend`.
-Expand **Advanced details** and copy the **Connection ID** for later. This is not
-its revision ID. Workflow definitions use `backend`, while handover/follow-up
-bindings use the connection UUID. Credential assignment does not verify access.
+Expand **Advanced details** to inspect the **Connection ID** if needed. This is not
+its revision ID. Workflow stages use `backend`; guided forms resolve the connection IDs for you. Credential assignment does not verify access.
 
 **If blocked:** check provider, owner/name and the credential's purpose/scope.
 For GitLab, saving alone is insufficient: validate its saved numeric identity
@@ -225,8 +245,7 @@ of free runtime capacity.
    operation and startup to finish.
 8. Return to **Projects → Walkthrough → Shared worker pools**.
 
-Use **Add shared worker**, not **Create worker**: the latter creates a legacy
-profile-based worker and will not supply this project's action assignments.
+Use **Add shared worker** to provide capacity for the authorized pool.
 
 **Checkpoint:** the shared worker has registered the required action/executor
 versions, reports a recent heartbeat, and its runtime is running. A container can
@@ -276,16 +295,16 @@ not the screenshot's revision UUIDs.
 **Checkpoint:** you have a project run ID and a queued/dispatch receipt. This is
 acceptance, not completion. Repeated submission from a newly opened form can
 create another invocation; inspect the existing receipt before retrying after a
-network error. Echo needs no source credential, legacy ownership handover or
+network error. Echo needs no source credential, repository execution activation or
 model call. Do not infer that this qualifies repository mutations in B.
 
 ## 12. Verify milestone A and inspect an attempt — UI
 
 1. Open **Workflow runs** and select this run if you navigated away.
 2. Wait for canonical run/stage progress; refresh the project's data if needed.
-3. Inspect `receive`, then `confirm`, under **Pinned dependency graph**.
+3. Inspect `receive`, then `confirm`, under **Workflow stages**.
 4. Open **Inspect attempt 1** for a stage. Inspect its worker/assignment,
-   **Project AI accounting**, **Bounded execution logs** and **Project model calls**.
+   **Project AI accounting** and **Project model calls**. Expand **Execution activity** for **Bounded execution logs**.
 
 **Checkpoint:** both stages and the run become `completed`. The data binding was
 validated and the second stage consumed the first stage's message. The run view
@@ -303,15 +322,15 @@ configuration to diagnose it; do not delete claims or force it to completed.
 ## 13. Prepare milestone B: provider credentials and developer capacity
 
 Continue only when you intend to make real model requests and repository writes.
-Use your disposable repository. Keep existing production/legacy work separate.
+Use your disposable repository. Keep existing production work separate.
 
 1. Complete steps 3–4 if you deferred the GitHub credential: **Credentials → Add
    credential**, then **Repositories → Edit connection**, select it and save.
 2. Add an `openai` purpose credential named `walkthrough-openai` through the UI.
    Planning/review and API/Codex coding use their configured provider grants.
 3. If the developer profile uses Claude, add an `anthropic` purpose credential as
-   well. Copy credential reference IDs under Advanced; never use the raw keys in
-   the next API request.
+   well. The template form selects saved credential names; never paste raw keys
+   into a workflow definition.
 4. Check configured model IDs, backend availability, prompts and the account's
    limits in **Configuration**. Use account-supported models; identifiers in
    checked-in examples are not guarantees of your provider access.
@@ -319,7 +338,8 @@ Use your disposable repository. Keep existing production/legacy work separate.
    `walkthrough-developer` and choose **Developer — code changes**. Keep its
    built-in action selections, `2` normal/`16` durable slots and `builtin@1`
    executor; confirm the prefilled **Hatchet transport** matches your deployment.
-   Click **Create pool**, then copy its **Pool ID** from **Advanced pool details**.
+   Click **Create pool**. Its **Pool ID** remains available under **Advanced pool details**;
+   the template installer selects the pool by name.
    Reuse an existing compatible pool only after checking its capabilities.
 
 6. Verify role `developer`, executor `builtin@1`, and actions
@@ -333,168 +353,108 @@ Use your disposable repository. Keep existing production/legacy work separate.
 creating a developer pool does not install coding tools, credentials or models.
 The saved project profile determines which installed coding backend is used.
 
-## 14. Install issue, feedback and verification templates — API
+## 14. Install issue, feedback and verification templates — UI
 
-Builtin-template installation still requires the API; pool creation above uses
-the UI. Open the authenticated session below only when starting milestone B.
+1. Open **Walkthrough → Workflows → Install templates**.
+2. Set **Target repository** to `backend`. This selects the saved connection;
+   you do not need to type its alias or connection UUID into a request.
+3. Select `walkthrough-simple` in **Simple worker pool** and
+   `walkthrough-developer` in **Developer worker pool**. Only project-authorized
+   pools advertising the required built-in actions and executor are listed.
+4. In **OpenAI credential grant**, select `walkthrough-openai`. If the configured
+   developer backend uses Claude, also select the saved Anthropic credential.
+   Select every provider required by your saved profiles. **No grant** deliberately
+   omits access; it does not provide a default credential or guarantee execution.
+   The form lists only active credentials scoped to the project or selected
+   repository. GitHub/GitLab access comes from the repository connection.
+5. Review the selections and click the form's **Install templates** button.
+   The toolbar button stays disabled while the form is open. **Cancel** creates
+   nothing.
+6. Use the resulting `issue`, `feedback` and `verify` **view saved revision** links
+   to inspect their stages, pools and grants. Click **Done** to return to the list.
 
-Open a terminal at the cloned repository root and run `python3`. Paste this
-Python block into the interactive interpreter (not your shell). Finish the
-function definition with a blank line if your interpreter waits for one:
+**Checkpoint:** all three recipes appear in Workflows. Installation is create-only:
+existing recipes retain their saved pools and credential grants even if you
+selected new values in the form. Inspect the returned revisions; use **Edit** and
+publish deliberate revisions if existing recipes need changes. Installation does
+not enable repository execution or run any stage. You need no Python session,
+copied credential IDs or manually assembled API JSON for this step.
 
-```python
-import getpass
-import http.cookiejar
-import json
-import uuid
-import urllib.request
-from pathlib import Path
+**If blocked:** missing pools usually need project authorization, the correct
+role, `builtin@1` and all required action versions. Missing credentials may have
+the wrong purpose/scope or be revoked. Follow the form's server error rather than
+creating duplicate resources. Templates do not install worker capabilities.
 
-control = "http://localhost:3400"
-csrf = ""
-jar = http.cookiejar.CookieJar()
-client = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
+![Template installer with target repository, authorized role pools and provider grant selectors](images/control-plane-template-install-guided.png)
 
-def api(method, path, body=None):
-    headers = {
-        "Content-Type": "application/json",
-        "Origin": control,
-        "X-CSRF-Token": csrf,
-        "Idempotency-Key": str(uuid.uuid4()),
-    }
-    request = urllib.request.Request(
-        control + "/api/v1" + path,
-        data=None if body is None else json.dumps(body).encode(),
-        headers=headers,
-        method=method,
-    )
-    with client.open(request, timeout=60) as response:
-        return json.load(response)
+This unsubmitted example uses the existing Default project and its saved names.
+For your Walkthrough project, use the `backend`, `walkthrough-simple`,
+`walkthrough-developer` and `walkthrough-openai` selections listed above.
 
-```
+## 15. Enable repository execution — UI
 
-Run this login line **on its own**. Enter the password when prompted and wait for
-the Python prompt to return before pasting the next block:
+The echo test did not need repository actions. Before the AI recipe can operate
+on code and issues, enable project execution for its target connection.
 
-```python
-csrf = api("POST", "/auth/login", {"password": getpass.getpass("Admin password: ")})["csrf"]
-```
+1. Open **Walkthrough → Repositories** and find `backend`.
+2. Under **Repository execution**, click **Review project execution for backend**.
+3. Confirm the displayed owner/repository and alias are correct.
+4. Review ownership, then check **I have reviewed repository ownership and
+   confirmed it is ready for project execution.**
+5. Click **Enable project execution**. **Cancel** leaves the connection unchanged.
 
-Then set the identifiers:
+**Checkpoint:** the form reports **Project execution enabled for backend** after
+acceptance. This does not launch a workflow. If the server reports an existing
+owner or conflicting operation, follow the
+[migration guide](project-runtime-operations.md#roll-out-from-a-current-checkout)
+before retrying. Keep all server checks enabled.
 
-```python
-PROJECT = "PASTE_PROJECT_UUID_FROM_STEP_2"
-REPOSITORY = "PASTE_CONNECTION_UUID_FROM_STEP_4"
-simple_pool = {"id": "PASTE_SIMPLE_POOL_ID_FROM_STEP_7"}
-developer_pool = {"id": "PASTE_DEVELOPER_POOL_ID_FROM_STEP_13"}
-prefix = "/projects/" + PROJECT
-print(api("GET", prefix)["name"])
-```
+![Repository execution review with target details and an unchecked ownership confirmation](images/control-plane-repository-execution-guided.png)
 
-**Checkpoint:** the final line prints `Walkthrough`. Stop if it names another
-project. All later Python blocks use **this same interpreter session** so its
-cookies, CSRF value and IDs remain available. A 401 requires a fresh login; a 403
-requires checking the configured public origin/session, not disabling protection.
-No password is written to a file or echoed by the prompt.
-
-### Identifier checklist
-
-| Name used below | Where it comes from | Do not substitute |
-| --- | --- | --- |
-| `PROJECT` | UUID in selected project URL | Project key/name |
-| `REPOSITORY` | Repository card → Advanced details → Connection ID | Alias `backend` or repository revision |
-| Seed request `repository` | Alias `backend` entered in step 4 | Connection UUID |
-| `simple_pool["id"]` / `developer_pool["id"]` | Pool card → Advanced pool details | Pool name |
-| `OPENAI_SECRET` / `ANTHROPIC_SECRET` | Credentials → Advanced details | Raw key or credential name |
-| `revisions["issue"]`, etc. | Template-installation response in step 14 | Definition family ID |
-| Run ID | Run page URL / run acceptance receipt | Hatchet engine ID |
-
-
-In the same Python session, set `OPENAI_SECRET` to your saved credential reference
-from step 13. Add an Anthropic reference only when the selected backend needs it:
-
-```python
-OPENAI_SECRET = "PASTE_OPENAI_CREDENTIAL_REFERENCE"
-model_grants = {"openai": OPENAI_SECRET}
-# For Claude coding, also set the saved reference:
-# model_grants["anthropic"] = "PASTE_ANTHROPIC_CREDENTIAL_REFERENCE"
-revisions = api("POST", prefix + "/workflow-definitions/seed-builtins", {
-    "repository": "backend",
-    "simple_pool": simple_pool["id"],
-    "developer_pool": developer_pool["id"],
-    "secrets": model_grants,
-})
-print(revisions)
-```
-
-**Checkpoint:** the result has `issue`, `feedback` and `verify` revision IDs.
-Refresh **Workflows** and inspect each recipe with **View**. Template installation
-is create-only and does not overwrite previous operator edits. If recipes already
-exist with different grants/pools, inspect their saved source instead of assuming
-this request updated them. Publish deliberate revisions and use their actual IDs.
-GitHub grants come from the repository connection, not `model_grants`.
-The template endpoint takes the repository **alias** `backend`; keep using the
-connection UUID `REPOSITORY` only for handover and follow-up binding keys.
-
-## 15. Hand repository ownership to project execution — API
-
-Every non-echo builtin needs dynamic repository mode, even on a newly connected
-repository. Before calling this endpoint:
-
-1. Pause legacy trigger sources for this repository.
-2. Let active work settle and inspect pending/uncertain effects and commands.
-3. Explicitly stop its relevant legacy workers through workspace **Workers**.
-4. For a fresh disposable repository with no legacy owner, confirm that fact;
-   do not stop unrelated workers or assume a new connection means no old owner.
-
-Then, in the Python session:
-
-```python
-handover = api("POST", prefix + "/repositories/" + REPOSITORY + "/dynamic-mode", {})
-print(handover)
-```
-
-**Checkpoint:** the request succeeds. A `409` means the conflict/claim guard
-refused the handover. Investigate it using [rollout and recovery](project-runtime-operations.md#roll-out-from-a-current-checkout);
-never bypass the guard or manually delete claims. This does not copy historical
-SQLite business state. Legacy start/restart for a handed-over repository is fenced.
+The screenshot shows the existing Default project's connection before confirmation;
+it does not demonstrate a new execution-mode change.
 
 ## 16. Create a small issue and launch the issue recipe — UI
 
-1. In your disposable GitHub repository, create a small, verifiable issue grounded
-   in its existing source/tests. State current behavior, desired behavior and
-   concrete acceptance criteria. Avoid a broad refactor for the first run.
-2. Copy its actual issue number. The `42` below is only an example: replace it.
+Follow the [GitHub issue and label instructions with screenshots](../README.md#3-create-and-label-an-issue-in-github) to create a focused issue and apply the default `ready-for-agent` label. This walkthrough uses manual launch; if a configured label trigger has already accepted the issue, inspect that run instead of launching it again.
+
+1. In your disposable GitHub repository's UI, create a small, verifiable issue
+   such as **Create a Hello World app in Python**: add `hello.py` at the repository
+   root so `python3 hello.py` prints `Hello, world!` and exits successfully,
+   without third-party dependencies. Use the complete issue text linked above.
+2. Copy its actual issue number. For example, use `42` only if issue 42 is yours.
 3. In **Walkthrough → Workflows**, choose **Run** on **Issue to pull request**.
-4. Confirm default repository `backend`.
-5. Enter **Run input JSON**, using your issue number:
+4. Confirm **Default repository → backend**. Keep **Run setup → Guided issue launch**.
+5. Enter your issue number in **Issue number**. Use a positive whole number;
+   the form does not create the source-host issue for you.
+6. Select the saved recipe in **Feedback workflow revision** and
+   **Verification workflow revision**. Inspect the selected revisions using their
+   links (which open separately so your draft remains available). Choose compatible
+   standard feedback/verification recipes for this same repository.
+7. Recheck the saved issue revision, follow-up revisions, credential grants and
+   registered capacity. The issue follow-up uses the root revision you are viewing.
+   The form constructs connection-UUID and revision-UUID bindings automatically;
+   no Python helper or JSON editing is required.
+8. Explicitly click **Run saved revision** once. This can incur provider charges
+   and write to GitHub. It opens the new project's run after acceptance.
 
-```json
-{"issue_number":42}
-```
+![Issue recipe dependencies and worker roles](images/workflow-stages-explained.svg)
 
-6. Prepare the follow-up binding object in Python so you use connection and
-   revision IDs consistently:
-
-```python
-bindings = {REPOSITORY: {
-    "issue": revisions["issue"],
-    "feedback": revisions["feedback"],
-    "verify": revisions["verify"],
-}}
-print(json.dumps(bindings, indent=2))
-```
-
-7. Copy that output into **Follow-up bindings JSON**. Do not use `{}` for this
-   builtin workflow, repository alias in place of the connection ID, or
-   definition IDs in place of revision IDs.
-8. Recheck repository, input, grants and capacity, then explicitly click
-   **Run saved revision**. This can incur provider charges and write to GitHub.
+Dependencies control execution order; explicit input bindings pass selected
+outputs. See the [stage input/output table](workflow-concepts.md#how-a-stage-works).
 
 **Checkpoint:** a project run is accepted, then stages progress. `load` → `plan`
-→ `triage` → `implement` → `review` → `record` is the installed recipe; parent
-planning may create sub-issues and follow-up runs. A completed control run is not
-proof that all child work was reviewed and merged.
+→ `triage` → `implement` → `review` → `record` is the installed recipe. Follow
+step 12's run/stage/attempt inspection. A completed control run is not proof that
+all child work was reviewed and merged. Missing or incompatible follow-up
+selections keep the guided launch disabled; fix them before submitting.
+
+For a customized workflow, multiple repositories, or an older revision not listed
+in the standard selectors, choose **Run setup → Advanced JSON**. Other workflow
+kinds retain their existing JSON inputs. The first switch seeds JSON from your
+current guided values; after that, guided fields and advanced JSON are separate
+drafts. Review the complete input and connection-ID-to-revision-ID binding object
+before using that path. Server ownership and launch checks still apply.
 
 If clarification is needed, answer the issue questions and use the configured
 ready label. For PRs, review actual diffs and CI, request changes as appropriate,
@@ -503,6 +463,11 @@ verification can involve durable waits and separate follow-up runs; follow the
 **Follow-up workflows** links and receipts. Do not launch an identical second run
 just because human review is still pending. This guide uses explicit manual
 launch, not automatic webhook/trigger setup.
+
+![Guided issue launch with saved follow-up revision selectors](images/control-plane-issue-launch-guided.png)
+
+The screenshot is an unsent example in Default; issue `42` is illustrative. No
+workflow was launched to capture it, and the example draft was discarded.
 
 ## 17. Monitor execution, model exchanges and spend — project UI
 
@@ -517,7 +482,7 @@ Start from the project's sidebar so you keep the correct scope:
 | Model history | Captured exchanges and metadata for this project | Content is policy-controlled and expires; unavailable content is not an empty model response |
 | Usage & cost | Input/output tokens, known estimated and separately reported spend, gaps | Missing usage/price is unknown, not zero; estimates are not provider invoices |
 
-A default project may contain attributed legacy accounting even if it has no
+An existing project may contain historical accounting even if it has no
 new dynamic runs. A newly created project starts with its own records. Do not add
 gateway/CLI/provider observations together as independent charges for the same call.
 
@@ -525,6 +490,14 @@ Capture settings are `redacted`, `metadata_only` or `disabled`. They affect what
 history is retained; disabled model capture also removes its usage history.
 CLI captures do not contain every internal exchange. See [project history](project-observability.md)
 for exact coverage, correlations and retention.
+
+For an actual captured exchange, open **Model history → View exchange** and use
+**View response** to jump to the returned artifact. The screenshot below comes
+from the [Hello World live example](hello-world-live-example.md), not the echo
+workflow in milestone A. It shows the returned task and testable acceptance criteria.
+System guidance and source context can be expanded separately.
+
+![Actual Hello World planning response in the refreshed model-exchange viewer](images/hello-world-model-response-live.png)
 
 ## 18. Add optional SigNoz monitoring — deployment step
 
@@ -564,7 +537,7 @@ as storage uniquely owned by each worker. See [monitoring setup](observability.m
 for collector access and [accounting coverage](project-observability.md).
 
 Do not run `start-observed-workers.sh` alongside this shared fleet merely to get
-charts: it launches real legacy workers and can duplicate processing.
+charts: it starts additional workers and can duplicate processing.
 
 ## 19. Change configuration, recover safely and finish
 
@@ -580,8 +553,7 @@ charts: it launches real legacy workers and can duplicate processing.
 - **Stop this test capacity:** if no longer needed, use workspace Workers to stop
   only the specifically created walkthrough workers. Do not stop shared capacity
   that other projects use. Keep data/backups and credentials according to policy.
-- **End the helper session:** in the same Python interpreter, call
-  `api("POST", "/auth/logout", {})`, then `exit()`. Sign out of the browser when
+- **End your session:** sign out of the browser when
   done. Session variables are not a substitute for a private secret manager.
 
 ### Troubleshooting checkpoints
@@ -589,12 +561,12 @@ charts: it launches real legacy workers and can duplicate processing.
 | Symptom | Check before proceeding |
 | --- | --- |
 | Project/sidebar looks different | Matching current frontend/backend versions, selected project and browser refresh |
-| No Add pool control | Update to the frontend version containing guided pool creation; do not mistake Authorize project for Create pool |
+| Missing guided controls | Update to a compatible frontend/backend version; pool creation, template installation and execution activation are distinct actions |
 | No capacity after creating a worker | Correct **shared** worker, authorized pool, loaded action/executor versions, runtime and Hatchet registration |
 | Echo validation fails | Both pool-ID replacements, declared alias `backend`, exact `$ref` and direct dependency |
 | Echo run stays queued | Dynamic control runtime registered, dispatch receipt and available compatible worker |
-| Builtin launch returns 409 | Dynamic-mode handover, current revision, legacy ownership or an uncertain action; inspect the specific error |
-| Builtin launch lacks bindings/grants | Connection UUID → all three workflow revision IDs; source grant on connection; correct provider purpose |
+| Builtin launch returns 409 | Execution ownership, current revision or an uncertain action; inspect the error and linked migration guidance |
+| Builtin launch lacks bindings/grants | Select compatible follow-up revisions and provider grants; keep the source credential on the repository connection |
 | UI shows old settings | Pinned run revision vs newly saved settings; compatible adoption/startup is separate |
 | No model exchange/cost | Echo has none; for AI work inspect capture policy, retention, delivery and price/usage gaps |
 | No SigNoz trace | Observer selection, reachable endpoint, network/time filters and new operation after configuration |
@@ -602,3 +574,5 @@ charts: it launches real legacy workers and can duplicate processing.
 You have completed the walkthrough when you can explain which project owns a
 connection, which pool supplies an action, which saved revision a run used, why a
 stage is waiting/failed/completed, and where its reported usage and unknowns appear.
+
+For an observed end-to-end example through draft publication, see [Hello World: live labels and model exchanges](hello-world-live-example.md).

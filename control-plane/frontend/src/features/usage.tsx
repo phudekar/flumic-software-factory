@@ -106,18 +106,32 @@ export function ProjectAccounting({ query }: { query: string }) {
     <Section title="Project AI accounting">
       <div className="editor-body">
         <Failure error={data.error} />
-        <p>
-          Input tokens:{" "}
-          {value?.input_tokens == null ? "Unknown" : count(value.input_tokens)}{" "}
-          · Output tokens:{" "}
-          {value?.output_tokens == null
-            ? "Unknown"
-            : count(value.output_tokens)}
-        </p>
-        <p>
-          Estimated cost: <strong>{money(value?.estimated_usd)}</strong> ·
-          Reported cost: <strong>{money(value?.reported_usd)}</strong>
-        </p>
+        <div className="project-accounting-metrics">
+          <div>
+            <span>Input tokens</span>
+            <strong>
+              {value?.input_tokens == null
+                ? "Unknown"
+                : count(value.input_tokens)}{" "}
+            </strong>
+          </div>
+          <div>
+            <span>Output tokens</span>
+            <strong>
+              {value?.output_tokens == null
+                ? "Unknown"
+                : count(value.output_tokens)}
+            </strong>
+          </div>
+          <div>
+            <span>Estimated cost</span>
+            <strong>{money(value?.estimated_usd)}</strong>
+          </div>
+          <div>
+            <span>Reported cost</span>
+            <strong>{money(value?.reported_usd)}</strong>
+          </div>
+        </div>
         <p>
           {count(value?.calls)} accounting calls ·{" "}
           {count(value?.unpriced_calls)} unpriced ·{" "}

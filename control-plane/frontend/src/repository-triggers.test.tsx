@@ -82,6 +82,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 async function fill() {
+  fireEvent.click(await screen.findByRole("button", { name: "New trigger" }));
   await screen.findByRole("option", { name: "GitLab backend" });
   fireEvent.change(await screen.findByLabelText("Trigger repository"), {
     target: { value: "gl" },
@@ -174,4 +175,18 @@ it("rotates and revokes the current token version without caching token values",
     }),
   );
   expect(screen.queryByText("rotated-fixture-token")).not.toBeInTheDocument();
+});
+it("starts with readable bindings and opens an explicitly cancellable trigger form", async () => {
+  const writes = vi.fn(async () => json(binding));
+  fixture(writes, [binding]);
+  mount();
+  await screen.findByRole("button", { name: "Edit binding-a" });
+  expect(screen.queryByLabelText("Trigger repository")).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "New trigger" }));
+  expect(
+    await screen.findByLabelText("Trigger repository"),
+  ).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+  expect(screen.queryByLabelText("Trigger repository")).not.toBeInTheDocument();
+  expect(writes).not.toHaveBeenCalled();
 });

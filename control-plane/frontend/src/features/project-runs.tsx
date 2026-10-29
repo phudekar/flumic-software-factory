@@ -1,18 +1,7 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
 import { Link, useParams, useSearchParams } from "react-router-dom";
-import { api } from "../api";
 import type { FactoryEvent, Workers } from "../api";
-import {
-  date,
-  Empty,
-  Failure,
-  PageTitle,
-  Section,
-  Status,
-  count,
-  money,
-} from "../components/ui";
+import { date, Failure, PageTitle, Section, Status } from "../components/ui";
 import { useData } from "../hooks";
 import { projectPath, useProjectData, useProjectId } from "../project-context";
 import { diagnostic, useWorkflowWrite } from "../workflow-api";
@@ -22,33 +11,29 @@ import type {
   ModelAccountingEvent,
 } from "../workflow-api";
 import { ProjectAccounting } from "./usage";
+import { ProjectActivity } from "../components/project-activity";
+import { ProjectRunTable } from "../components/project-run-table";
+import {
+  humanWorkflowName,
+  localTimestamp,
+} from "../components/project-format";
+import { ProjectModelCalls } from "./project-model-calls";
 export function ProjectRunsPage() {
-  const project = useProjectId(),
-    runs = useProjectData<ProjectRun[]>("/workflow-runs?limit=50");
+  const runs = useProjectData<ProjectRun[]>("/workflow-runs?limit=50");
   return (
     <>
       <PageTitle
         eyebrow="PROJECT EXECUTION"
         title="Project workflow runs"
-        description="Canonical run state and durable dispatch receipts; acceptance is not completion."
+        description="Follow each execution from acceptance through its stages. Run completion does not imply that a pull request was created or approved."
       />
       <Failure error={runs.error} />
       <Section title="Latest 50 runs">
-        <div className="editor-body">
-          {runs.isPending
-            ? "Loading runs…"
-            : runs.data?.length
-              ? runs.data.map((run) => (
-                  <p key={run.id}>
-                    <Link to={projectPath(project, "/runs/" + run.id)}>
-                      {run.name} · {run.id}
-                    </Link>{" "}
-                    · <Status value={run.state} /> · dispatch{" "}
-                    {run.dispatch.state} · revision {run.revision_id}
-                  </p>
-                ))
-              : "No project runs yet."}
-        </div>
+        {runs.isPending ? (
+          <p className="editor-body">Loading runs…</p>
+        ) : runs.data ? (
+          <ProjectRunTable runs={runs.data} />
+        ) : null}
       </Section>
     </>
   );
@@ -82,20 +67,53 @@ function RunDetail({ id }: { id: string }) {
     <>
       <PageTitle
         eyebrow="PINNED PROJECT RUN"
-        title={"Run " + id}
-        description={value ? value.name : "Loading canonical execution…"}
+        title={value ? humanWorkflowName(value.name) : "Workflow run"}
+        description={
+          value
+            ? "Inspect stage execution, model exchanges and captured output for this run."
+            : "Loading canonical execution…"
+        }
       />
       <Failure error={run.error || error} />
       {value && (
         <>
-          <p>
-            <Status value={value.state} /> · Dispatch {value.dispatch.state}
-            <br />
-            Snapshot {value.snapshot_id} · factory revision{" "}
-            {value.factory_revision_id}
-            <br />
-            Engine run: {value.dispatch.engine_id ?? "not submitted"}
-          </p>
+          <div className="project-run-summary">
+            <div className="project-summary-tile">
+              <span>Run status</span>
+              <Status value={value.state} />
+              <small>
+                Controller state; inspect stage evidence for the outcome.
+              </small>
+            </div>
+            <div className="project-summary-tile">
+              <span>Created</span>
+              <strong>{localTimestamp(value.created_at)}</strong>
+              <small>Time the run was accepted</small>
+            </div>
+            <div className="project-summary-tile">
+              <span>Dispatch</span>
+              <Status value={value.dispatch.state} />
+              <small>{value.stages?.length ?? 0} declared stages</small>
+            </div>
+            <div className="project-summary-tile">
+              <span>Repository</span>
+              <strong>{value.default_repository ?? "Not reported"}</strong>
+              <small>Pinned for this execution</small>
+            </div>
+          </div>
+          <details className="setup-advanced">
+            <summary>Advanced run identifiers</summary>
+            <dl className="project-facts">
+              <dt>Run</dt>
+              <dd>{id}</dd>
+              <dt>Snapshot</dt>
+              <dd>{value.snapshot_id}</dd>
+              <dt>Factory revision</dt>
+              <dd>{value.factory_revision_id ?? "Not reported"}</dd>
+              <dt>Engine run</dt>
+              <dd>{value.dispatch.engine_id ?? "Not submitted"}</dd>
+            </dl>
+          </details>
           {["queued", "running", "cancelling"].includes(value.state) && (
             <p>Request accepted; execution is not complete.</p>
           )}
@@ -107,7 +125,7 @@ function RunDetail({ id }: { id: string }) {
               "/workflow-revisions/" + value.revision_id,
             )}
           >
-            Pinned workflow revision {value.revision_id}
+            Inspect pinned workflow revision
           </Link>
           <button
             disabled={
@@ -142,119 +160,198 @@ function RunDetail({ id }: { id: string }) {
           {value.state === "cancelling" && (
             <p>Cancellation requested; execution may still be running.</p>
           )}
-          <Section title="Pinned dependency graph">
-            <div className="editor-body">
-              <p>
-                Edges follow declared direct dependencies; input references are
-                shown in each stage's context. No execution state is inferred
-                from dispatch acceptance.
-              </p>
-              {value.stages?.map((s) => (
-                <article className="workflow-stage" key={s.id}>
-                  <h3>
-                    {s.id} ·{" "}
-                    {s.executor.startsWith("docker") ? "Docker" : "Builtin"} ·{" "}
-                    {s.action ?? s.image}
-                  </h3>
-                  <p>Depends on: {s.after?.join(", ") || "start"}</p>
-                  {s.when != null && <p>Condition: {JSON.stringify(s.when)}</p>}
-                  <p>
-                    Repository {s.repository_alias} · {s.repository_id}
-                    <br />
-                    Repository revision {s.repository_revision_id} ·
-                    configuration {s.config_revision_id}
-                    <br />
-                    Pool {s.pool_id} · timeout {s.timeout_seconds ?? "unknown"}{" "}
-                    seconds · configured retries {s.retries ?? "unknown"}
-                  </p>
-                  <details>
-                    <summary>Pinned context for {s.id}</summary>
-                    <pre>
-                      {JSON.stringify(
-                        {
-                          settings: s.settings,
-                          inputs: s.inputs,
-                          image: s.image,
-                          command: s.command,
-                        },
-                        null,
-                        2,
-                      )}
-                    </pre>
-                  </details>
-                  {value.attempts
+          <nav className="project-run-jumps" aria-label="Run sections">
+            <a href="#run-stages">Workflow stages</a>
+            <a href="#run-model-calls">Model exchanges</a>
+            <a href="#run-activity">Execution activity</a>
+          </nav>
+          <div id="run-stages">
+            <Section title="Workflow stages">
+              <nav
+                className="project-stage-track"
+                aria-label="Select workflow stage"
+              >
+                <button
+                  type="button"
+                  aria-pressed={!stage}
+                  onClick={() => {
+                    const next = new URLSearchParams(params);
+                    next.delete("stage");
+                    next.delete("execution");
+                    setParams(next);
+                  }}
+                >
+                  All stages
+                </button>
+                {value.stages?.map((s, i) => {
+                  const attempt = value.attempts
                     ?.filter((a) => a.stage_id === s.id)
-                    .map((a) => (
-                      <div className="workflow-attempt" key={a.id}>
-                        <strong>Attempt {a.generation}</strong> ·{" "}
-                        <Status value={a.state} /> · execution {a.id}
-                        <br />
-                        <Link
-                          to={
-                            projectPath(project, "/runs/" + id) +
-                            "?" +
-                            new URLSearchParams({
-                              stage: s.id,
-                              execution: a.id,
-                            })
-                          }
-                        >
-                          Inspect attempt {a.generation} of {s.id}
-                        </Link>
-                        {a.worker_id && (
-                          <>
-                            {" "}
-                            ·{" "}
-                            <Link
-                              to={projectPath(
-                                project,
-                                "/workers/" + a.worker_id,
-                              )}
-                            >
-                              Worker {a.worker_id}
-                            </Link>
-                          </>
+                    .sort((a, b) => b.generation - a.generation)[0];
+                  return (
+                    <button
+                      key={s.id}
+                      type="button"
+                      aria-pressed={stage === s.id}
+                      onClick={() => {
+                        const next = new URLSearchParams(params);
+                        next.set("stage", s.id);
+                        next.delete("execution");
+                        setParams(next);
+                      }}
+                    >
+                      <span className="project-stage-number">{i + 1}</span>
+                      <span>
+                        {s.id.replaceAll("_", " ")}
+                        <small>
+                          {attempt
+                            ? "Latest attempt: " + attempt.state
+                            : "No attempt yet"}
+                        </small>
+                      </span>
+                    </button>
+                  );
+                })}
+              </nav>
+              <div className="editor-body">
+                <p>
+                  Edges follow declared direct dependencies; input references
+                  are shown in each stage's context. No execution state is
+                  inferred from dispatch acceptance.
+                </p>
+                {value.stages
+                  ?.filter((s) => !stage || s.id === stage)
+                  .map((s) => (
+                    <article className="workflow-stage" key={s.id}>
+                      <h3>
+                        {s.id.replaceAll("_", " ")}
+                        <span className="project-stage-kind">{s.executor}</span>
+                      </h3>
+                      <p className="project-stage-action">
+                        {s.action ?? s.image ?? "Action not reported"}
+                      </p>
+                      <p>Depends on: {s.after?.join(", ") || "start"}</p>
+                      <details className="setup-advanced">
+                        <summary>Advanced stage configuration</summary>
+                        {s.when != null && (
+                          <p>Condition: {JSON.stringify(s.when)}</p>
                         )}
-                        {a.job_id && (
-                          <>
-                            {" "}
-                            ·{" "}
+                        <p>
+                          Repository {s.repository_alias} · {s.repository_id}
+                          <br />
+                          Repository revision {s.repository_revision_id} ·
+                          configuration {s.config_revision_id}
+                          <br />
+                          Pool {s.pool_id} · timeout{" "}
+                          {s.timeout_seconds ?? "unknown"} seconds · configured
+                          retries {s.retries ?? "unknown"}
+                        </p>
+                        <details>
+                          <summary>Pinned context for {s.id}</summary>
+                          <pre>
+                            {JSON.stringify(
+                              {
+                                settings: s.settings,
+                                inputs: s.inputs,
+                                image: s.image,
+                                command: s.command,
+                              },
+                              null,
+                              2,
+                            )}
+                          </pre>
+                        </details>
+                      </details>
+                      {value.attempts
+                        ?.filter((a) => a.stage_id === s.id)
+                        .map((a) => (
+                          <div className="workflow-attempt" key={a.id}>
+                            <strong>Attempt {a.generation}</strong> ·{" "}
+                            <Status value={a.state} />
+                            <details className="setup-advanced">
+                              <summary>Execution identifier</summary>
+                              <code>{a.id}</code>
+                            </details>
+                            <br />
                             <Link
                               to={
-                                projectPath(project, "/jobs/" + a.job_id) +
+                                projectPath(project, "/runs/" + id) +
                                 "?" +
-                                new URLSearchParams({ run: id })
+                                new URLSearchParams({
+                                  stage: s.id,
+                                  execution: a.id,
+                                })
                               }
                             >
-                              Job {a.job_id}
+                              Inspect attempt {a.generation} of {s.id}
                             </Link>
-                          </>
-                        )}
-                      </div>
-                    ))}
-                  {!value.attempts?.some((a) => a.stage_id === s.id) && (
-                    <p>No attempt record yet.</p>
-                  )}
-                </article>
-              ))}
-            </div>
-          </Section>
+                            {a.worker_id && (
+                              <>
+                                {" "}
+                                ·{" "}
+                                <Link
+                                  to={projectPath(
+                                    project,
+                                    "/workers/" + a.worker_id,
+                                  )}
+                                >
+                                  Worker {a.worker_id}
+                                </Link>
+                              </>
+                            )}
+                            {a.job_id && (
+                              <>
+                                {" "}
+                                ·{" "}
+                                <Link
+                                  to={
+                                    projectPath(project, "/jobs/" + a.job_id) +
+                                    "?" +
+                                    new URLSearchParams({ run: id })
+                                  }
+                                >
+                                  Job {a.job_id}
+                                </Link>
+                              </>
+                            )}
+                          </div>
+                        ))}
+                      {!value.attempts?.some((a) => a.stage_id === s.id) && (
+                        <p>No attempt record yet.</p>
+                      )}
+                    </article>
+                  ))}
+              </div>
+            </Section>
+          </div>
           <Section title="Follow-up workflows">
             <div className="editor-body">
               {value.followups?.length
                 ? value.followups.map((f) => (
-                    <p key={f.id}>
-                      {f.kind} · {f.state} · engine{" "}
-                      {f.dispatch?.engine_id ?? "not submitted"}{" "}
+                    <article className="project-followup-card" key={f.id}>
+                      <div>
+                        <strong>{f.kind.replaceAll("_", " ")}</strong>
+                        <Status value={f.state} />
+                      </div>
                       {f.result_run_id && (
                         <Link
                           to={projectPath(project, "/runs/" + f.result_run_id)}
                         >
-                          Child run {f.result_run_id}
+                          Inspect follow-up run
                         </Link>
                       )}
+                      <details>
+                        <summary>Dispatch details</summary>
+                        <dl className="project-facts">
+                          <dt>Receipt</dt>
+                          <dd>{f.id}</dd>
+                          <dt>Dispatch</dt>
+                          <dd>{f.dispatch?.state ?? "Not reported"}</dd>
+                          <dt>Engine</dt>
+                          <dd>{f.dispatch?.engine_id ?? "Not submitted"}</dd>
+                        </dl>
+                      </details>
                       <Failure error={f.error} />
-                    </p>
+                    </article>
                   ))
                 : "No follow-up receipts."}
             </div>
@@ -427,10 +524,23 @@ export function ProjectWorkerPage() {
         description="Infrastructure is shared. The history and accounting below remain scoped to the project selected in the sidebar."
       />
       <Failure error={workers.error} />
-      <p>
-        Desired state {worker?.desired_state ?? "unknown"} · runtime{" "}
-        {worker?.runtime?.status ?? "unknown"}
-      </p>
+      <div className="project-run-summary">
+        <div className="project-summary-tile">
+          <span>Desired state</span>
+          <Status value={worker?.desired_state ?? "unknown"} />
+        </div>
+        <div className="project-summary-tile">
+          <span>Runtime</span>
+          <Status value={worker?.runtime?.status ?? "unknown"} />
+        </div>
+        <div className="project-summary-tile">
+          <span>Last heartbeat</span>
+          <strong>{localTimestamp(worker?.engine?.last_heartbeat)}</strong>
+          <small>
+            Engine observation; this is not the worker's start time.
+          </small>
+        </div>
+      </div>
       <ProjectHistory
         query={new URLSearchParams({ worker_id: workerId ?? "" }).toString()}
       />
@@ -445,96 +555,36 @@ function ProjectHistory({ query }: { query: string }) {
     <>
       <ProjectAccounting query={query} />
       <Failure error={events.error} />
-      <Section title="Bounded execution logs">
-        <div className="editor-body">
-          <p>
-            Latest 200 events; capture and retention policies can leave gaps.
-            Logs are not used to infer model spend.
-          </p>
-          <pre>
-            {events.data
-              ?.filter((e) => e.kind === "log")
-              .map((e) => date(e.occurred_at) + " " + JSON.stringify(e.payload))
-              .join("\n")
-              .slice(0, 65536) || "No captured logs."}
-          </pre>
-        </div>
-      </Section>
-      <ProjectCalls
-        key={query}
-        events={
-          events.data?.filter(
-            (e): e is ModelAccountingEvent => e.kind === "model.completed",
-          ) ?? []
-        }
-      />
+      <div id="run-model-calls">
+        {" "}
+        <ProjectCalls
+          key={query}
+          events={
+            events.data?.filter(
+              (e): e is ModelAccountingEvent => e.kind === "model.completed",
+            ) ?? []
+          }
+        />
+      </div>
+      <details id="run-activity" className="project-activity-group">
+        <summary>
+          Execution activity ·{" "}
+          {events.data?.filter((event) => event.kind === "log").length ?? 0}{" "}
+          retained logs
+        </summary>
+        <Section title="Bounded execution logs">
+          <div className="editor-body">
+            <p>
+              Latest 200 events; capture and retention policies can leave gaps.
+              Logs are not used to infer model spend.
+            </p>
+            <ProjectActivity events={events.data ?? []} />
+          </div>
+        </Section>
+      </details>
     </>
   );
 }
 export function ProjectCalls({ events }: { events: ModelAccountingEvent[] }) {
-  const project = useProjectId(),
-    [selected, setSelected] = useState<string | null>(null);
-  const transcript = useQuery<Record<string, unknown>>({
-    queryKey: ["project", project, "conversation", selected],
-    queryFn: ({ signal }) =>
-      api(
-        projectPath(project, "/model-calls/" + selected + "/conversation"),
-        undefined,
-        { signal },
-      ),
-    enabled: !!selected,
-    refetchInterval: false,
-  });
-  return (
-    <Section title="Project model calls">
-      <div className="editor-body">
-        <p>
-          Captured content expires after seven days. Metadata-only or disabled
-          capture may omit exchanges. Parent summaries are excluded from
-          aggregate totals.
-        </p>
-        {events.length ? (
-          events.map((e) => (
-            <article key={e.id}>
-              <strong>
-                {String(e.payload.provider ?? "Unknown provider")} /{" "}
-                {String(e.payload.model ?? "Unknown model")}
-              </strong>
-              <p>
-                Stage {e.stage ?? "unknown"} · tokens{" "}
-                {count(e.payload.input_tokens)} /{" "}
-                {count(e.payload.output_tokens)} · estimated{" "}
-                {money(e.payload.estimated_usd)} · reported{" "}
-                {money(e.payload.reported_cost_usd)}
-              </p>
-              {e.payload.accounting_leaf === false && (
-                <p>Parent summary — excluded from totals</p>
-              )}
-              <button
-                disabled={!e.payload.conversation_available}
-                onClick={() => setSelected(e.id)}
-              >
-                View exchange {e.id}
-              </button>
-            </article>
-          ))
-        ) : (
-          <Empty
-            title="No captured model calls"
-            detail="No retained model records match these filters."
-          />
-        )}
-        {selected && (
-          <>
-            <button onClick={() => setSelected(null)}>Close exchange</button>
-            <Failure error={transcript.error} />
-            {transcript.isPending && <p>Loading exchange…</p>}
-            {transcript.data && (
-              <pre>{JSON.stringify(transcript.data, null, 2)}</pre>
-            )}
-          </>
-        )}
-      </div>
-    </Section>
-  );
+  return <ProjectModelCalls events={events} />;
 }

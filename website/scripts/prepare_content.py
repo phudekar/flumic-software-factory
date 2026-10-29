@@ -16,6 +16,8 @@ CONTENT = SITE / 'src/content/docs'
 BASE = '/flumic-software-factory/'
 GITHUB = 'https://github.com/phudekar/flumic-software-factory/blob/main/'
 GUIDES = {
+    'docs/hello-world-live-example.md': 'Hello World: live labels, model exchange and project runs',
+    'docs/workflow-concepts.md': 'Understand projects, workflows and workers',
     'docs/user-walkthrough.md': 'User walkthrough: project to monitoring',
     'docs/prompt-quality.md': 'Stage prompts, artifacts and evaluation',
     'docs/control-plane.md': 'Control-plane handbook',
