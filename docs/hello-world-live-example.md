@@ -11,6 +11,33 @@ installation was then backed up and explicitly migrated to project execution;
 implementation resumed under Default using the existing child issue. That
 migration was specific to this installation, not a step for every new issue.
 
+## Workflow effects at a glance
+
+The Hello World example moves from **parent issue #43 → child issue #44 → draft PR #45**.
+The parent tracks the plan, the child tracks implementation, and the PR carries
+review state. Check the object named in each step; all labels do not accumulate
+on the parent issue.
+
+| Step | Where to look | What changed and who did it |
+| --- | --- | --- |
+| 1. Ready | Parent issue #43 | You apply `ready-for-agent`; this signals readiness, not execution. |
+| 2. Planned | Parent issue #43 | Planning adds `agent-plan-created` and consumes the readiness label. |
+| 3. Task created | Child issue #44 | Planning creates a linked implementation issue with `agent-subtask`. |
+| 4. Waiting for clarification | Child issue #44 | Triage adds `needs-discussion` instead of proceeding with an ambiguous change. |
+| 5. Resumed | Child issue #44 timeline | You clarify the requirements and apply `ready-for-agent`; the stored follow-up resumes and the worker removes the discussion/readiness labels. |
+| 6. Draft PR published | Child issue #44 and PR #45 | Implementation opens a draft PR and adds `agent-pr-open` to the child; `agent-subtask` remains. |
+| 7. Review posted | PR #45 | Review posts findings and adds `agent-pr-reviewed` to the PR. Human approval and merge have not occurred. |
+
+These are recorded screenshots from October 29, 2026; transient labels were not
+reapplied to recreate earlier states. In this example, worker actions appear
+under `phudekar`, the identity used by the repository credential. That username
+alone does not distinguish a human action from an automated one.
+
+`load` reads the issue and `record` persists the result; not every workflow stage
+adds a GitHub label. A completed run can be waiting for clarification or review.
+`agent-pr-reviewed` means findings were posted, not approval, merge or completion
+of the overall issue. The screenshots stop at a reviewed draft PR.
+
 ## 1. Ready to process — parent issue
 
 The parent initially had `ready-for-agent`. This is a readiness signal, not proof
@@ -66,7 +93,7 @@ commit `7a49fda15eff5ba5abc8f13757a00be837e15bee` confirmed stdout exactly
 The automated review added `agent-pr-reviewed` to **PR #45**, not the parent issue.
 It posted concerns about import-time execution. This label means a review was
 posted; it does not mean the findings were accepted, the PR was approved or the
-change merged. The PR remains a draft awaiting human review.
+change merged. At the end of this recorded example, the PR was a draft awaiting human review.
 
 ![Draft PR 45 and its agent-pr-reviewed label](images/github-hello-world-pr-45-reviewed.png)
 

@@ -168,6 +168,115 @@ do not prove the business task is finished: another run may finish by requesting
 clarification or finding an existing plan. Inspect stage outcomes and follow-ups,
 then review the PR and CI before merging.
 
+#### How the workflow changed the issue — screenshots
+
+The Hello World example moves from **parent issue #43 → child issue #44 → draft PR #45**.
+The parent tracks the plan, the child tracks implementation, and the PR carries
+review state. Check the object named in each step; all labels do not accumulate
+on the parent issue.
+
+| Step | Where to look | What changed and who did it |
+| --- | --- | --- |
+| 1. Ready | Parent issue #43 | You apply `ready-for-agent`; this signals readiness, not execution. |
+| 2. Planned | Parent issue #43 | Planning adds `agent-plan-created` and consumes the readiness label. |
+| 3. Task created | Child issue #44 | Planning creates a linked implementation issue with `agent-subtask`. |
+| 4. Waiting for clarification | Child issue #44 | Triage adds `needs-discussion` instead of proceeding with an ambiguous change. |
+| 5. Resumed | Child issue #44 timeline | You clarify the requirements and apply `ready-for-agent`; the stored follow-up resumes and the worker removes the discussion/readiness labels. |
+| 6. Draft PR published | Child issue #44 and PR #45 | Implementation opens a draft PR and adds `agent-pr-open` to the child; `agent-subtask` remains. |
+| 7. Review posted | PR #45 | Review posts findings and adds `agent-pr-reviewed` to the PR. Human approval and merge have not occurred. |
+
+Expand a step to inspect its actual GitHub screenshot. Planning and draft publication are expanded initially.
+
+<details>
+<summary>1. Ready to process — parent issue</summary>
+
+The parent initially had `ready-for-agent`. This is a readiness signal, not proof
+of execution. The example was explicitly triggered; automatic launch depends on
+configured repository triggers.
+
+![Parent issue 43 with ready-for-agent before processing](docs/images/github-hello-world-issue-43.png)
+
+</details>
+
+<details open>
+<summary>2. Plan created — parent issue</summary>
+
+The planner produced one implementation task. The parent acquired
+`agent-plan-created`; its original readiness label was consumed. This does not
+mean the implementation is finished.
+
+![Parent issue 43 after planning, with agent-plan-created](docs/images/github-hello-world-43-plan-created.png)
+
+</details>
+
+<details>
+<summary>3. Implementation work identified — child issue</summary>
+
+The worker created #44 with `agent-subtask` and linked it to #43. Follow this
+child for implementation progress; PR labels do not all accumulate on the parent.
+
+![Generated child issue 44 with agent-subtask](docs/images/github-hello-world-44-subtask.png)
+
+</details>
+
+<details>
+<summary>4. Clarification requested — child issue</summary>
+
+The repository already contained `hello_world/`. Triage asked whether to preserve
+that directory and added `needs-discussion`. The control run completed its stage
+calls, but its business outcome was waiting for discussion, not a generated PR.
+
+![Issue 44 paused with needs-discussion](docs/images/github-hello-world-44-needs-discussion.png)
+
+</details>
+
+<details>
+<summary>5. Clarification resolved — child issue timeline</summary>
+
+The reply confirmed a new root-level `hello.py`, preserving existing files with
+no requested CI/documentation changes. Adding `ready-for-agent` resumed the
+stored discussion follow-up. The agent then removed the discussion/readiness
+labels as it continued. This screenshot shows GitHub's actual timeline event
+because readiness was transient, rather than recreating the old state.
+
+![Timeline records readiness and discussion-label removal](docs/images/github-hello-world-44-discussion-resolved.png)
+
+</details>
+
+<details open>
+<summary>6. Draft PR created — child issue</summary>
+
+Implementation created draft PR #45 and added `agent-pr-open` to #44. The PR
+contains only `hello.py`. Its CI build checks passed. Independently checking
+commit `7a49fda15eff5ba5abc8f13757a00be837e15bee` confirmed stdout exactly
+`Hello, world!` plus a newline, exit code 0 and empty stderr.
+
+![Child issue 44 with agent-pr-open and its draft PR link](docs/images/github-hello-world-44-pr-open.png)
+
+</details>
+
+<details>
+<summary>7. Automated review posted — pull request</summary>
+
+The automated review added `agent-pr-reviewed` to **PR #45**, not the parent issue.
+It posted concerns about import-time execution. This label means a review was
+posted; it does not mean the findings were accepted, the PR was approved or the
+change merged. At the end of this recorded example, the PR was a draft awaiting human review.
+
+![Draft PR 45 and its agent-pr-reviewed label](docs/images/github-hello-world-pr-45-reviewed.png)
+
+</details>
+
+These are recorded screenshots from October 29, 2026; transient labels were not
+reapplied to recreate earlier states. In this example, worker actions appear
+under `phudekar`, the identity used by the repository credential. That username
+alone does not distinguish a human action from an automated one.
+
+`load` reads the issue and `record` persists the result; not every workflow stage
+adds a GitHub label. A completed run can be waiting for clarification or review.
+`agent-pr-reviewed` means findings were posted, not approval, merge or completion
+of the overall issue. The screenshots stop at a reviewed draft PR.
+
 <details>
 <summary>Optional command shortcuts</summary>
 
