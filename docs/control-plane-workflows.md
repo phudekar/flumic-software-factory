@@ -69,13 +69,16 @@ because a definition is validated or published.
    and preserves your draft. A newer head does not silently replace dirty text.
    **Discard edits and load latest** deliberately resets the editor.
 
-Kubernetes and function executors are explicitly unavailable in v1. They cannot be
-activated by spelling a new executor in YAML. See the [stage and binding
+Schema v1 supports `builtin` and `docker` executor names. Kubernetes worker
+Deployments and native Jobs are available through a registered runtime target;
+container stages retain `executor: docker` and use the worker's pinned target.
+There is no separate `kubernetes` or function executor name to enable in YAML.
+See [Kubernetes targets](kubernetes.md). See the [stage and binding
 reference](workflow-development.md#data-defined-workflow-revisions).
 
 ![Project workflow YAML editor with schema validation and immutable publication](images/control-plane-project-workflow-editor.png)
 
-The editor screenshot uses an isolated example project and deterministic test data.
+The editor screenshot shows a saved issue-workflow definition in the existing Default project. It is an example to inspect, not a new publication.
 
 ### Run an immutable revision
 
@@ -151,8 +154,7 @@ button that bypasses assignment or external-effect reconciliation.
 
 ![Project workflow run with pinned dependencies, repositories and stage attempts](images/control-plane-project-workflow-run.png)
 
-The run screenshot shows a queued mixed builtin/Docker graph in the same isolated
-example deployment; queued attempts have not executed.
+The run screenshot shows the recorded Hello World implementation under Default. Completed stage invocations do not imply human approval or merge; inspect the business outcome, follow-up wait and source-host PR.
 
 ### Model history and accounting
 

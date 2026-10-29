@@ -76,6 +76,8 @@ def rewrite_links(text, source):
             # README fragments outside quick start go to the original source.
             if fragment and fragment not in {'quick-start', '1-prepare-your-environment', '2-start-the-control-plane', '3-start-a-simple-worker-and-a-developer-worker', '4-process-your-first-issue'}:
                 url = GITHUB + relative
+        elif relative.startswith('docs/examples/'):
+            url = BASE + 'examples/' + quote(relative.removeprefix('docs/examples/'))
         elif relative.startswith('docs/images/'):
             url = BASE + 'images/' + target.name
         else:
@@ -125,6 +127,8 @@ quick = readme.split('## Quick start\n', 1)[1].split('## Configuration\n', 1)[0]
 write('start/quick-start', 'Quick start', rewrite_links(quick, 'README.md'))
 # Generated directories are absent from fresh checkouts.
 (SITE / 'public').mkdir(exist_ok=True, parents=True)
+# Publish copyable cookbook fixtures with the site rather than linking to another branch.
+shutil.copytree(ROOT / 'docs/examples', SITE / 'public/examples', dirs_exist_ok=True)
 # Canonical icon lives with the app; docs and favicons consume that same SVG.
 shutil.copy2(ROOT / 'control-plane/frontend/src/assets/flumic.svg', SITE / 'public/favicon.svg')
 

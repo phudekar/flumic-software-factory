@@ -2,7 +2,12 @@
 
 The dynamic runtime has a durable Docker job broker separate from persistent worker management. A shared worker never receives the Docker socket. The Control Plane reconciler launches jobs from an owned, admitted assignment and its pinned workflow revision.
 
-**Delivery status:** the broker integrates with assignment-authenticated HTTP submission, worker polling and broker-confirmed graph completion through the [project runtime API](project-runtime-api.md). The public UI does not launch these jobs yet. Kubernetes Jobs and remote/function executors remain planned.
+**Delivery status:** the broker integrates with assignment-authenticated HTTP submission, worker polling and broker-confirmed graph completion through the [project runtime API](project-runtime-api.md). The project workflow UI can publish and launch graphs containing container stages. A pinned Docker target uses the local broker; a registered Kubernetes target uses native Jobs under the same schema-v1 `docker` stage contract. Remote/function executors are not implemented. See [Kubernetes configuration](kubernetes.md).
+
+The security, filesystem and log limits below describe the local Docker target.
+Native Kubernetes Jobs have target-specific network/storage enforcement,
+combined logs and executable scratch space; see the [Kubernetes action-job contract](kubernetes.md)
+before choosing that destination.
 
 ## Define an action
 
@@ -61,7 +66,7 @@ result = {'output': {'valid': bool(request['change'])}, 'usage': []}
 Path('/flumic/output/result.json').write_text(json.dumps(result))
 ```
 
-The envelope contains an `output` JSON object and optional `usage` array (at most 256 records). Input and the entire result file are each limited to 1 MiB. Nonfinite JSON, missing/malformed files, symlinks, nonregular files and oversized results fail explicitly. Usage values are supplied by the program; they are not inferred from container CPU/memory. Accounting ingestion and reporting belong to the project telemetry milestone.
+The envelope contains an `output` JSON object and optional `usage` array (at most 256 records). Input and the entire result file are each limited to 1 MiB. Nonfinite JSON, missing/malformed files, symlinks, nonregular files and oversized results fail explicitly. Usage values are supplied by the program; they are not inferred from container CPU/memory. Explicit supported usage records contribute to [project accounting](project-observability.md); unknown prices or usage remain unknown, and estimated/reported costs stay separate.
 
 Stdout and stderr are captured separately, retaining at most 256 KiB each with truncation flags. Failure logs are retained too. Docker's own log rotation is bounded separately to two 1 MiB files. Resolved grant values are redacted before encrypted result persistence, with protocol keys/failure status preserved. Log limits are reapplied after redaction and truncation flags reflect any additional clipping. A redacted output/usage envelope exceeding 1 MiB fails explicitly with a bounded diagnostic. Operators must still avoid logging sensitive derived values.
 
@@ -77,7 +82,7 @@ The reconciler runs the job loop independently of persistent-worker image builds
 
 ## Deployment and isolation
 
-Broker instances for a local Docker target must share the same private job directory and stable deployment identity. POSIX file locks serialize job I/O without holding database transactions across Docker calls; use a local filesystem supporting `flock`. This is a single-target local Docker implementation, not distributed Kubernetes orchestration. Mount paths are generated from deployment-owned roots; users cannot submit host paths or Docker options.
+Broker instances for a local Docker target must share the same private job directory and stable deployment identity. POSIX file locks serialize job I/O without holding database transactions across Docker calls; use a local filesystem supporting `flock`. These local-filesystem details apply to the Docker target. The native Kubernetes Job adapter uses target-owned namespaces, payload transport and network/storage policy described in the [Kubernetes guide](kubernetes.md). Mount paths are generated from deployment-owned roots; users cannot submit host paths or Docker options.
 
 Jobs run as UID/GID `10001:10001`, with a read-only root, all Linux capabilities dropped, `no-new-privileges`, restart policy `no`, no automatic container removal and broker-generated input/credential/output mounts only. The broker parent directory is private; mounted input/credential files are read-only and accessible to the fixed container UID. The output mount is writable by that UID. The trusted broker/reconciler alone has Docker access.
 

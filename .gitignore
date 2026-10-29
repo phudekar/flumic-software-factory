@@ -37,3 +37,6 @@ website/public/social/
 
 # Private local qualification credentials, checkpoints and recovery state.
 .superpowers/
+
+# Cookbook fixtures copied by website/scripts/prepare_content.py
+website/public/examples/
