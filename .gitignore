@@ -21,6 +21,7 @@ website/src/content/docs/architecture/decisions/
 website/src/content/docs/handbook/
 website/src/content/docs/reference/
 website/src/content/docs/start/quick-start.md
+website/src/content/docs/start/walkthrough.md
 website/public/images/
 website/public/coverage.json
 

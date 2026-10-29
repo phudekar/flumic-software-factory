@@ -34,6 +34,8 @@ including Hatchet, keep their own licenses.
 
 ## Quick start
 
+For a complete guided journey, follow the [user walkthrough: project creation to monitoring](docs/user-walkthrough.md), including explicit UI/API steps, example inputs and troubleshooting checkpoints.
+
 Choose your execution path before starting workers:
 
 - **New multi-project installation:** use the [project onboarding guide](website/src/content/docs/start/project-onboarding.md). Projects own repository connections and immutable workflow revisions; shared pools provide execution capacity.
@@ -41,6 +43,36 @@ Choose your execution path before starting workers:
 
 Do not run both paths against the same repository. Moving an existing repository
 requires the explicit [dynamic-mode handover](docs/project-runtime-operations.md#roll-out-from-a-current-checkout).
+
+### Command shortcuts
+
+Install the `just` command runner (for example, `brew install just` on macOS),
+then run `just` to list the checked-in shortcuts. Existing scripts remain usable
+without it. Recipes run from the repository root, including when invoked from a
+subdirectory; arguments are forwarded to the underlying commands.
+
+| Shortcut | Underlying command / purpose |
+| --- | --- |
+| `just control-up` | `./scripts/start-control-plane.sh` |
+| `just control-up api reconciler dynamic-runtime` | Start the selected control services for project workflows |
+| `just workers-up` | `./scripts/start-workers.sh -d` — legacy Compose fleet; may make paid calls and repository writes |
+| `just observability-up` | `./scripts/start-observability.sh` |
+| `just hatchet-check` | `./scripts/check-hatchet-connectivity.sh` |
+| `just issue-send 123` | Explicit legacy issue event; may make paid calls and repository writes |
+| `just install-ui` / `just install-docs` | Install locked npm dependencies for the selected component |
+| `just ui-dev` / `just ui-build` | Develop / type-check and bundle the Control Pane |
+| `just docs-dev` / `just docs-preview` | Develop / preview built documentation |
+| `just docs-check` | Build the documentation and validate generated pages, links and assets |
+| `just test` | Worker, backend and frontend unit suites; excludes opt-in integration contracts |
+| `just test-worker` / `just test-backend` / `just test-ui` | Run one unit suite |
+
+Prepare `.env`, Hatchet, Python dependencies and npm dependencies as described
+below before running the relevant shortcuts. Python recipes use `.venv/bin/python`;
+set `FLUMIC_PYTHON=/absolute/path/to/python` to choose another interpreter.
+For example, `just docs-dev --port 4323` forwards the port to Astro. Use
+`just --dry-run control-up api reconciler dynamic-runtime` to inspect a command
+without starting services. Pool creation and project authorization are available
+through **Shared worker pools** in the UI; they do not need shell aliases.
 
 ### 1. Prepare your environment
 
@@ -71,7 +103,7 @@ Keep `.env` private; do not copy Hatchet tokens into repository configuration.
 ### 2. Start the control plane
 
 ```sh
-./scripts/start-control-plane.sh
+just control-up
 ```
 
 Open [localhost:3400](http://localhost:3400). Sign in with
@@ -110,7 +142,7 @@ criteria. The default scan runs every five minutes. To submit an existing issue
 immediately, replace `123` with its number:
 
 ```sh
-./scripts/push-sample-event.sh 123
+just issue-send 123
 ```
 
 Follow **Workflow runs** for stages and logs. If the issue receives
@@ -211,15 +243,14 @@ React/TypeScript with Vite. Worker domain/application code lives under
 ```sh
 python3 -m venv .venv
 .venv/bin/python -m pip install -r worker/requirements.txt -r control-plane/backend/requirements.lock
-.venv/bin/python -m unittest discover -s tests -q
-PYTHONPATH=worker:control-plane/backend .venv/bin/python -m unittest discover -s control-plane/backend/tests -q
+just test-worker
+just test-backend
 ```
 
 ```sh
-cd control-plane/frontend
-npm ci
-npm test
-npm run build
+just install-ui
+just test-ui
+just ui-build
 ```
 
 CI uses Python 3.14 and Node.js 22. The [test workflow](.github/workflows/tests.yml)

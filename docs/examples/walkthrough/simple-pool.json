@@ -1,0 +1,9 @@
+{
+  "name": "walkthrough-simple",
+  "role": "simple",
+  "normal_slots": 2,
+  "durable_slots": 16,
+  "executors": ["builtin@1"],
+  "actions": ["core.echo@1", "issue.load@1", "issue.plan@1", "issue.triage@1", "change.review@1", "workflow.record@1", "pull.verify@1"],
+  "hatchet_tls_strategy": "REPLACE_WITH_DEPLOYMENT_TLS_STRATEGY"
+}

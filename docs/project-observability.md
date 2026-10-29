@@ -1,6 +1,6 @@
 # Project history, traces and AI accounting
 
-The project runtime attributes execution history to the stored assignment, rather than trusting project labels supplied by a worker. Several projects may share a worker while keeping events, model exchanges and usage separate. The project UI is a later milestone; use the scoped operator APIs below today.
+The project runtime attributes execution history to the stored assignment, rather than trusting project labels supplied by a worker. Several projects may share a worker while keeping events, model exchanges and usage separate. The project UI exposes scoped run/attempt inspection, model history and usage; the scoped operator APIs below provide the same project authority for integrations.
 
 For activation and run lifecycle, see the [runtime API guide](project-runtime-api.md). Existing default-project static workers and their history remain compatible.
 

@@ -6,7 +6,9 @@ The factory application does not need to run to build or browse this site.
 ## Local development
 
 Use Node.js 24 (minimum 22.23.4), npm, and Python 3. No Python third-party packages
-or provider credentials are needed for the website.
+or provider credentials are needed for the website. From the repository root,
+`just install-docs`, `just docs-dev`, `just docs-check` and `just docs-preview`
+provide shared shortcuts (install `just` first). The equivalent npm commands follow.
 
 ```sh
 cd website
@@ -33,14 +35,16 @@ landing-page logo. Edit only that canonical source when changing the icon.
 - `src/content/docs/`: maintained tutorial and focused task guides.
 - `scripts/prepare_content.py`: explicit allowlist of canonical repository guides,
   relative-link rewriting, images, Python AST route/configuration inventories.
-- `src/content/docs/handbook/`, `reference/`, `architecture/decisions/` and `start/quick-start.md`: generated
+- `src/content/docs/handbook/`, `reference/`, `architecture/decisions/`, `start/quick-start.md` and `start/walkthrough.md`: generated
   and ignored. Edit the source guides or generator, not these outputs.
 - `public/images/` and `coverage.json`: generated from tracked screenshots and
   source coverage; do not copy live state or environment files into public assets.
 - `scripts/check_site.py`: checks built links, anchors, assets, project prefix,
   API inventory coverage, canonical guides and search output.
 
-README Quick start remains the canonical first-run guide. Source handbooks and
+README Quick start remains the canonical legacy first-run guide.
+`docs/user-walkthrough.md` is the canonical end-to-end project tutorial, generated
+at `start/walkthrough/`; its example files live in `docs/examples/walkthrough/`. Source handbooks and
 accepted ADRs in `docs/adr/` are built directly from their repository Markdown.
 Add or update ADRs there; their index, pages and sidebar entries are generated.
 Internal plans and historical migration proposals are not part of website navigation/search. Additional authored

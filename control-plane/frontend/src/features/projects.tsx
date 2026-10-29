@@ -1,3 +1,4 @@
+import { PoolCreateForm } from "./pool-create-form";
 import { ProjectOverview, ProjectHistory } from "./project-overview";
 import { ProjectUsagePage } from "./usage";
 import { RepositoryTriggersPage } from "./repository-triggers";
@@ -1067,6 +1068,7 @@ export function ProjectConfiguration() {
   );
 }
 interface Pool {
+  hatchet_tls_strategy: string;
   id: string;
   name: string;
   role: string;
@@ -1092,14 +1094,40 @@ function ProjectPools() {
   const { write, alive } = useScopedWrite();
   const [error, setError] = useState(""),
     [pending, setPending] = useState(false);
+  const [formOpen, setFormOpen] = useState(false);
+  const [message, setMessage] = useState("");
   return (
     <>
       <PageTitle
         eyebrow="SHARED INFRASTRUCTURE"
         title="Shared worker pools"
+        action={
+          <button
+            className="primary"
+            disabled={pending || formOpen}
+            onClick={() => {
+              setMessage("");
+              setFormOpen(true);
+            }}
+          >
+            Add pool
+          </button>
+        }
         description="Pool capabilities and slots belong to deployment infrastructure. Membership authorizes this project; it does not select repository behavior."
       />
       <Failure error={error || pools.error} />
+      {message && <p role="status">{message}</p>}
+      {formOpen && (
+        <PoolCreateForm
+          onCancel={() => setFormOpen(false)}
+          onCreated={(name) => {
+            setFormOpen(false);
+            setMessage(
+              `Pool ${name} created. Authorize this project before adding a shared worker.`,
+            );
+          }}
+        />
+      )}
       <p>
         Registered capabilities show what an image loaded. Heartbeats and
         desired state do not guarantee available runtime capacity. Revision
@@ -1112,6 +1140,13 @@ function ProjectPools() {
         <Section key={p.id} title={p.name}>
           <div className="editor-body">
             <PoolEligibility pool={p} />
+            <details>
+              <summary>Advanced pool details</summary>
+              <p>
+                Pool ID: <code>{p.id}</code>
+              </p>
+              <p>Hatchet transport: {p.hatchet_tls_strategy}</p>
+            </details>
             <p>
               {p.role} · {p.normal_slots} normal / {p.durable_slots} durable
               slots per worker

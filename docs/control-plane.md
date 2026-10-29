@@ -567,7 +567,14 @@ repository selection, model keys, prompts or project task configuration. A proje
 must be explicitly authorized to use a pool. Existing workers retain `legacy`
 protocol and default-project behavior, even when their images are rebuilt.
 
-Create a pool with `POST /api/v1/worker-pools`:
+In a project workspace, open **Shared worker pools → Add pool**. Choose a unique
+workspace-wide name and role, review the role-filtered action versions, slots and
+Hatchet transport (prefilled from the saved profile), then **Create pool**.
+Creation does not authorize the project or start workers: **Authorize project**
+and workspace **Workers → Add shared worker** are separate steps. Pool ID and
+transport are shown under **Advanced pool details**.
+
+For automation, the equivalent endpoint is `POST /api/v1/worker-pools`:
 
 ```json
 {

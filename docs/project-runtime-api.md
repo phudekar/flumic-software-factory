@@ -25,18 +25,18 @@ curl -b cookies.txt -H 'Origin: http://localhost:3400' -H "X-CSRF-Token: $CSRF" 
   "$CONTROL/api/v1/projects/$PROJECT/repositories/$REPOSITORY/dynamic-mode"
 ```
 
-Seed create-only builtin templates with project-owned pool and secret-version IDs:
+Seed create-only builtin templates with the project-owned **repository alias**, pool IDs and secret-version IDs:
 
 ```json
 {
-  "repository": "<repository-connection-id>",
+  "repository": "backend",
   "simple_pool": "<shared-simple-pool-id>",
   "developer_pool": "<shared-developer-pool-id>",
   "secrets": {"openai": "<openai-secret-version-id>"}
 }
 ```
 
-POST this body to `/api/v1/projects/{project_id}/workflow-definitions/seed-builtins`. The response contains immutable revision IDs for issue, feedback and verification workflows. Seeding is idempotent and does not overwrite an operator's edited workflow. Supply only the model providers needed by the selected configuration. Repository GitHub credentials come from its saved connection. To create custom graphs, use the [definition/revision and stage guide](workflow-development.md#data-defined-workflow-revisions); publishing rejects stale parents and unsupported executor policy.
+POST this body to `/api/v1/projects/{project_id}/workflow-definitions/seed-builtins`. Here `repository` is the connection alias (`backend`), not its UUID. The response contains immutable revision IDs for issue, feedback and verification workflows. Seeding is idempotent and does not overwrite an operator's edited workflow. Supply only the model providers needed by the selected configuration. Repository GitHub credentials come from its saved connection. To create custom graphs, use the [definition/revision and stage guide](workflow-development.md#data-defined-workflow-revisions); publishing rejects stale parents and unsupported executor policy.
 
 ## Launch, inspect and cancel
 
@@ -105,7 +105,7 @@ For attribution, capture policy, scoped history/usage filters and durable delive
 
 ## GitLab repository triggers
 
-GitLab.com trigger support is under development in issue #16. The implementation must pass its disposable-project live qualification before it is treated as released support. A trigger belongs to one project and one validated repository connection; its saved workflow definition selects the graph to run. Webhook content cannot choose another project, repository or workflow.
+GitLab.com trigger support passed the disposable-project qualification for issue #16. See [GitLab setup and qualification](gitlab.md) for supported behavior and limits; self-managed GitLab remains planned. A trigger belongs to one project and one validated repository connection; its saved workflow definition selects the graph to run. Webhook content cannot choose another project, repository or workflow.
 
 The owned `/api/v1/projects/{project_id}/repository-triggers` endpoints list and create bindings. Creation accepts:
 

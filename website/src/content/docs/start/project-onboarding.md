@@ -3,6 +3,9 @@ title: "First project and workflow"
 description: "Set up project ownership, shared capacity and a first observable execution."
 ---
 
+For a detailed numbered journey with copyable examples and checkpoints, follow the
+[complete user walkthrough](/flumic-software-factory/start/walkthrough/).
+
 Use this path for a new installation with multiple projects, repository connections
 and data-defined workflows. The [profile-based quick start](/flumic-software-factory/start/quick-start/)
 remains available for legacy static issue-to-PR workflows.

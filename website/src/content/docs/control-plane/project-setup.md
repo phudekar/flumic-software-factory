@@ -102,3 +102,5 @@ are not a fresh-install baseline and do not prove that its workflows are ready t
 execute. See [first project onboarding](/flumic-software-factory/start/project-onboarding/)
 and [workflow authoring](/flumic-software-factory/handbook/workflow-development/)
 for setup requirements and the full schema.
+
+For the full execution journey, follow [the numbered user walkthrough](/flumic-software-factory/start/walkthrough/), including guided pool setup, first run and monitoring.

@@ -1572,3 +1572,10 @@ pre {
 .sidebar {
   overflow-y: auto;
 }
+
+.pool-form-fields {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}

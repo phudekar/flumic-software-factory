@@ -16,6 +16,7 @@ CONTENT = SITE / 'src/content/docs'
 BASE = '/flumic-software-factory/'
 GITHUB = 'https://github.com/phudekar/flumic-software-factory/blob/main/'
 GUIDES = {
+    'docs/user-walkthrough.md': 'User walkthrough: project to monitoring',
     'docs/prompt-quality.md': 'Stage prompts, artifacts and evaluation',
     'docs/control-plane.md': 'Control-plane handbook',
     'docs/worker-configuration.md': 'Worker configuration handbook',
@@ -46,6 +47,8 @@ for adr in sorted((ROOT / 'docs/adr').glob('*.md')):
 
 
 def route(path):
+    if path == 'docs/user-walkthrough.md':
+        return 'start/walkthrough/'
     if path.startswith('docs/adr/'):
         return 'architecture/decisions/' + ('' if Path(path).stem == 'index' else Path(path).stem + '/')
     return 'handbook/' + ('bootstrap-profiles' if path.startswith('config/') else Path(path).stem) + '/'
