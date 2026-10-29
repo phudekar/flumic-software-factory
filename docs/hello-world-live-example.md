@@ -39,8 +39,8 @@ adds a GitHub label. A completed run can be waiting for clarification or review.
 of the overall issue. The screenshots stop at a reviewed draft PR.
 
 Each step pairs its GitHub state with the available Control Pane evidence.
-Expand **Control Pane evidence** beneath a step to compare its run, activity logs
-and model exchange. The Control Pane captures inspect retained runs after they
+**Control Pane evidence** beneath each step is expanded by default to show
+its run, activity logs and model exchange. The Control Pane captures inspect retained runs after they
 finished; they are not recreated in-progress states. Log images are viewport
 excerpts, and model capture/retention may leave gaps. Use your own run IDs when
 following these steps in another installation.
@@ -65,7 +65,7 @@ mean the implementation is finished.
 
 ![Parent issue 43 after planning, with agent-plan-created](images/github-hello-world-43-plan-created.png)
 
-<details>
+<details open>
 <summary>Control Pane evidence: planning model logs</summary>
 
 The original planning call was recorded before this installation moved to
@@ -98,7 +98,7 @@ calls, but its business outcome was waiting for discussion, not a generated PR.
 
 ![Issue 44 paused with needs-discussion](images/github-hello-world-44-needs-discussion.png)
 
-<details>
+<details open>
 <summary>Control Pane evidence: run, activity logs and model logs</summary>
 
 **Run and stage:** `4b5d6351-5428-4d97-9dc1-537ec2d287ed`, filtered to `triage`.
@@ -132,7 +132,7 @@ because readiness was transient, rather than recreating the old state.
 
 ![Timeline records readiness and discussion-label removal](images/github-hello-world-44-discussion-resolved.png)
 
-<details>
+<details open>
 <summary>Control Pane evidence: run, activity logs and model logs</summary>
 
 **Resumed run and stage:** `7d53f1f2-ec3c-448a-80fd-f8e576a9fba7`, filtered to
@@ -164,7 +164,7 @@ commit `7a49fda15eff5ba5abc8f13757a00be837e15bee` confirmed stdout exactly
 
 ![Child issue 44 with agent-pr-open and its draft PR link](images/github-hello-world-44-pr-open.png)
 
-<details>
+<details open>
 <summary>Control Pane evidence: run, activity logs and model logs</summary>
 
 **Run and stage:** the same resumed run, `7d53f1f2-ec3c-448a-80fd-f8e576a9fba7`,
@@ -201,7 +201,7 @@ change merged. At the end of this recorded example, the PR was a draft awaiting 
 
 ![Draft PR 45 and its agent-pr-reviewed label](images/github-hello-world-pr-45-reviewed.png)
 
-<details>
+<details open>
 <summary>Control Pane evidence: run, activity logs and model logs</summary>
 
 **Run and stage:** the same resumed run, `7d53f1f2-ec3c-448a-80fd-f8e576a9fba7`,
