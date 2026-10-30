@@ -403,8 +403,9 @@ on code and issues, enable project execution for its target connection.
 1. Open **Walkthrough → Repositories** and find `backend`.
 2. Under **Repository execution**, click **Review project execution for backend**.
 3. Confirm the displayed owner/repository and alias are correct.
-4. Review ownership, then check **I have reviewed repository ownership and
-   confirmed it is ready for project execution.**
+4. Review ownership, then explicitly confirm that you have drained and stopped
+   legacy workers for this repository, or verified that none are running, using
+   the required acknowledgment checkbox.
 5. Click **Enable project execution**. **Cancel** leaves the connection unchanged.
 
 **Checkpoint:** the form reports **Project execution enabled for backend** after

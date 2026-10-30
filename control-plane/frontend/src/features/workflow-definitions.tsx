@@ -568,7 +568,7 @@ function RunDefinition({ revision }: { revision: DefinitionRevision }) {
   const guidedAvailable =
     revision.document.repositories.length === 1 &&
     revision.document.name.startsWith("factory-issue-") &&
-    workflowPresentation(revision.document).title === "Issue to pull request";
+    workflowPresentation(revision.document).kind === "issue";
   const [advanced, setAdvanced] = useState(false),
     [issue, setIssue] = useState(""),
     [feedback, setFeedback] = useState(""),

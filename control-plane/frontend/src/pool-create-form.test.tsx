@@ -2,6 +2,7 @@
 import { afterEach, expect, it, vi } from "vitest";
 import "@testing-library/jest-dom/vitest";
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -13,7 +14,7 @@ import { ProjectProvider } from "./project-context";
 import { PoolCreateForm } from "./features/pool-create-form";
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status });
-function mount(fail = false) {
+function mount(fail = false, configResponse?: Promise<Response>) {
   const fetcher = vi.fn(async (path: string, options?: RequestInit) => {
     if (options?.method === "POST")
       return fail
@@ -27,6 +28,8 @@ function mount(fail = false) {
           { id: "change.implement@1", role: "developer" },
         ],
       });
+    if (path.endsWith("/factory-config") && configResponse)
+      return configResponse;
     return json({
       document: {
         profiles: {
@@ -39,22 +42,70 @@ function mount(fail = false) {
   vi.stubGlobal("fetch", fetcher);
   const onCreated = vi.fn(),
     onCancel = vi.fn();
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
   render(
-    <QueryClientProvider
-      client={
-        new QueryClient({ defaultOptions: { queries: { retry: false } } })
-      }
-    >
+    <QueryClientProvider client={client}>
       <ProjectProvider id="project-a">
         <PoolCreateForm onCreated={onCreated} onCancel={onCancel} />
       </ProjectProvider>
     </QueryClientProvider>,
   );
-  return { fetcher, onCreated, onCancel };
+  return { fetcher, onCreated, onCancel, client };
 }
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+});
+
+it("keeps a manually chosen transport across delayed configuration and refreshes", async () => {
+  let finish!: (response: Response) => void;
+  const config = new Promise<Response>((resolve) => {
+    finish = resolve;
+  });
+  const { client, fetcher } = mount(false, config);
+  await screen.findByLabelText("issue.plan@1");
+  fireEvent.change(screen.getByLabelText("Hatchet transport"), {
+    target: { value: "mtls" },
+  });
+  await act(async () =>
+    finish(
+      json({
+        document: {
+          profiles: {
+            simple: { settings: { hatchet_tls_strategy: "none" } },
+            developer: { settings: { hatchet_tls_strategy: "tls" } },
+          },
+        },
+      }),
+    ),
+  );
+  expect(screen.getByLabelText("Hatchet transport")).toHaveValue("mtls");
+  await act(async () => {
+    client.setQueryData(["project", "project-a", "/factory-config"], {
+      document: {
+        profiles: {
+          simple: { settings: { hatchet_tls_strategy: "tls" } },
+          developer: { settings: { hatchet_tls_strategy: "tls" } },
+        },
+      },
+    });
+  });
+  expect(screen.getByLabelText("Hatchet transport")).toHaveValue("mtls");
+  fireEvent.change(screen.getByLabelText("Pool name"), {
+    target: { value: "custom-transport" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Create pool" }));
+  await waitFor(() =>
+    expect(
+      fetcher.mock.calls.some(([, options]) => options?.method === "POST"),
+    ).toBe(true),
+  );
+  const write = fetcher.mock.calls.find(
+    ([, options]) => options?.method === "POST",
+  )!;
+  expect(JSON.parse(String(write[1]!.body)).hatchet_tls_strategy).toBe("mtls");
 });
 it("creates shared infrastructure separately from project authorization or worker startup", async () => {
   const { fetcher, onCreated } = mount();

@@ -868,3 +868,46 @@ it("keeps evidence filters focused and editable while loading and after a query 
   await screen.findByText("Capture unavailable");
   expect(screen.getByLabelText("Worker ID")).toHaveValue("w");
 });
+
+it.each(["view=models", "stage=load&execution=e1&detail=models"])(
+  "keeps retained model calls visible after 201 later logs: %s",
+  async (query) => {
+    const retained = {
+      id: "retained-model",
+      kind: "model.completed",
+      run_id: "run-1",
+      attempt_id: "e1",
+      stage: "load",
+      worker_id: "worker",
+      occurred_at: 1700000000,
+      payload: {
+        model: "Busy stage model",
+        provider: "openai",
+        outcome: "completed",
+      },
+    };
+    const events = [
+      ...Array.from({ length: 201 }, (_, i) => ({
+        ...retained,
+        id: "log-" + i,
+        kind: "log",
+        occurred_at: 1700001000 + i,
+        payload: { message: "Later worker activity" },
+      })),
+      retained,
+    ];
+    fixtures((path) => {
+      if (path.includes("/events?")) {
+        const params = new URL(path, "http://local").searchParams;
+        return json(
+          events
+            .filter((e) => !params.get("kind") || e.kind === params.get("kind"))
+            .sort((a, b) => b.occurred_at - a.occurred_at)
+            .slice(0, Number(params.get("limit") ?? 200)),
+        );
+      }
+    });
+    mount("/projects/a/runs/run-1?" + query);
+    await screen.findByText("Busy stage model");
+  },
+);

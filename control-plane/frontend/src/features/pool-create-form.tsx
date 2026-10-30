@@ -37,7 +37,12 @@ export function PoolCreateForm({
   const [name, setName] = useState(""),
     [role, setRole] = useState<Role>("simple");
   const [actions, setActions] = useState<string[]>([]);
-  const [tls, setTls] = useState("");
+  const [tlsOverride, setTlsOverride] = useState<string | null>(null);
+  const tls =
+    tlsOverride ??
+    configuration.data?.document?.profiles?.[role]?.settings
+      ?.hatchet_tls_strategy ??
+    "";
   const [normal, setNormal] = useState(2),
     [durable, setDurable] = useState(16);
   const [executors, setExecutors] = useState("builtin@1");
@@ -53,12 +58,6 @@ export function PoolCreateForm({
         .map((a) => a.id),
     );
   }, [catalog.data, role]);
-  useEffect(() => {
-    setTls(
-      configuration.data?.document?.profiles?.[role]?.settings
-        ?.hatchet_tls_strategy ?? "",
-    );
-  }, [configuration.data, role]);
   return (
     <Section title="Create shared worker pool">
       <Failure error={error || catalog.error || configuration.error} />
@@ -113,7 +112,10 @@ export function PoolCreateForm({
             Worker role
             <select
               value={role}
-              onChange={(e) => setRole(e.target.value as Role)}
+              onChange={(e) => {
+                setRole(e.target.value as Role);
+                setTlsOverride(null);
+              }}
             >
               <option value="simple">Simple — planning and review</option>
               <option value="developer">Developer — code changes</option>
@@ -174,7 +176,7 @@ export function PoolCreateForm({
             <select
               required
               value={tls}
-              onChange={(e) => setTls(e.target.value)}
+              onChange={(e) => setTlsOverride(e.target.value)}
             >
               <option value="">Choose the deployment transport</option>
               <option value="tls">TLS</option>

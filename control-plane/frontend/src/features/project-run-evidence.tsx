@@ -39,7 +39,10 @@ export function RunEvidence({
     }
   const query = filters.toString();
   const events = useProjectData<FactoryEvent[]>(
-    "/events?" + query + "&limit=200",
+    "/events?" +
+      query +
+      (mode === "models" ? "&kind=model.completed" : "") +
+      "&limit=200",
   );
   const modelEvents =
     events.data?.filter(
@@ -102,6 +105,10 @@ export function RunEvidence({
           ) : mode === "models" ? (
             <>
               <ProjectAccounting query={query} />
+              <p className="run-evidence-note">
+                Showing up to 200 retained model-call events. Accounting may
+                cover more records.
+              </p>
               <ProjectModelCalls events={modelEvents} />
             </>
           ) : (

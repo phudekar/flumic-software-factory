@@ -16,6 +16,7 @@ import {
 } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { App } from "./app/App";
+import { workflowPresentation } from "./components/workflow-summary";
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
     status,
@@ -204,6 +205,26 @@ afterEach(() => {
   vi.unstubAllGlobals();
   focusManager.setFocused(undefined);
 });
+it("classifies standard workflows independently of their display titles", () => {
+  expect(workflowPresentation(issue).kind).toBe("issue");
+  expect(
+    workflowPresentation({
+      ...issue,
+      name: "factory-feedback-backend",
+      stages: [{ ...issue.stages[0], action: "pull.feedback@1" }],
+    }).kind,
+  ).toBe("feedback");
+  expect(
+    workflowPresentation({
+      ...issue,
+      name: "factory-verify-backend",
+      stages: [{ ...issue.stages[0], action: "pull.verify@1" }],
+    }).kind,
+  ).toBe("verify");
+  expect(
+    workflowPresentation({ ...issue, stages: [issue.stages[0]] }).kind,
+  ).toBe("custom");
+});
 async function chooseTemplates() {
   fireEvent.click(
     await screen.findByRole("button", { name: "Install templates" }),
@@ -277,6 +298,9 @@ it("requires handover acknowledgment, displays a server conflict and never bypas
     screen.getByRole("button", { name: "Enable project execution" }),
   ).toBeDisabled();
   expect(writes(f)).toHaveLength(0);
+  expect(screen.getByRole("checkbox")).toHaveAccessibleName(
+    /drained and stopped legacy workers.*verified.*none/i,
+  );
   fireEvent.click(
     screen.getByLabelText(/I have reviewed repository ownership/),
   );

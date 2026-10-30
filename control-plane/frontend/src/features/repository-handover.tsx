@@ -73,8 +73,8 @@ export function RepositoryHandover({
               checked={confirmed}
               onChange={(e) => setConfirmed(e.target.checked)}
             />
-            I have reviewed repository ownership and confirmed it is ready for
-            project execution.
+            I have reviewed repository ownership and drained and stopped legacy
+            workers for this repository, or verified that none are running.
           </label>
           <Failure error={error} />
           <p>

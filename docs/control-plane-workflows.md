@@ -172,7 +172,9 @@ The run screenshot shows the recorded Hello World implementation under Default. 
 ### Model history and accounting
 
 Run/attempt views support stage/execution, worker, provider and model filters.
-They show the latest 200 matching events and bounded logs. Job views scope history
+The model-call tab queries up to 200 matching model events separately so that
+later logs cannot crowd out retained exchanges. Accounting can cover more
+records. Activity views show the latest 200 matching events and bounded logs. Job views scope history
 to the job execution. Exchange reads use project-owned endpoints and retain the
 existing seven-day expiration and audit policy; metadata-only or disabled capture
 can leave no content to open.
