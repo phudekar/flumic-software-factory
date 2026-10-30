@@ -232,7 +232,7 @@ export function Configuration({ prompts = false }: { prompts?: boolean }) {
           : "Worker profiles define models, coding tools, limits, API retries, logging, capture policy and task prompts. All linked workers use the latest profile revision on their next start or restart."}
       </div>
       {!factoryMode && !creating && (
-        <div className="toolbar">
+        <div className="toolbar filter-toolbar profile-toolbar">
           <label>
             Worker profile
             <select
@@ -337,7 +337,7 @@ export function Configuration({ prompts = false }: { prompts?: boolean }) {
         </div>
       )}
       {!factoryMode && (
-        <div className="toolbar">
+        <div className="toolbar filter-toolbar">
           <button className="secondary" onClick={() => setParams({ new: "1" })}>
             New worker profile
           </button>

@@ -116,6 +116,45 @@ class CLIAgentTests(unittest.TestCase):
                 [change.path for change in changes], ["backend/src/main.rs"]
             )
 
+    def test_change_collection_ignores_new_nested_frontend_dist(self):
+        with tempfile.TemporaryDirectory() as directory:
+            workspace = Path(directory)
+            source = workspace / "frontend/src/main.js"
+            source.parent.mkdir(parents=True)
+            source.write_text("original")
+            baseline = cli_agent._snapshot(workspace)
+            source.write_text("updated")
+            assets = workspace / "frontend/dist/assets"
+            assets.mkdir(parents=True)
+            (assets / "index-PTjHDBHU.js").write_bytes(b"x" * 244675)
+            changes = cli_agent._collect_changes(
+                workspace=workspace,
+                baseline=baseline,
+                previous=baseline,
+                existing_paths=set(baseline),
+            )
+            self.assertEqual(
+                [change.path for change in changes], ["frontend/src/main.js"]
+            )
+
+    def test_original_dist_directory_is_not_ignored(self):
+        with tempfile.TemporaryDirectory() as directory:
+            workspace = Path(directory)
+            path = workspace / "frontend/dist/original.js"
+            path.parent.mkdir(parents=True)
+            path.write_text("original")
+            baseline = cli_agent._snapshot(workspace)
+            path.write_bytes(b"x" * 244675)
+            with self.assertRaisesRegex(
+                ModelError, "size limit: frontend/dist/original.js"
+            ):
+                cli_agent._collect_changes(
+                    workspace=workspace,
+                    baseline=baseline,
+                    previous=baseline,
+                    existing_paths=set(baseline),
+                )
+
     def test_original_target_directory_is_not_ignored(self):
         with tempfile.TemporaryDirectory() as directory:
             workspace = Path(directory)

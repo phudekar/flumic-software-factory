@@ -187,7 +187,7 @@ Git must be installed in the CLI worker image.
 
 Files included in the initial repository snapshot remain checked even when an
 ignore rule matches them. Their changes and deletions cannot be hidden by editing
-`.gitignore`. Newly generated `node_modules`, `.venv`, `venv`, `__pycache__` and
+`.gitignore`. Newly generated `node_modules`, `.venv`, `venv`, `__pycache__`, `dist` and
 Cargo `target` directories also remain excluded by the existing artifact policy.
 A Git evaluation failure blocks patch publication rather than guessing rules.
 

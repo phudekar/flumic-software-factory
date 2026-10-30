@@ -173,7 +173,7 @@ export function RunPage() {
           ))}
         </div>
       )}
-      <div className="toolbar">
+      <div className="toolbar filter-toolbar">
         <button className="secondary" onClick={() => selectStage("")}>
           All stages and attempts
         </button>
@@ -513,7 +513,7 @@ export function Logs({
       title="Stage logs and model exchanges"
       aside={<span className="tag">Redacted · latest page</span>}
     >
-      <div className="toolbar">
+      <div className="toolbar filter-toolbar">
         <LogViewToggle
           raw={raw}
           onChange={(value) => {
