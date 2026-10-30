@@ -236,8 +236,9 @@ In the UI:
    echo examples, enter **Run input JSON** directly. The standard issue recipe
    offers **Guided issue launch**, with **Advanced JSON** available for custom
    input/bindings. Explicitly choose **Run saved revision** to submit.
-4. Inspect **Workflow runs**, select a stage/attempt, expand **Execution activity**
-   for logs and open **View exchange** for retained model requests/results.
+4. Inspect **Workflow runs**, select a stage and **Stage attempt**, then open **Logs**
+   for captured activity. Use **Model calls → View exchange** for retained model
+   requests/responses; **Configuration** contains the pinned stage snapshot.
    Echo can have no model records. See the [recorded run/log/model example](hello-world-live-example.md).
 5. For an edit, use **Edit current definition**, validate and publish again. A
    stale baseline is a conflict; inspect the latest revision before retrying.

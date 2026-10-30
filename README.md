@@ -145,9 +145,11 @@ existing feedback/verification revisions in **Guided issue launch**.
 
 Review the selections, then click **Run saved revision** explicitly. Execution
 can make paid model calls and write to the target repository. Follow the new run
-in **Workflow runs**, inspect stage attempts/logs, and use **Model history** and
-**Usage & cost** to monitor model calls. Review generated PR diffs and CI before
-approving or merging in your source host.
+in **Workflow runs**. In **Stage explorer**, select a stage and **Stage attempt**,
+then use **Result**, **Logs**, **Model calls** or **Configuration**. Use **Overview**
+for follow-up runs and **Run activity** / **All model calls** for run-wide evidence.
+**Model history** and **Usage & cost** provide broader model monitoring. Review
+generated PR diffs and CI before approving or merging in your source host.
 
 If execution ownership for the new target has not been enabled, the server can
 refuse the launch. Follow **Repositories → Repository execution** and its linked
@@ -187,10 +189,10 @@ on the parent issue.
 
 Each step pairs its GitHub state with the available Control Pane evidence.
 **Control Pane evidence** beneath each step is expanded by default to show
-its run, activity logs and model exchange. The Control Pane captures inspect retained runs after they
-finished; they are not recreated in-progress states. Log images are viewport
-excerpts, and model capture/retention may leave gaps. Use your own run IDs when
-following these steps in another installation.
+its run, activity logs and model exchange. These Control Pane screenshots show retained runs after they finished, rather
+than recreated in-progress states. Log images show retained stage activity;
+model capture/retention may leave gaps. Use your own run IDs when following these
+steps in another installation.
 
 All steps and their run-output subsections are expanded by default. Collapse any section to focus on another step.
 

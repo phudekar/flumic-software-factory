@@ -10,7 +10,7 @@ GitHub issue → factory workflow run → engine task / stage
   → recorded model exchange → provider usage + known cost estimate
 ```
 
-Open a run, select a stage, then inspect attempts, logs, model calls and usage. The selected stage uses engine task IDs to scope records; selecting an attempt further narrows to one retry. Worker detail links retain their context. This makes it possible to investigate which stage failed, which settings were loaded and which reported calls contributed to its token/cost subtotal.
+Open **Inspect Run → Stage explorer**, select a stage and choose **Stage attempt** to inspect a retry. **Result** shows recorded operation evidence, **Logs** shows captured activity, **Model calls** contains exchanges and separate accounting sources, and **Configuration** shows the pinned snapshot. Stage and execution IDs scope these records. **Run activity** and **All model calls** show run-wide evidence without carrying selected-stage filters. Worker detail links retain their context. This makes it possible to investigate which stage failed, which settings were loaded and which reported calls contributed to its token/cost subtotal.
 
 ## Reading tokens correctly
 

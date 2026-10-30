@@ -131,16 +131,29 @@ does not load new code into a worker image.
 ### Inspect dependencies, attempts and jobs
 
 The project's **Workflow runs** tab lists the latest 50 canonical run records.
-Run detail shows the pinned workflow/factory/repository revisions, snapshot,
-dispatch state and engine identity. Each stage lists direct dependencies, input
-references, conditions, role/pool, executor, timeout and configured retries.
-Inspect the pinned effective settings rather than today's editable defaults.
+**Inspect Run** opens the **Stage explorer**. Select a stage on the left (or in
+the horizontal stage strip on a narrow screen), then choose **Result**, **Logs**,
+**Model calls** or **Configuration**. One stage and attempt stay in context;
+there is no need to navigate nested stage, attempt and history expanders.
+
+**Result** shows recorded operation evidence and captured timestamps with your
+timezone. The run API does not expose structured action output; model responses
+are available separately when retained and are not the canonical action result.
+**Configuration** shows direct dependencies, input references, conditions,
+role/pool, executor, timeout, retries and pinned effective settings. Inspect this
+snapshot rather than today's editable defaults.
 
 Attempt generations display their actual states, including skipped stages and
-retries. **Inspect attempt** filters captured history and accounting by execution.
+retries. **Stage attempt** selects a generation, defaulting to the latest one.
+**Logs** and **Model calls** stay scoped to that stage and execution. Log search
+filters retained messages; model-call filters and separate estimated/reported
+accounting remain alongside their evidence.
 Worker links open a project-qualified view of the shared infrastructure while
 keeping history scoped to the selected project. Follow-up child links retain that
-project too; the engine ID is displayed independently of the canonical run ID.
+project too. **Overview** contains follow-up receipts, run/snapshot/revision IDs
+and the engine identity. **Run activity** and **All model calls** show run-wide
+evidence without inheriting the selected-stage filters. Capture and retention
+limits remain visible; empty history does not prove that no activity occurred.
 
 Docker job links show broker state, deadline, exit code, OOM result, cancellation
 intent and captured stdout/stderr. Streams are bounded by the broker and the view

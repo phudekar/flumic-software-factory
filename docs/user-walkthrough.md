@@ -302,9 +302,13 @@ model call. Do not infer that this qualifies repository mutations in B.
 
 1. Open **Workflow runs** and select this run if you navigated away.
 2. Wait for canonical run/stage progress; refresh the project's data if needed.
-3. Inspect `receive`, then `confirm`, under **Workflow stages**.
-4. Open **Inspect attempt 1** for a stage. Inspect its worker/assignment,
-   **Project AI accounting** and **Project model calls**. Expand **Execution activity** for **Bounded execution logs**.
+3. Select `receive`, then `confirm`, in **Stage explorer**.
+4. Use **Stage attempt** to inspect a retry generation. **Result** shows retained
+   operation evidence, **Logs** shows stage/attempt activity, **Model calls**
+   contains accounting and captured exchanges, and **Configuration** shows the
+   pinned inputs/settings and technical identifiers. Use **Overview** for
+   follow-up runs; **Run activity** and **All model calls** broaden the scope to
+   the entire run without retaining stage filters.
 
 **Checkpoint:** both stages and the run become `completed`. The data binding was
 validated and the second stage consumed the first stage's message. The run view
@@ -488,10 +492,10 @@ on the parent issue.
 
 Each step pairs its GitHub state with the available Control Pane evidence.
 **Control Pane evidence** beneath each step is expanded by default to show
-its run, activity logs and model exchange. The Control Pane captures inspect retained runs after they
-finished; they are not recreated in-progress states. Log images are viewport
-excerpts, and model capture/retention may leave gaps. Use your own run IDs when
-following these steps in another installation.
+its run, activity logs and model exchange. These Control Pane screenshots show retained runs after they finished, rather
+than recreated in-progress states. Log images show retained stage activity;
+model capture/retention may leave gaps. Use your own run IDs when following these
+steps in another installation.
 
 All steps and their run-output subsections are expanded by default. Collapse any section to focus on another step.
 
@@ -717,8 +721,8 @@ Start from the project's sidebar so you keep the correct scope:
 | --- | --- | --- |
 | Overview | Connections, definitions, recent project runs, known estimated spend | Counts are bounded views; published definitions do not prove live capacity |
 | Workflow runs → run | Canonical state, dispatch, pinned revision and stage attempts | Accepted/queued is not completed; Hatchet receipt IDs are not project run IDs |
-| Inspect attempt | Assigned worker, execution generation, logs and model accounting | Logical graph stage `plan` may execute operation `plan_issue` |
-| History filters on the run | Selected stage/execution/worker identity | Keep filters for this run; clear intentionally to broaden the view |
+| Stage explorer / Stage attempt | Assigned worker, execution generation, logs and model accounting | Logical graph stage `plan` may execute operation `plan_issue` |
+| Logs / Model calls | Evidence scoped to the selected stage and attempt | Use Run activity / All model calls for run-wide evidence |
 | Model history | Captured exchanges and metadata for this project | Content is policy-controlled and expires; unavailable content is not an empty model response |
 | Usage & cost | Input/output tokens, known estimated and separately reported spend, gaps | Missing usage/price is unknown, not zero; estimates are not provider invoices |
 

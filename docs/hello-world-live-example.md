@@ -40,10 +40,10 @@ of the overall issue. The screenshots stop at a reviewed draft PR.
 
 Each step pairs its GitHub state with the available Control Pane evidence.
 **Control Pane evidence** beneath each step is expanded by default to show
-its run, activity logs and model exchange. The Control Pane captures inspect retained runs after they
-finished; they are not recreated in-progress states. Log images are viewport
-excerpts, and model capture/retention may leave gaps. Use your own run IDs when
-following these steps in another installation.
+its run, activity logs and model exchange. These Control Pane screenshots show retained runs after they finished, rather
+than recreated in-progress states. Log images show retained stage activity;
+model capture/retention may leave gaps. Use your own run IDs when following these
+steps in another installation.
 
 ## 1. Ready to process — parent issue
 
