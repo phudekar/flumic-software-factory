@@ -3,6 +3,9 @@ title: "First project and workflow"
 description: "Set up project ownership, shared capacity and a first observable execution."
 ---
 
+For a detailed numbered journey with copyable examples and checkpoints, follow the
+[complete user walkthrough](/flumic-software-factory/start/walkthrough/).
+
 Use this path for a new installation with multiple projects, repository connections
 and data-defined workflows. The [profile-based quick start](/flumic-software-factory/start/quick-start/)
 remains available for legacy static issue-to-PR workflows.
@@ -23,17 +26,30 @@ dynamic runtime registers the fixed Hatchet handlers. A working UI alone does
 not prove Hatchet connectivity or worker registration. This command also builds
 worker images; existing workers need an explicit lifecycle action to adopt them.
 
-## 2. Create a project and connect repositories
+For a screen-by-screen guide, see [guided project setup](/flumic-software-factory/control-plane/project-setup/).
 
-Open **Projects**, create/select a project, and use its **Credentials** and
-**Repositories** tabs. Add a credential version and validate each repository
-connection. Use aliases such as `backend` and `frontend`; workflow documents refer
-to those aliases rather than borrowing another project's credentials.
+## 2. Connect your target repository
 
-GitHub and GitLab.com have different credential and collaboration requirements.
-Follow [GitLab setup](/flumic-software-factory/handbook/gitlab/) for GitLab.com,
-or the [runtime API recipes](/flumic-software-factory/handbook/project-runtime-api/)
-for the project contracts. Keep secrets out of workflow YAML and screenshots.
+The target repository is where Flumic AI will read issues and propose code changes.
+Cloning the software factory does not connect that repository.
+
+1. Open **Projects → Add project**, enter a name and create it. Select the project.
+2. Open **Credentials → Add credential**. Name it `source-access`, choose purpose
+   `github`, use **Whole project** scope and save your repository-scoped token.
+3. Open **Repositories → Add repository** and choose **GitHub.com**.
+4. Set **Repository alias** to `backend`. Enter your real owner and repository
+   name in their separate fields, for example `YOUR_ORG` and `YOUR_APP`.
+5. Select `source-access` and click **Save repository**.
+6. Confirm the card shows the intended repository, alias and assigned credential.
+   Saving does not verify provider access or start a workflow.
+
+![Repository connection form](/flumic-software-factory/images/control-plane-repositories-guided.png)
+
+Use your own values rather than the screenshot's. Workflows reference the alias;
+**Target repository** in the template installer selects this saved connection.
+For multiple repositories, repeat with distinct aliases. Keep secrets out of YAML
+and screenshots. GitLab.com users must follow [GitLab setup](/flumic-software-factory/handbook/gitlab/)
+for its credentials and repository identity validation.
 
 ## 3. Set behavior and authorize shared capacity
 
@@ -53,7 +69,7 @@ for precedence and when edits take effect.
 
 ## 4. Publish a small workflow
 
-In the project's **Workflows** tab, start with the examples and action schemas in
+In the project's **Workflows** page, start with the examples and action schemas in
 [workflow authoring](/flumic-software-factory/handbook/workflow-development/#data-defined-workflow-revisions).
 Use real repository aliases and pool IDs from your project. Validate before
 publishing. Link stages through `after`, then bind inputs from declared parent
@@ -71,7 +87,7 @@ an authorized executor, digest-pinned image and the documented result contract.
 
 ## 5. Run and inspect the result
 
-Launch the published revision, then open the project's **Workflow runs** tab.
+Launch the published revision, then open the project's **Workflow runs** page.
 Check stage attempts, assignment, result and canonical terminal state. An accepted
 receipt is not proof that compatible capacity was available or that a Job ran.
 
@@ -104,3 +120,9 @@ cannot automatically migrate historical SQLite business state.
 Use [rollout and recovery](/flumic-software-factory/handbook/project-runtime-operations/)
 for uncertain attempts. Do not delete claims or force resource cleanup to make a
 run appear complete.
+
+For standard issue workflows, continue with **Workflows → Install templates**,
+review **Repository execution** on the connection card, and use **Guided issue
+launch** to select an issue number and saved follow-up revisions. The
+[complete walkthrough](/flumic-software-factory/start/walkthrough/#14-install-issue-feedback-and-verification-templates--ui)
+explains each explicit action and checkpoint.

@@ -1,0 +1,9 @@
+{
+  "name": "walkthrough-developer",
+  "role": "developer",
+  "normal_slots": 2,
+  "durable_slots": 16,
+  "executors": ["builtin@1"],
+  "actions": ["change.implement@1", "pull.feedback@1"],
+  "hatchet_tls_strategy": "REPLACE_WITH_DEPLOYMENT_TLS_STRATEGY"
+}

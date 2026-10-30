@@ -69,13 +69,16 @@ because a definition is validated or published.
    and preserves your draft. A newer head does not silently replace dirty text.
    **Discard edits and load latest** deliberately resets the editor.
 
-Kubernetes and function executors are explicitly unavailable in v1. They cannot be
-activated by spelling a new executor in YAML. See the [stage and binding
+Schema v1 supports `builtin` and `docker` executor names. Kubernetes worker
+Deployments and native Jobs are available through a registered runtime target;
+container stages retain `executor: docker` and use the worker's pinned target.
+There is no separate `kubernetes` or function executor name to enable in YAML.
+See [Kubernetes targets](kubernetes.md). See the [stage and binding
 reference](workflow-development.md#data-defined-workflow-revisions).
 
 ![Project workflow YAML editor with schema validation and immutable publication](images/control-plane-project-workflow-editor.png)
 
-The editor screenshot uses an isolated example project and deterministic test data.
+The editor screenshot shows a saved issue-workflow definition in the existing Default project. It is an example to inspect, not a new publication.
 
 ### Run an immutable revision
 
@@ -83,7 +86,22 @@ Open **View or run this saved revision**, or choose a revision in **Immutable
 revision history**. The saved document is read-only. The run form remains attached
 to that exact revision even if someone publishes another head.
 
-Confirm the definition's default repository, provide **Run input JSON**, and supply
+For the standard single-repository **Issue to pull request** recipe, confirm the
+repository and use **Guided issue launch**: enter a positive issue number, select
+saved feedback/verification revisions for that repository, and inspect their
+links before submitting. The form constructs connection/revision UUID bindings
+and pins the issue follow-up to the root revision you are viewing. It does not
+create the source-host issue. **Advanced JSON** remains available for custom
+workflows, multiple repositories or historical follow-up revisions. Guided fields
+and advanced JSON are separate drafts after the first switch.
+
+To install the standard recipes, use **Workflows → Install templates**. Select
+a repository, compatible authorized role pools and saved provider credentials.
+Existing recipes are retained, including their previous grants/pools; installation
+does not hand over the repository or launch work. Repository handover is an
+explicit, conflict-checked action on **Repositories → Repository execution**.
+
+For advanced/custom launches, confirm the definition's default repository, provide **Run input JSON**, and supply
 **Follow-up bindings JSON** when needed. The selection confirms the repository
 already declared in the saved definition; changing it requires a new publication.
 Follow-up bindings map repository connection UUIDs to workflow-kind revision UUIDs:
@@ -113,16 +131,29 @@ does not load new code into a worker image.
 ### Inspect dependencies, attempts and jobs
 
 The project's **Workflow runs** tab lists the latest 50 canonical run records.
-Run detail shows the pinned workflow/factory/repository revisions, snapshot,
-dispatch state and engine identity. Each stage lists direct dependencies, input
-references, conditions, role/pool, executor, timeout and configured retries.
-Inspect the pinned effective settings rather than today's editable defaults.
+**Inspect Run** opens the **Stage explorer**. Select a stage on the left (or in
+the horizontal stage strip on a narrow screen), then choose **Result**, **Logs**,
+**Model calls** or **Configuration**. One stage and attempt stay in context;
+there is no need to navigate nested stage, attempt and history expanders.
+
+**Result** shows recorded operation evidence and captured timestamps with your
+timezone. The run API does not expose structured action output; model responses
+are available separately when retained and are not the canonical action result.
+**Configuration** shows direct dependencies, input references, conditions,
+role/pool, executor, timeout, retries and pinned effective settings. Inspect this
+snapshot rather than today's editable defaults.
 
 Attempt generations display their actual states, including skipped stages and
-retries. **Inspect attempt** filters captured history and accounting by execution.
+retries. **Stage attempt** selects a generation, defaulting to the latest one.
+**Logs** and **Model calls** stay scoped to that stage and execution. Log search
+filters retained messages; model-call filters and separate estimated/reported
+accounting remain alongside their evidence.
 Worker links open a project-qualified view of the shared infrastructure while
 keeping history scoped to the selected project. Follow-up child links retain that
-project too; the engine ID is displayed independently of the canonical run ID.
+project too. **Overview** contains follow-up receipts, run/snapshot/revision IDs
+and the engine identity. **Run activity** and **All model calls** show run-wide
+evidence without inheriting the selected-stage filters. Capture and retention
+limits remain visible; empty history does not prove that no activity occurred.
 
 Docker job links show broker state, deadline, exit code, OOM result, cancellation
 intent and captured stdout/stderr. Streams are bounded by the broker and the view
@@ -136,13 +167,14 @@ button that bypasses assignment or external-effect reconciliation.
 
 ![Project workflow run with pinned dependencies, repositories and stage attempts](images/control-plane-project-workflow-run.png)
 
-The run screenshot shows a queued mixed builtin/Docker graph in the same isolated
-example deployment; queued attempts have not executed.
+The run screenshot shows the recorded Hello World implementation under Default. Completed stage invocations do not imply human approval or merge; inspect the business outcome, follow-up wait and source-host PR.
 
 ### Model history and accounting
 
 Run/attempt views support stage/execution, worker, provider and model filters.
-They show the latest 200 matching events and bounded logs. Job views scope history
+The model-call tab queries up to 200 matching model events separately so that
+later logs cannot crowd out retained exchanges. Accounting can cover more
+records. Activity views show the latest 200 matching events and bounded logs. Job views scope history
 to the job execution. Exchange reads use project-owned endpoints and retain the
 existing seven-day expiration and audit policy; metadata-only or disabled capture
 can leave no content to open.

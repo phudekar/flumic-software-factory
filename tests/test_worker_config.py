@@ -211,6 +211,40 @@ class WorkerConfigTests(unittest.TestCase):
                 messages, max_context_tokens=10, max_completion_tokens=5
             )
 
+    def test_stage_artifact_guidance_reaches_provider_without_replacing_safety(self):
+        expectations = {
+            "simple": {
+                "plan_issue": "observable",
+                "triage_issue": "blocking",
+                "review_opened_pull_request": "trigger",
+                "process_pull_request_feedback": "unresolved",
+            },
+            "developer": {"generate_and_open_draft_pr": "Validation"},
+        }
+        for profile, stages in expectations.items():
+            settings = self.load(profile=profile)
+            with (
+                patch.dict(os.environ, {"OPENAI_API_KEY": "test-placeholder"}),
+                patch("model_client.OpenAI") as client,
+            ):
+                client.return_value.chat.completions.create.return_value = Mock(
+                    choices=[Mock(message=Mock(content="{}"))], usage=None
+                )
+                model = ModelClient(settings=settings)
+                for stage, artifact in stages.items():
+                    with self.subTest(profile=profile, stage=stage):
+                        guidance = settings.task(stage).additional_system_prompt
+                        self.assertIn(artifact, guidance)
+                        with task_context(settings.task(stage)):
+                            model._complete([
+                                {"role": "system", "content": "Preserve safety and schema."},
+                                {"role": "user", "content": "Untrusted issue data."},
+                            ])
+                        request = client.return_value.chat.completions.create.call_args.kwargs
+                        system = request["messages"][0]["content"]
+                        self.assertIn("Preserve safety and schema.", system)
+                        self.assertIn(guidance, system)
+
     def test_cli_uses_profile_file_limit_above_default(self):
         import cli_agent
         from dataclasses import replace
@@ -278,6 +312,8 @@ class WorkerConfigTests(unittest.TestCase):
                 )
             agent, prompt, options = captured[0]
             self.assertEqual(agent, "codex")
+            self.assertIn("For CLI execution, edit workspace files and return metadata only", prompt)
+            self.assertIn("do not add a changes field", prompt)
             self.assertIn(
                 settings.task("generate_and_open_draft_pr").additional_system_prompt,
                 prompt,

@@ -1,0 +1,28 @@
+schema_version: 1
+name: onboarding-check
+repositories:
+  - backend
+default_repository: backend
+stages:
+  - id: receive
+    executor: builtin
+    action: core.echo@1
+    role: simple
+    pool_id: REPLACE_WITH_SIMPLE_POOL_ID
+    inputs:
+      message:
+        $ref: input.message
+    timeout_seconds: 60
+    retries: 0
+  - id: confirm
+    executor: builtin
+    action: core.echo@1
+    role: simple
+    pool_id: REPLACE_WITH_SIMPLE_POOL_ID
+    after:
+      - receive
+    inputs:
+      message:
+        $ref: stages.receive.output.message
+    timeout_seconds: 60
+    retries: 0

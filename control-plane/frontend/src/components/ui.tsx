@@ -1,3 +1,4 @@
+import { localTimestamp } from "./project-format";
 import { ChevronRight, Layers3, Workflow } from "lucide-react";
 import React from "react";
 import { Link } from "react-router-dom";
@@ -21,7 +22,7 @@ export const money = (n: number | null | undefined) =>
       }).format(n);
 
 export const date = (n: string | number | null | undefined) =>
-  !n ? "—" : new Date(typeof n === "number" ? n * 1000 : n).toLocaleString();
+  localTimestamp(n);
 
 export function Status({ value }: { value: string }) {
   return (

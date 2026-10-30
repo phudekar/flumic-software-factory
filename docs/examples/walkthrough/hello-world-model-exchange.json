@@ -1,0 +1,28 @@
+{
+  "note": "Actual successful planning exchange for issue #43. Request excerpt omits system instructions and source-path inventory. Usage/cost belong only to this model call.",
+  "issue_url": "https://github.com/phudekar/software-factory-test/issues/43",
+  "factory_run_id": "5703a343-7f93-4406-9b0a-e24a9c30542b",
+  "event_id": "a96d2c35-9b0b-43cb-88d3-7da1500a7899",
+  "stage": "plan_issue",
+  "provider": "openai",
+  "model": "gpt-6-luna",
+  "input_tokens": 802,
+  "output_tokens": 234,
+  "estimated_cost_usd": 0.0001972,
+  "request_excerpt": {
+    "issue_title": "Create a Hello World app in Python",
+    "issue_requirements": "## Requested change\n\nCreate a file named `hello.py` in the repository root. Running `python3 hello.py` should print `Hello, world!` and exit.\n\n## Acceptance criteria\n\n- Uses Python 3 and no third-party dependencies.\n- Prints exactly `Hello, world!` followed by a newline.\n- Exits successfully with exit code 0.\n\n## Validation\n\nRun `python3 hello.py` from the repository root and check the output and exit code.\n\nThis is the first-run example for the Flumic AI quick-start guide.\n"
+  },
+  "response": {
+    "tasks": [
+      {
+        "title": "Add the root-level Python Hello World script",
+        "objective": "Create `hello.py` in the repository root as a Python 3 script with no third-party dependencies. Running it directly should print the requested greeting and exit successfully.",
+        "acceptance_criteria": [
+          "Running `python3 hello.py` from the repository root prints exactly `Hello, world!` followed by a newline.",
+          "Running `python3 hello.py` exits with status code 0."
+        ]
+      }
+    ]
+  }
+}

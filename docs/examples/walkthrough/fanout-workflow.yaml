@@ -1,0 +1,37 @@
+schema_version: 1
+name: parallel-check
+repositories: [app]
+default_repository: app
+stages:
+  - id: capture
+    executor: builtin
+    action: core.echo@1
+    role: simple
+    pool_id: REPLACE_WITH_SIMPLE_POOL_ID
+    inputs:
+      message: {$ref: input.message}
+  - id: left
+    executor: builtin
+    action: core.echo@1
+    role: simple
+    pool_id: REPLACE_WITH_SIMPLE_POOL_ID
+    after: [capture]
+    inputs:
+      message: {$ref: stages.capture.output.message}
+  - id: right
+    executor: builtin
+    action: core.echo@1
+    role: simple
+    pool_id: REPLACE_WITH_SIMPLE_POOL_ID
+    after: [capture]
+    inputs:
+      message: {$ref: stages.capture.output.message}
+  - id: join
+    executor: builtin
+    action: core.echo@1
+    role: simple
+    pool_id: REPLACE_WITH_SIMPLE_POOL_ID
+    after: [left, right]
+    inputs:
+      left_message: {$ref: stages.left.output.message}
+      right_message: {$ref: stages.right.output.message}

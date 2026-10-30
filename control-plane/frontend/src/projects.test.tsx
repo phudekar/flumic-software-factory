@@ -78,7 +78,8 @@ it("does not reuse repositories or a delayed mutation result after switching pro
     }),
   );
   mount();
-  await screen.findByRole("button", { name: "alpha-repo" });
+  await screen.findByRole("button", { name: "Edit alpha-repo" });
+  fireEvent.click(screen.getByRole("button", { name: "Add repository" }));
   fireEvent.change(screen.getByLabelText("Repository alias"), {
     target: { value: "new-alpha" },
   });
@@ -93,12 +94,12 @@ it("does not reuse repositories or a delayed mutation result after switching pro
   fireEvent.change(screen.getByLabelText("Project"), {
     target: { value: "b" },
   });
-  await screen.findByRole("button", { name: "beta-repo" });
+  await screen.findByRole("button", { name: "Edit beta-repo" });
   expect(screen.queryByText("alpha-repo")).not.toBeInTheDocument();
-  expect(screen.getByLabelText("Repository alias")).toHaveValue("");
+  expect(screen.queryByLabelText("Repository alias")).not.toBeInTheDocument();
   await act(async () => finishSave(json({ id: "new", alias: "new-alpha" })));
   expect(screen.queryByText("Repository saved.")).not.toBeInTheDocument();
-  expect(screen.getByLabelText("Repository alias")).toHaveValue("");
+  expect(screen.queryByLabelText("Repository alias")).not.toBeInTheDocument();
 });
 it("ignores a delayed repository response after a project switch", async () => {
   let finishA!: (r: Response) => void;
@@ -130,7 +131,7 @@ it("ignores a delayed repository response after a project switch", async () => {
   fireEvent.change(screen.getByLabelText("Project"), {
     target: { value: "b" },
   });
-  await screen.findByRole("button", { name: "beta-repo" });
+  await screen.findByRole("button", { name: "Edit beta-repo" });
   await act(async () => finishA(json([{ id: "ar", alias: "alpha-repo" }])));
   expect(screen.queryByText("alpha-repo")).not.toBeInTheDocument();
   expect(client.getQueryData(["project", "b", "/repositories"])).toEqual([
@@ -200,7 +201,9 @@ it("saves immutable repository edits with owned credential references and previe
     }),
   );
   mount();
-  fireEvent.click(await screen.findByRole("button", { name: "alpha-repo" }));
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Edit alpha-repo" }),
+  );
   expect(screen.getByLabelText("GitHub credential reference")).toHaveValue(
     "github-a",
   );
@@ -272,7 +275,7 @@ it("does not let a previous repository preview overwrite a changed selection", a
     }),
   );
   mount();
-  await screen.findByRole("button", { name: "one" });
+  await screen.findByRole("button", { name: "Edit one" });
   fireEvent.click(
     screen.getByRole("button", { name: "Preview effective configuration" }),
   );
@@ -387,6 +390,7 @@ it("clears project defaults forms and ignores an earlier project save result", a
     }),
   );
   mount("/projects/a/config");
+  fireEvent.click(await screen.findByRole("button", { name: "Advanced JSON" }));
   await waitFor(() =>
     expect(
       (
@@ -403,6 +407,7 @@ it("clears project defaults forms and ignores an earlier project save result", a
   fireEvent.change(screen.getByLabelText("Project"), {
     target: { value: "b" },
   });
+  fireEvent.click(await screen.findByRole("button", { name: "Advanced JSON" }));
   await waitFor(() =>
     expect(
       (
@@ -454,6 +459,7 @@ it("keeps dirty project defaults when head refreshes and submits the draft basel
     }),
   );
   const client = mount("/projects/a/config");
+  fireEvent.click(await screen.findByRole("button", { name: "Advanced JSON" }));
   await waitFor(() =>
     expect(
       (
@@ -514,6 +520,7 @@ it("does not let a delayed project creation replace a later selected project or 
     }),
   );
   mount("/projects");
+  fireEvent.click(await screen.findByRole("button", { name: "Add project" }));
   await screen.findByLabelText("Project name");
   fireEvent.change(screen.getByLabelText("Project name"), {
     target: { value: "Created" },
@@ -526,6 +533,10 @@ it("does not let a delayed project creation replace a later selected project or 
   fireEvent.change(screen.getByLabelText("Project"), {
     target: { value: "b" },
   });
+  fireEvent.click(await screen.findByRole("link", { name: "Repositories" }));
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Add repository" }),
+  );
   await screen.findByLabelText("Repository alias");
   fireEvent.change(screen.getByLabelText("Repository alias"), {
     target: { value: "beta-draft" },
@@ -581,11 +592,12 @@ it("keeps preview repository identity stable when a new earlier alias is created
     }),
   );
   mount();
-  await screen.findByRole("button", { name: "zulu" });
+  await screen.findByRole("button", { name: "Edit zulu" });
   fireEvent.click(
     screen.getByRole("button", { name: "Preview effective configuration" }),
   );
   await screen.findByText(/zulu-model/);
+  fireEvent.click(screen.getByRole("button", { name: "Add repository" }));
   fireEvent.change(screen.getByLabelText("Repository alias"), {
     target: { value: "alpha" },
   });
@@ -596,7 +608,7 @@ it("keeps preview repository identity stable when a new earlier alias is created
     target: { value: "a" },
   });
   fireEvent.click(screen.getByRole("button", { name: "Save repository" }));
-  await screen.findByRole("button", { name: "alpha" });
+  await screen.findByRole("button", { name: "Edit alpha" });
   expect(screen.getByLabelText("Preview repository")).toHaveDisplayValue(
     "zulu",
   );
@@ -630,7 +642,7 @@ it("discards old effective results when a repository revision changes during pre
     }),
   );
   const client = mount();
-  await screen.findByRole("button", { name: "zulu" });
+  await screen.findByRole("button", { name: "Edit zulu" });
   fireEvent.click(
     screen.getByRole("button", { name: "Preview effective configuration" }),
   );
@@ -641,7 +653,7 @@ it("discards old effective results when a repository revision changes during pre
       queryKey: ["project", "a", "/repositories"],
     });
   });
-  await screen.findByText("revision z2");
+  await screen.findByText("Revision: z2");
   await act(async () =>
     finish(
       json({
@@ -710,6 +722,9 @@ it("configures a nested GitLab namespace with source-specific credentials and CI
     }),
   );
   mount();
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Add repository" }),
+  );
   fireEvent.change(await screen.findByLabelText("Source provider"), {
     target: { value: "gitlab" },
   });
@@ -790,7 +805,7 @@ it("validates a saved GitLab identity and displays its immutable project ID", as
   );
   mount();
   fireEvent.click(
-    await screen.findByRole("button", { name: "gitlab-backend" }),
+    await screen.findByRole("button", { name: "Edit gitlab-backend" }),
   );
   expect(screen.getByLabelText("Source provider")).toBeDisabled();
   fireEvent.click(
@@ -829,7 +844,7 @@ it("keeps a stale GitLab validation conflict visible without inventing an identi
   );
   mount();
   fireEvent.click(
-    await screen.findByRole("button", { name: "gitlab-backend" }),
+    await screen.findByRole("button", { name: "Edit gitlab-backend" }),
   );
   fireEvent.click(
     screen.getByRole("button", { name: "Validate GitLab identity" }),

@@ -38,3 +38,7 @@ GitHub and GitLab.com work with Hatchet orchestration and Docker or a qualified 
 The Control Pane is for a trusted administrator. Project workflows use PostgreSQL execution state and claims across shared workers, including Kubernetes nodes. Legacy static workers retain shared-host SQLite/files. Multi-user roles, verified graceful drain and automatic rolling configuration migration remain future work. Humans review and merge PRs.
 
 [Start with projects](/flumic-software-factory/start/project-onboarding/) · [Understand each module](/flumic-software-factory/start/modules/) · [Start locally](/flumic-software-factory/start/quick-start/) or [explore the architecture](/flumic-software-factory/handbook/architecture/).
+
+[Follow the complete walkthrough: project creation to monitoring](/flumic-software-factory/start/walkthrough/).
+
+Start with [how projects, workflows and workers fit together](/flumic-software-factory/handbook/workflow-concepts/) for diagrams, stage inputs/outputs and a glossary.

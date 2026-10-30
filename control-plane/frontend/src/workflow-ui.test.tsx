@@ -8,6 +8,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, useNavigate } from "react-router-dom";
@@ -271,13 +272,13 @@ it("submits only the saved revision and explicit bindings, treating acceptance a
     target: { value: '{"repo":{"issue":"r1"}}' },
   });
   fireEvent.click(screen.getByRole("button", { name: "Run saved revision" }));
-  await screen.findByRole("heading", { name: "Run run-1" });
+  await screen.findByRole("heading", { name: "mixed-check" });
   expect(sent).toEqual({
     revision_id: "r1",
     input: { message: "hello" },
     bindings: { repo: { issue: "r1" } },
   });
-  expect(await screen.findByText(/Dispatch pending/)).toBeInTheDocument();
+  expect(await screen.findByText("pending")).toBeInTheDocument();
   expect(
     screen.getByText("Request accepted; execution is not complete."),
   ).toBeInTheDocument();
@@ -296,11 +297,12 @@ it("shows the pinned graph, retry attempts, skipped stages and unknown usage wit
       return json({ ...receipt, state: "cancelling" });
   });
   mount("/projects/a/runs/run-1");
-  await screen.findByRole("heading", { name: "Run run-1" });
-  expect(await screen.findByText("Depends on: load")).toBeInTheDocument();
-  expect(screen.getByText("skipped")).toBeInTheDocument();
-  expect(screen.getByText("Attempt 2")).toBeInTheDocument();
-  expect(screen.getAllByText("Unknown").length).toBeGreaterThan(0);
+  await screen.findByRole("heading", { name: "mixed-check" });
+  expect(await screen.findByLabelText("Stage attempt")).toHaveValue("e2");
+  expect(
+    screen.getByRole("option", { name: "Attempt 1 · failed" }),
+  ).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Configuration" }));
   expect(screen.getAllByText(/pinned-model/).length).toBeGreaterThan(0);
   fireEvent.click(screen.getByRole("button", { name: "Request cancellation" }));
   await screen.findByText(
@@ -551,7 +553,7 @@ it.each(["terminal refresh", "later polling"])(
         });
     });
     const client = mount("/projects/a/runs/run-1");
-    await screen.findByText(/Dispatch pending/);
+    await screen.findByText("pending");
     fireEvent.click(
       screen.getByRole("button", { name: "Request cancellation" }),
     );
@@ -596,12 +598,12 @@ it.each([
         ]);
     });
     mount("/projects/a/runs/run-1");
-    await screen.findByText("Unknown provider / cost-model");
-    expect(
-      screen.getByText(
-        new RegExp("reported " + String(want).replace("$", "\\$")),
-      ),
-    ).toBeInTheDocument();
+    fireEvent.click(
+      await screen.findByRole("button", { name: "All model calls" }),
+    );
+    await screen.findByText("cost-model");
+    const modelRow = screen.getByText("cost-model").closest("tr");
+    expect(modelRow?.cells[4]).toHaveTextContent(want);
   },
 );
 it.each(["success", "revision failure", "delayed revision"])(
@@ -679,5 +681,233 @@ it.each(["success", "revision failure", "delayed revision"])(
         ),
       );
     }
+  },
+);
+it("selects one stage and defaults to its latest attempt while retaining retry inspection", async () => {
+  fixtures();
+  mount("/projects/a/runs/run-1");
+  const navigation = await screen.findByRole("navigation", {
+    name: "Select workflow stage",
+  });
+  expect(navigation).toBeInTheDocument();
+  expect(screen.getByLabelText("Stage attempt")).toHaveValue("e2");
+  fireEvent.change(screen.getByLabelText("Stage attempt"), {
+    target: { value: "e1" },
+  });
+  expect(screen.getByLabelText("Stage attempt")).toHaveValue("e1");
+  expect(
+    screen.getByRole("heading", { name: "load", level: 2 }),
+  ).toBeInTheDocument();
+  fireEvent.click(within(navigation).getByRole("button", { name: /check/ }));
+  expect(
+    screen.getByRole("heading", { name: "check", level: 2 }),
+  ).toBeInTheDocument();
+  expect(
+    screen.queryByRole("heading", { name: "load", level: 2 }),
+  ).not.toBeInTheDocument();
+  expect(screen.getByLabelText("Stage attempt")).toHaveValue("e3");
+  fireEvent.click(screen.getByRole("button", { name: "Configuration" }));
+  expect(screen.getByText("Depends on: load")).toBeInTheDocument();
+});
+
+it("keeps stage evidence scoped to the selected attempt and run-wide activity unfiltered", async () => {
+  const queries: string[] = [];
+  fixtures((path) => {
+    if (path.includes("/events?")) {
+      queries.push(path);
+      const query = new URL(path, "http://local").searchParams;
+      return json([
+        {
+          id: "log-1",
+          kind: "log",
+          run_id: "run-1",
+          attempt_id: "e1",
+          worker_id: "worker",
+          stage: "load",
+          occurred_at: 1700000000,
+          payload: {
+            message:
+              query.get("execution_id") === "e1"
+                ? "First attempt evidence"
+                : "Run-wide evidence",
+          },
+        },
+      ]);
+    }
+  });
+  mount("/projects/a/runs/run-1?stage=load&execution=e1&worker=worker");
+  await screen.findByLabelText("Stage attempt");
+  fireEvent.click(screen.getByRole("button", { name: "Logs" }));
+  await screen.findByText("First attempt evidence");
+  expect(
+    queries.some((path) => {
+      const q = new URL(path, "http://local").searchParams;
+      return q.get("stage") === "load" && q.get("execution_id") === "e1";
+    }),
+  ).toBe(true);
+  fireEvent.click(screen.getByRole("button", { name: "Run activity" }));
+  await screen.findByText("Run-wide evidence");
+  const q = new URL(queries.at(-1)!, "http://local").searchParams;
+  expect(q.get("run_id")).toBe("run-1");
+  expect(q.has("stage")).toBe(false);
+  expect(q.has("execution_id")).toBe(false);
+  expect(q.has("worker_id")).toBe(false);
+});
+
+it.each(["stage=load&execution=e3", "stage=foreign", "execution=foreign"])(
+  "rejects an invalid stage/attempt selection %s",
+  async (query) => {
+    fixtures();
+    mount("/projects/a/runs/run-1?" + query);
+    await screen.findByText("Unknown stage or execution for this run.");
+    expect(screen.queryByLabelText("Stage attempt")).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("heading", { name: "Project model calls" }),
+    ).not.toBeInTheDocument();
+  },
+);
+
+it("shows readable retained evidence without claiming it is structured action output", async () => {
+  fixtures((path) => {
+    if (path.includes("/events?"))
+      return json([
+        {
+          id: "end",
+          kind: "attempt.completed",
+          run_id: "run-1",
+          attempt_id: "e1",
+          stage: "load",
+          worker_id: "worker",
+          occurred_at: 1700000015,
+          payload: { outcome: "failed", duration_seconds: 15 },
+        },
+        {
+          id: "log",
+          kind: "log",
+          run_id: "run-1",
+          attempt_id: "e1",
+          stage: "load",
+          worker_id: "worker",
+          occurred_at: 1700000010,
+          payload: { message: "Clarification requested on the issue" },
+        },
+        {
+          id: "start",
+          kind: "attempt.started",
+          run_id: "run-1",
+          attempt_id: "e1",
+          stage: "load",
+          worker_id: "worker",
+          occurred_at: 1700000000,
+          payload: {},
+        },
+      ]);
+  });
+  mount("/projects/a/runs/run-1?stage=load&execution=e1");
+  await screen.findByText("Clarification requested on the issue");
+  expect(screen.getByText("15 s")).toBeInTheDocument();
+  expect(
+    screen.getByText(/Structured action output is not exposed/),
+  ).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Overview" }));
+  await screen.findByText("pin");
+  expect(
+    screen.getByRole("link", { name: "Inspect pinned workflow revision" }),
+  ).toHaveAttribute("href", "/projects/a/workflow-revisions/r1");
+});
+
+it("does not apply model filters to worker logs", async () => {
+  fixtures((path) => {
+    if (path.includes("/events?")) {
+      const q = new URL(path, "http://local").searchParams;
+      return json(
+        q.has("model") || q.has("provider")
+          ? []
+          : [
+              {
+                id: "visible-log",
+                kind: "log",
+                run_id: "run-1",
+                attempt_id: "e1",
+                stage: "load",
+                worker_id: "worker",
+                occurred_at: 1700000000,
+                payload: { message: "Worker log survives model filtering" },
+              },
+            ],
+      );
+    }
+  });
+  mount(
+    "/projects/a/runs/run-1?stage=load&execution=e1&detail=models&model=other-model&provider=openai",
+  );
+  await screen.findByRole("button", { name: "Logs" });
+  fireEvent.click(screen.getByRole("button", { name: "Logs" }));
+  await screen.findByText("Worker log survives model filtering");
+});
+
+it("keeps evidence filters focused and editable while loading and after a query error", async () => {
+  let finish!: (response: Response) => void;
+  fixtures((path) => {
+    if (
+      path.includes("/events?") &&
+      new URL(path, "http://local").searchParams.get("worker_id") === "w"
+    )
+      return new Promise<Response>((resolve) => {
+        finish = resolve;
+      });
+  });
+  mount("/projects/a/runs/run-1?stage=load&execution=e1&detail=logs");
+  const worker = await screen.findByLabelText("Worker ID");
+  worker.focus();
+  fireEvent.change(worker, { target: { value: "w" } });
+  await waitFor(() => expect(finish).toBeDefined());
+  expect(screen.getByLabelText("Worker ID")).toBe(worker);
+  expect(worker).toHaveFocus();
+  await act(async () => finish(json({ detail: "Capture unavailable" }, 503)));
+  await screen.findByText("Capture unavailable");
+  expect(screen.getByLabelText("Worker ID")).toHaveValue("w");
+});
+
+it.each(["view=models", "stage=load&execution=e1&detail=models"])(
+  "keeps retained model calls visible after 201 later logs: %s",
+  async (query) => {
+    const retained = {
+      id: "retained-model",
+      kind: "model.completed",
+      run_id: "run-1",
+      attempt_id: "e1",
+      stage: "load",
+      worker_id: "worker",
+      occurred_at: 1700000000,
+      payload: {
+        model: "Busy stage model",
+        provider: "openai",
+        outcome: "completed",
+      },
+    };
+    const events = [
+      ...Array.from({ length: 201 }, (_, i) => ({
+        ...retained,
+        id: "log-" + i,
+        kind: "log",
+        occurred_at: 1700001000 + i,
+        payload: { message: "Later worker activity" },
+      })),
+      retained,
+    ];
+    fixtures((path) => {
+      if (path.includes("/events?")) {
+        const params = new URL(path, "http://local").searchParams;
+        return json(
+          events
+            .filter((e) => !params.get("kind") || e.kind === params.get("kind"))
+            .sort((a, b) => b.occurred_at - a.occurred_at)
+            .slice(0, Number(params.get("limit") ?? 200)),
+        );
+      }
+    });
+    mount("/projects/a/runs/run-1?" + query);
+    await screen.findByText("Busy stage model");
   },
 );

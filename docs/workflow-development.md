@@ -1,21 +1,43 @@
 # Developing workflows and stages
 
-This guide covers data-defined workflow revisions and code changes for a **new stage** or **new Python workflow**. The Python tutorials are illustrative additions and make no model calls. Editing legacy YAML cannot create a Python task or change its dependency graph.
+Use the project workflow editor to compose installed actions as YAML or JSON,
+connect their stages and publish immutable revisions. Adding a stage that uses an
+installed action does not require a worker rebuild. Adding a new action
+implementation or changing a statically registered Python workflow does require
+code changes and deployment; those contributor examples follow the project cookbook.
 
-For tuning existing stages, see [workflow configuration](configuration-workflows.md). For operating registered definitions, see [control-plane workflows](control-plane-workflows.md). The control UI offers configuration and workflow controls; it has no visual workflow designer.
+The Control Pane provides guided setup, a source editor and readable stage
+summaries. It does not provide a drag-and-drop graph designer. For a first run,
+follow [walkthrough steps 10–12](user-walkthrough.md#10-publish-the-deterministic-two-stage-workflow--ui).
+For terminology, start with [workflows, stages, repositories and pools](workflow-concepts.md).
+
+## Cookbook: choose your task
+
+| Task | Recipe / reference |
+| --- | --- |
+| Create two connected stages | [Create and link stages](#create-and-link-stages) |
+| Run a stage only for selected inputs | [Gate a stage with a condition](#gate-a-stage-with-a-condition) |
+| Run branches in parallel and combine results | [Fan out and join](#fan-out-and-join-a-project-workflow), with a complete downloadable YAML document |
+| Choose a model, prompt and credentials per stage | [Models, prompts and grants](#configure-models-prompts-and-grants) |
+| Create issue, feedback and verification workflows | [Install compatible recipes](#seed-compatible-recipes) |
+| Execute your own program in a container | [Container-stage contract](#docker-stage-schema) and [container job guide](docker-action-jobs.md) |
+| Validate, publish, launch and inspect a run | [Publish, revise and pin](#publish-revise-and-pin) |
+| Implement a new business operation/action | [Python extension boundary](#where-the-definition-lives) and [typed operation example](#example-1-insert-validation-between-triage-and-generation) |
 
 ## Data-defined workflow revisions
 
-The project API now validates and publishes immutable workflow documents. Publishing
-stores a graph; it does not start a run. The internal run-state service now
-provides pinned execution identities and transactional admission. The durable
-engine coordinator adapter is implemented and echo-tested against a real Hatchet
-engine (see [coordinator runtime](#data-defined-coordinator-runtime)). The executable
-builtin catalog, pinned follow-up composition and project recipe helpers are also
-implemented in source (see [builtin actions](#builtin-actions-and-pinned-project-follow-ups)).
-Runtime transport activation, Docker, the public run API and graph editor remain
-in #10–#11 and #14. See [run state and admission](control-plane.md#durable-run-state-and-admission). Shared workers currently install only `core.echo@1`. The Python tutorials
-below remain the guide for the existing deployed workflows.
+The project API and UI validate, publish and launch data-defined graphs. The
+`dynamic-runtime` service runs the fixed coordinator and durable follow-up waits;
+shared action workers execute admitted assignments through authenticated transport.
+The installed catalog includes issue/change/pull actions and deterministic echo.
+Pools still advertise their own allowed action/executor versions, so installing
+a catalog does not automatically upgrade an existing pool or running image.
+
+Both builtin actions and one-time container jobs are available. Schema v1 uses
+`executor: docker` for the portable container contract; the worker's pinned runtime
+target selects local Docker or native Kubernetes Jobs. Function/remote-service
+executors are not implemented. See [runtime deployment and activation](project-runtime-api.md#deployment-and-activation)
+and [Kubernetes targets](kubernetes.md).
 
 ### Create and link stages
 
@@ -52,7 +74,7 @@ Replace `POOL_ID` with its actual ID. This document passes values through two st
 }
 ```
 
-An eventual run input would be `{"message":"Hello Flumic","enabled":true}`.
+Use run input `{"message":"Hello Flumic","enabled":true}`.
 `after` creates dependency edges; each output producer referenced in `inputs` or
 `when` must be a **direct** parent. A transitive dependency alone is insufficient.
 Stages may have several parents. Duplicate IDs, duplicate edges, missing parents,
@@ -72,7 +94,7 @@ Unknown fields and unsupported versions are rejected rather than ignored.
 | `secrets` | Purpose to immutable secret-version ID | Project-wide grants inherited by stages; values are references, never plaintext credentials. |
 | `stages` | 1–64 stages | Defines the DAG. |
 | `executor` | `builtin` or `docker` | Selects the versioned execution contract. |
-| `action` | Builtin only, e.g. `core.echo@1` | Selects a known typed action version. Publication metadata also recognizes issue/change/pull actions; their executable catalog is a later milestone. |
+| `action` | Builtin only, e.g. `core.echo@1` | Selects an installed typed action version, including issue/change/pull actions. The selected pool and worker must advertise support. |
 | `role` | Required `simple` or `developer` | Must match the pool and the action's required role. |
 | `pool_id` | Required enabled project pool ID | Pool must permit the exact executor/action versions. Publication does not guarantee a worker is currently online. |
 | `profile` | Saved behavior profile; defaults to the role | Selects project behavior; its effective worker type must match `role`. |
@@ -84,7 +106,7 @@ Unknown fields and unsupported versions are rejected rather than ignored.
 | `retries` | 0–3; default `0` | Additional attempts permitted after a failure. |
 | `retry_delay_seconds` | 0–3600; default `0` | Delay between retry attempts. |
 | `overrides` | Behavior-only settings | Applies stage-specific model, prompt and recognized behavior settings after workflow defaults. |
-| Stage `secrets` | `github`, `openai`, `anthropic` to version IDs | Overrides inherited grants; repository-scoped grants must match this stage. GitHub grants must match the repository connection's pinned credential reference. |
+| Stage `secrets` | `github`, `gitlab`, `openai`, `anthropic` to version IDs | Overrides inherited grants; repository-scoped grants must match this stage. Source-provider grants must match the repository connection's pinned credential reference. |
 
 The typed builtin commands omit repository, trace and assignment identity fields.
 The runtime supplies those values from its trusted context. Workflow input cannot
@@ -121,19 +143,107 @@ No implicit shell is added. Tags alone, empty executables and NUL bytes are reje
 
 | Setting | Default | Allowed range / effect |
 | --- | --- | --- |
-| `network` | `none` | `bridge` requires trusted deployment policy; the publication API currently denies it. |
+| `network` | `none` | `bridge` requires trusted target/deployment policy; publication rejects it when that policy is absent. |
 | `limits.cpu` | `1.0` | 0.1–8 CPUs |
 | `limits.memory_mib` | `512` | 64–4096 MiB |
 | `limits.pids` | `128` | 16–512 processes |
 | `limits.tmpfs_mib` | `64` | 16–256 MiB |
 
-These are the contract for the upcoming broker, not evidence of container execution
-today. Arbitrary Docker options, host mounts, privileged mode and socket access
-cannot be supplied in the document.
+The container broker implements this contract. Graph authors cannot supply
+arbitrary Docker options, host mounts, privileged mode or controller/socket access.
+The [container job guide](docker-action-jobs.md) describes the input/output files
+and launch policy; [Kubernetes execution](kubernetes.md) retains the graph contract
+with target-specific network, storage and capture constraints.
+
+### Gate a stage with a condition
+
+The `report` stage above uses `when: {ref: input.enabled, equals: true}`.
+Supply `enabled: true` to run it, or `enabled: false` to skip it. Conditions use
+scalar equality, not Python/JavaScript expressions. A skipped dependency also
+skips its downstream consumers; a join is not an implicit optional-branch merge.
+For a business action, a normal output such as “waiting for discussion” is a
+business result, not automatically a skipped stage or engine failure.
+
+### Fan out and join a project workflow
+
+Download [the complete four-stage example](examples/walkthrough/fanout-workflow.yaml).
+It uses only `core.echo@1`, so it makes no model calls or repository changes.
+Use a repository connection with alias `app` and replace every
+`REPLACE_WITH_SIMPLE_POOL_ID` with an authorized simple pool's ID.
+
+```text
+          ┌→ left ─┐
+capture ──┤        ├→ join
+          └→ right ┘
+```
+
+1. `capture` reads `input.message`.
+2. `left` and `right` each declare `after: [capture]` and bind
+   `stages.capture.output.message`. They are eligible together; actual overlap
+   depends on registered worker slots and admission limits.
+3. `join` declares `after: [left, right]` and binds each direct parent's output.
+   Listing parents orders execution; the `$ref` mappings pass their data.
+4. Publish the document and launch with `{"message":"Hello Flumic"}` using
+   **Advanced JSON**. After successful execution, the echo contract returns
+   `{"left_message":"Hello Flumic","right_message":"Hello Flumic"}` from `join`.
+   The UI exposes stage/attempt state and pinned context; not every builtin has
+   a raw output viewer. Missing captured logs are not proof of a failed echo.
+
+If `join` also reads `stages.capture.output.message`, add `capture` to its
+`after` list. Being a transitive ancestor does not authorize a binding. Cycles,
+missing parents and references to non-parent stages are rejected.
+
+### Configure models, prompts and grants
+
+1. Choose the stage's `profile` (default: its `role`) and a compatible authorized
+   `pool_id`. A developer action needs a developer pool; changing a label does
+   not install tools or change the worker's capabilities.
+2. Use workflow `defaults` for shared behavior and stage `overrides` for a local
+   change. Effective precedence is project defaults → selected profile → repository →
+   workflow defaults → stage overrides. Confirm details in the
+   [project configuration guide](configuration-control-plane.md#project-defaults-and-shared-workers) and [workflow settings](configuration-workflows.md).
+3. For example, a planning stage can contain this fragment alongside its existing
+   action, inputs, role and pool fields:
+
+   ```yaml
+   overrides:
+     openai_model: gpt-5-nano
+     tasks:
+       plan_issue:
+         additional_system_prompt: "Include observable acceptance criteria and explicit validation steps."
+   ```
+
+   This adds task guidance to the built-in instructions. A deterministic echo
+   does not start making model calls merely because these settings are present.
+   Model availability depends on the configured provider/account.
+4. Assign the source credential on the repository connection. Use workflow/stage
+   `secrets` references for required model purposes (`openai` and/or `anthropic`),
+   never plaintext keys. Stage grants must match repository scope. The runtime
+   pins only the purposes needed by the selected action and rechecks revocation.
+5. Validate and publish a new revision, then launch it explicitly. Existing runs
+   retain their accepted definition, settings and grant pins; publishing an edit
+   does not rewrite a running workflow.
 
 ### Publish, revise and pin
 
-Send `{"document": <workflow>}` to the project's validation endpoint, then POST
+In the UI:
+
+1. Select the project, then **Workflows → New workflow**. Use the starter or paste
+   a complete YAML/JSON document into **Workflow source**.
+2. Replace example repository aliases and pool IDs with your project's values.
+   Use **Validate definition**, resolve errors, then **Publish revision**.
+3. Open the saved revision and confirm its default repository. For the custom
+   echo examples, enter **Run input JSON** directly. The standard issue recipe
+   offers **Guided issue launch**, with **Advanced JSON** available for custom
+   input/bindings. Explicitly choose **Run saved revision** to submit.
+4. Inspect **Workflow runs**, select a stage and **Stage attempt**, then open **Logs**
+   for captured activity. Use **Model calls → View exchange** for retained model
+   requests/responses; **Configuration** contains the pinned stage snapshot.
+   Echo can have no model records. See the [recorded run/log/model example](hello-world-live-example.md).
+5. For an edit, use **Edit current definition**, validate and publish again. A
+   stale baseline is a conflict; inspect the latest revision before retrying.
+
+For authenticated API automation, send `{"document": <workflow>}` to the project's validation endpoint, then POST
 it to the definitions collection. Save the returned definition ID and `revision_id`.
 For an edit, PUT `{"document": <updated workflow>, "parent_id": "CURRENT_REVISION_ID"}`
 to that definition. Stale parents return `409`; foreign definitions/revisions return
@@ -168,10 +278,22 @@ it does not bypass runtime bounds or argument validation.
 
 ## Where the definition lives
 
-The application owns business behavior; Hatchet owns scheduling, dependencies, retries, and durable waits.
+The following Python sections are for contributors extending deployed action
+implementations or statically registered workflows. They are not prerequisites
+for the data-defined cookbook above. Project graph changes using installed actions
+are authored in YAML/JSON; new Python behavior must be implemented, tested,
+registered and deployed before a graph can invoke its versioned action ID.
+
+For the statically registered Python workflows below, the application owns
+business behavior and Hatchet schedules declared tasks, retries and durable waits.
+For project graphs, the database evaluates the pinned DAG and the fixed durable
+coordinator schedules admitted executions.
 
 | Responsibility | Source |
 | --- | --- |
+| Project graph schema and direct-parent rules | [workflows/definitions.py](../worker/factory/workflows/definitions.py) |
+| Typed builtin action IDs and argument schemas | [workflows/action_schemas.py](../worker/factory/workflows/action_schemas.py) |
+| Scoped action wrappers and credential-purpose policy | [workflows/actions.py](../worker/factory/workflows/actions.py) |
 | Inputs and serializable stage outputs | [domain/models.py](../worker/factory/domain/models.py) |
 | Business operations | [application/service.py](../worker/factory/application/service.py) |
 | Operation observation, task context, repository guard, state claims | [application/operations.py](../worker/factory/application/operations.py) |
@@ -193,7 +315,7 @@ Keep these three names distinct:
 
 A Python function/task handle such as `triage_issue` is what `parents` and `ctx.task_output(...)` reference. A string display name is not a dependency handle. Standalone `@hatchet.task` and `@hatchet.durable_task` definitions are also registered as workflows; their task name is the workflow name used by the control plane.
 
-Use YAML when changing worker routing, limits, retries, model selection, or prompts for an existing key. Use Python when adding logic, an output schema, a dependency, an event handler, a durable wait, or a separately runnable workflow. A prompt is consumed only if that operation actually invokes a model adapter; assigning a prompt to deterministic code does not turn it into an agent.
+Use YAML when changing worker routing, limits, retries, model selection, or prompts for an existing key. Use Python when adding executable logic, an output schema or a statically registered task, event handler, wait implementation or workflow. For project graphs, add stages/dependencies in the workflow document using installed actions. A prompt is consumed only if that operation actually invokes a model adapter; assigning a prompt to deterministic code does not turn it into an agent.
 
 ## Example 1: insert validation between triage and generation
 
@@ -565,7 +687,15 @@ An action child transport error never proves that an external operation stopped.
 
 The trusted `WorkflowState.cancel_run` transition changes a run to `cancelling`, cancels pending/unclaimed work under the assignment-claim fence, and prevents new stage admissions and retry generations. Already claimed actions keep their leases, capacity and external-resource fences. The run becomes `cancelled` after those actions provide terminal receipts. Cancellation is idempotent and does not rewrite an already completed/failed run.
 
-For echo children, the coordinator waits for active children to settle before observing cancellation. Cancelling only the Hatchet parent is **not** proof that an external action or Docker job stopped. The authenticated cancellation/launch API is tracked in [#11](https://github.com/phudekar/flumic-software-factory/issues/11), job stop/reconciliation in [#10](https://github.com/phudekar/flumic-software-factory/issues/10), and business action transport activation in #11 (the [catalog wrappers](#builtin-actions-and-pinned-project-follow-ups) are implemented). This increment provides the coordinator adapter and trusted state transition; it does not enable dynamic launches from the current control-pane UI.
+The authenticated project launch/cancel APIs and Control Pane run controls are
+implemented. Cancel through the project run API or **Request cancellation**, then
+inspect canonical run/job state. Cancellation stops new admissions but remains
+`cancelling` while an issued external effect is uncertain; an engine-parent cancel
+alone is not proof that an action or container stopped. Container jobs settle
+through broker terminal proof, while builtin assignments retain their fences
+until authenticated completion or reconciliation. Existing accepted follow-up runs
+are separate invocations. See [run cancellation](project-runtime-api.md#launch-inspect-and-cancel)
+for the complete contract.
 
 ### Run the live engine contract
 
@@ -585,29 +715,44 @@ On 2026-10-23, the echo contracts were exercised against Hatchet Cloud engine `v
 
 ## Builtin actions and pinned project follow-ups
 
-The executable catalog, scoped composition helpers, project recipes and durable wait adapters are implemented in source. The current shared-worker startup still advertises only `core.echo@1`: activating business actions requires the authenticated state/claim/follow-up transport and durable engine-launch wiring tracked in [#11](https://github.com/phudekar/flumic-software-factory/issues/11). The current UI does not launch these dynamic recipes. Docker actions remain [#10](https://github.com/phudekar/flumic-software-factory/issues/10).
+The catalog, project recipes, authenticated action transport and durable waits
+are implemented and available through project workflow launch. Shared workers
+install the catalog plus `docker.run@1`, but each pool/worker advertises only its
+configured role-compatible allowlist. Configure pool authorization, installed
+images and registered capabilities before launching; an old running worker is not
+upgraded merely because new definitions were published.
 
 `ActionCatalog` selects from a fixed implementation map. An action ID cannot name an arbitrary Python method, module or import. Each wrapper calls the existing decorated `FactoryService` operation, retaining its observation, work-item claims, patch policy, stored plans, prepared patches, GitHub markers and feedback cursors.
 
 | Action | Arguments | Output | Minimum credential purposes |
 | --- | --- | --- | --- |
 | `core.echo@1` | A finite JSON object, at most 1 MiB | The same object, with credential values redacted | None |
-| `issue.load@1` | `command` | `IssueState` | `github` |
-| `issue.plan@1` | `command`, `state` | `IssuePlanState` | `github`, `openai` |
-| `issue.triage@1` | `command`, `state`, `plan` | `TriageState` | `github`, `openai` |
-| `change.implement@1` | `command`, `triage` | `PublishState` | `github` and the coding provider |
-| `change.review@1` | `command`, `publish` | `EventResult` | `github`, `openai` |
+| `issue.load@1` | `command` | `IssueState` | `github` or `gitlab` |
+| `issue.plan@1` | `command`, `state` | `IssuePlanState` | `github` or `gitlab`, plus `openai` |
+| `issue.triage@1` | `command`, `state`, `plan` | `TriageState` | `github` or `gitlab`, plus `openai` |
+| `change.implement@1` | `command`, `triage` | `PublishState` | `github` or `gitlab`, plus the coding provider |
+| `change.review@1` | `command`, `publish` | `EventResult` | `github` or `gitlab`, plus `openai` |
 | `workflow.record@1` | `command`, `result` | `EventResult` | None |
-| `pull.feedback@1` | Pull `command` | `EventResult` | `github` and the coding provider |
-| `pull.verify@1` | Pull `command` | `EventResult` | `github` |
+| `pull.feedback@1` | Pull `command` | `EventResult` | `github` or `gitlab`, plus the coding provider |
+| `pull.verify@1` | Pull `command` | `EventResult` | `github` or `gitlab` |
 
-Issue `command` is `{"issue_number": 42}`. Pull `command` also requires positive `pull_number`, a canonical `https://github.com/OWNER/REPO/pull/NUMBER` URL and a branch (at most 240 characters). The repository comes from `ActionContext`; including a repository override in these argument objects is rejected. Whole upstream objects retain their binding provenance. A foreign project/repository origin, mismatched upstream issue number, wrong role or mismatched pull URL is rejected before service/client creation. Use the resolver's trusted `ResolvedInputs`; never reconstruct provenance from caller-supplied labels.
+Issue `command` is `{"issue_number": 42}`. Pull `command` also requires positive `pull_number`, a canonical URL for the pinned provider (`https://github.com/OWNER/REPO/pull/NUMBER` or the GitLab.com merge-request URL) and a branch (at most 240 characters). The repository comes from `ActionContext`; including a repository override in these argument objects is rejected. Whole upstream objects retain their binding provenance. A foreign project/repository origin, mismatched upstream issue number, wrong role or mismatched pull URL is rejected before service/client creation. Use the resolver's trusted `ResolvedInputs`; never reconstruct provenance from caller-supplied labels.
 
 API and Codex coding use the `openai` purpose; Claude coding uses `anthropic`. The policy follows an explicitly selected built-in coding factory as well as `developer_agent`. Unknown custom planner/reviewer/coder factories fail closed: installed composition code must inject a trusted minimum-purpose policy into both `ActionCatalog` and `WorkflowState`. Workflow data cannot supply that callable. Declaring a grant on a graph does not deliver it to every action: admission pins only the action's required versions, and authorized context delivery rechecks revocation.
 
 `run_builtin` in `factory.bootstrap` creates `ExecutionStateStore`, `ProjectDispatch` and a fresh per-context service. It uses explicit project credentials and an isolated temporary agent home; it does not open legacy SQLite or fall back to process-wide GitHub/model credentials. `ActionCatalog.execute` accepts explicit ports for trusted embedding and fake-integration tests. Full results stay behind the state boundary and are redacted while the credential scope is active.
 
 ### Seed compatible recipes
+
+In **Project → Workflows → Install templates**, choose the existing target
+repository, authorized simple/developer pools and required model credential grants.
+Inspect the three returned saved revisions before launching. Installation is
+create-only; changed selections do not overwrite existing recipes. Use **Edit**
+to publish an explicit revision when changing an installed recipe. See
+[walkthrough step 14](user-walkthrough.md#14-install-issue-feedback-and-verification-templates--ui)
+for screenshots and [runtime API setup](project-runtime-api.md#configure-and-seed-a-project)
+for the public automation endpoint. The Python helper below is for trusted backend
+composition, not required for UI installation.
 
 `project_templates(repository_alias, simple_pool_id, developer_pool_id, secrets=...)` produces three validated graph documents:
 
@@ -647,7 +792,7 @@ run = store.start_run(
 )
 ```
 
-Configure the GitHub credential version on the repository connection and grant both pools to the project first. These are internal service helpers, not new public endpoints or a replacement for operator authentication. Pool capabilities and profiles must support every selected stage. Use `anthropic` grants as appropriate for Claude. The minimum-purpose checks happen before clients are constructed; missing/invalid grants do not fall back to environment credentials.
+Configure the matching GitHub/GitLab credential version on the repository connection and grant both pools to the project first. These are internal service helpers, not new public endpoints or a replacement for operator authentication. Pool capabilities and profiles must support every selected stage. Use `anthropic` grants as appropriate for Claude. The minimum-purpose checks happen before clients are constructed; missing/invalid grants do not fall back to environment credentials.
 
 ### Freeze the follow-up bundle
 
@@ -665,4 +810,10 @@ The planning wrapper persists sub-issue dispatch intent before submission. If ac
 
 Durable wait coordinators carry only a stored wait-request ID. Short control children load the pinned request/context, check status with only the GitHub grant, and return a bounded receipt. A discussion resumes its pinned issue workflow when ready; an already-active issue run causes another durable wait. A merged pull queues its pinned verification workflow; a closed unmerged pull finishes without verification. Parent bodies use engine sleep rather than holding a service, client, transaction or local timer across the wait. Control checks/resumption have bounded transient retries; resumption must be durably idempotent.
 
-Register these helpers through `register_project_waits` only with trusted infrastructure callbacks that load stored request authority. Persistence/authorization of wait requests, engine submission recovery and worker transport activation remain part of #11. The fake-integration and SDK serialization tests here establish the library contracts; complete mixed-project/live wait transport evidence remains the [release gate](project-workflow-roadmap.md).
+The deployed control runtime registers these waits with trusted callbacks that
+load stored request authority. Accepted wait/follow-up intents are persisted and
+reconciled after engine submission failures; the worker transport authenticates
+assignment authority before acceptance. Use run `followups` receipts and the
+project reconcile endpoint to investigate pending/blocked delivery rather than
+launching a duplicate business run. See [dispatch and recovery](project-runtime-api.md#worker-protocol-and-execution-budget)
+and the [runtime rollout guide](project-runtime-operations.md).

@@ -6,6 +6,14 @@ and [Control Plane configuration reference](configuration-control-plane.md).
 The [generated task inventory](../worker/factory/task_defaults.py) contains the
 per-stage code defaults; checked-in `config/workflow.yaml` can override them.
 
+For **project workflow graphs**, author stages and dependency/data bindings in the
+[workflow cookbook](workflow-development.md#cookbook-choose-your-task). Stage
+`timeout_seconds`, `retries`, `after` and `inputs` belong to that graph contract;
+publishing a new revision affects new launches while accepted runs retain their
+pins. The manifest/task-key instructions below describe profile-based workers
+and statically registered Python tasks; editing those keys does not create a new
+project stage or replace a saved graph.
+
 ## Where edits take effect
 
 For standalone workers, edit the manifest/configuration files and restart every

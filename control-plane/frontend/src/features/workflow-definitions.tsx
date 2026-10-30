@@ -1,7 +1,13 @@
+import { GuidedIssueInput, useIssueFollowups } from "./guided-issue-input";
+import { TemplateInstallForm } from "./template-install-form";
+import {
+  StageSummary,
+  workflowPresentation,
+} from "../components/workflow-summary";
 import { useQueryClient } from "@tanstack/react-query";
 import { api } from "../api";
 import { useEffect, useRef, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { Failure, PageTitle, Section, date } from "../components/ui";
 import { YamlInput } from "../components/yaml-input";
 import { projectPath, useProjectData, useProjectId } from "../project-context";
@@ -30,38 +36,114 @@ interface Pool {
   actions: string[];
 }
 export function WorkflowDefinitionsPage() {
+  const [installOpen, setInstallOpen] = useState(false);
   const id = useProjectId(),
     definitions = useProjectData<Definition[]>("/workflow-definitions");
   return (
     <>
       <PageTitle
         eyebrow="PROJECT WORKFLOWS"
-        title="Workflow definitions"
-        description="Versioned data defines stages, dependencies, bindings and builtin or Docker actions."
+        title="Workflows"
+        description="Browse what each workflow does, inspect its stages, or launch a saved version."
         action={
-          <Link className="primary" to={projectPath(id, "/workflows/new")}>
-            New workflow
-          </Link>
+          <div className="toolbar">
+            <button disabled={installOpen} onClick={() => setInstallOpen(true)}>
+              Install templates
+            </button>
+            <Link className="primary" to={projectPath(id, "/workflows/new")}>
+              New workflow
+            </Link>
+          </div>
         }
       />
       <Failure error={definitions.error} />
-      <Section title="Published definitions">
+      {installOpen && (
+        <TemplateInstallForm close={() => setInstallOpen(false)} />
+      )}
+      <div className="setup-guidance">
+        <p>
+          Set up <Link to={projectPath(id, "/repositories")}>repositories</Link>{" "}
+          and <Link to={projectPath(id, "/pools")}>worker pools</Link> before
+          running a workflow. Published definitions do not guarantee available
+          workers.
+        </p>
+      </div>
+      <Section title="Published workflows">
         <div className="editor-body">
           {definitions.isPending
             ? "Loading definitions…"
             : definitions.data?.length
               ? definitions.data.map((d) => (
-                  <p key={d.id}>
-                    <Link to={projectPath(id, "/workflows/" + d.id)}>
-                      {d.name}
-                    </Link>{" "}
-                    · revision {d.revision_id}
-                  </p>
+                  <WorkflowCard key={d.id} definition={d} />
                 ))
               : "No workflow definitions published."}
         </div>
       </Section>
     </>
+  );
+}
+function WorkflowCard({ definition }: { definition: Definition }) {
+  const project = useProjectId();
+  const revision = useProjectData<DefinitionRevision>(
+    "/workflow-definition-revisions/" + definition.revision_id,
+  );
+  const graph = revision.data?.document;
+  const presentation = graph
+    ? workflowPresentation(graph)
+    : { title: definition.name, description: "Loading saved workflow…" };
+  return (
+    <article className="setup-card" aria-label={definition.name}>
+      <div className="setup-card-heading">
+        <h3>{presentation.title}</h3>
+        {graph && (
+          <span className="setup-badge">
+            {graph.stages.length}{" "}
+            {graph.stages.length === 1 ? "stage" : "stages"}
+          </span>
+        )}
+      </div>
+      {revision.isPending && <p role="status">Loading workflow summary…</p>}
+      <Failure error={revision.error} />
+      {graph && (
+        <>
+          <p>{presentation.description}</p>
+          <p>
+            Repositories: <strong>{graph.repositories.join(", ")}</strong>
+          </p>
+        </>
+      )}
+      <div className="toolbar">
+        <Link
+          to={projectPath(
+            project,
+            "/workflow-revisions/" + definition.revision_id,
+          )}
+        >
+          View
+        </Link>
+        <Link to={projectPath(project, "/workflows/" + definition.id)}>
+          Edit
+        </Link>
+        {graph && (
+          <Link
+            className="primary"
+            to={
+              projectPath(
+                project,
+                "/workflow-revisions/" + definition.revision_id,
+              ) + "#run-saved-revision"
+            }
+          >
+            Run
+          </Link>
+        )}
+      </div>
+      <details>
+        <summary>Advanced details</summary>
+        <p>Definition name: {definition.name}</p>
+        <p>Revision: {definition.revision_id}</p>
+      </details>
+    </article>
   );
 }
 const starter = (repository: string, pool: string) => ({
@@ -194,7 +276,7 @@ function DefinitionEditor({ identifier }: { identifier?: string }) {
           pools.error
         }
       />
-      <Section title="Definition editor">
+      <Section title="Advanced workflow editor">
         <div className="editor-body">
           {draft && (
             <>
@@ -411,10 +493,17 @@ export function DefinitionRevisionPage() {
   return <RevisionView key={revisionId} revisionId={revisionId ?? ""} />;
 }
 function RevisionView({ revisionId }: { revisionId: string }) {
+  const location = useLocation();
   const project = useProjectId(),
     revision = useProjectData<DefinitionRevision>(
       "/workflow-definition-revisions/" + revisionId,
     );
+  useEffect(() => {
+    if (revision.data && location.hash === "#run-saved-revision") {
+      const target = document.getElementById("run-saved-revision");
+      target?.scrollIntoView?.({ block: "start" });
+    }
+  }, [revision.data, location.hash]);
   return (
     <>
       <PageTitle
@@ -423,28 +512,45 @@ function RevisionView({ revisionId }: { revisionId: string }) {
         description="This document is read-only. Running it pins its repository/configuration context at acceptance."
       />
       <Failure error={revision.error} />
+      {revision.isPending && <p role="status">Loading saved workflow…</p>}
       {revision.data && (
         <>
-          <p>
-            Revision {revision.data.id} · digest {revision.data.digest} · parent{" "}
-            {revision.data.parent_id ?? "none"}
-          </p>
-          <Link
-            to={projectPath(
-              project,
-              "/workflows/" + revision.data.definition_id,
-            )}
-          >
-            Edit current definition
-          </Link>
-          <YamlInput
-            label="Saved workflow document"
-            value={graphSource(revision.data.document)}
-            readOnly
-            invalid={false}
-            onChange={() => {}}
-          />
-          <RunDefinition revision={revision.data} />
+          <div className="setup-guidance">
+            <h2>{workflowPresentation(revision.data.document).title}</h2>
+            <p>{workflowPresentation(revision.data.document).description}</p>
+            <p>
+              Repositories: {revision.data.document.repositories.join(", ")}
+            </p>
+          </div>
+          <div className="toolbar">
+            <Link to={projectPath(project, "/workflows")}>All workflows</Link>
+            <Link
+              to={projectPath(
+                project,
+                "/workflows/" + revision.data.definition_id,
+              )}
+            >
+              Edit current definition
+            </Link>
+          </div>
+          <StageSummary graph={revision.data.document} />
+          <details className="setup-advanced">
+            <summary>Advanced: saved source and revision details</summary>
+            <p>
+              Revision {revision.data.id} · digest {revision.data.digest} ·
+              parent {revision.data.parent_id ?? "none"}
+            </p>
+            <YamlInput
+              label="Saved workflow document"
+              value={graphSource(revision.data.document)}
+              readOnly
+              invalid={false}
+              onChange={() => {}}
+            />
+          </details>
+          <div id="run-saved-revision">
+            <RunDefinition revision={revision.data} />
+          </div>
         </>
       )}
     </>
@@ -459,6 +565,28 @@ function RunDefinition({ revision }: { revision: DefinitionRevision }) {
     [bindings, setBindings] = useState("{}"),
     [error, setError] = useState(""),
     [pending, setPending] = useState(false);
+  const guidedAvailable =
+    revision.document.repositories.length === 1 &&
+    revision.document.name.startsWith("factory-issue-") &&
+    workflowPresentation(revision.document).kind === "issue";
+  const [advanced, setAdvanced] = useState(false),
+    [issue, setIssue] = useState(""),
+    [feedback, setFeedback] = useState(""),
+    [verify, setVerify] = useState("");
+  const guided = guidedAvailable && !advanced;
+  const initializedAdvanced = useRef(false);
+  const followups = useIssueFollowups(
+    revision.document.default_repository,
+    guided ? feedback : "",
+    guided ? verify : "",
+    guidedAvailable,
+  );
+  const connection = repositories.data?.find((r) => r.alias === repository);
+  const validGuided =
+    Number.isSafeInteger(Number(issue)) &&
+    Number(issue) > 0 &&
+    followups.valid &&
+    !!connection;
   const { write, alive } = useWorkflowWrite(),
     request = useRef<{ body: string; key: string } | null>(null);
   const ownsDefault = repositories.data?.some(
@@ -480,7 +608,13 @@ function RunDefinition({ revision }: { revision: DefinitionRevision }) {
               throw new Error(
                 "Choose the pinned default repository in this project.",
               );
-            const chosenBindings = documentObject(bindings);
+            if (guided && !validGuided)
+              throw new Error(
+                "Enter a positive issue number and select compatible follow-up revisions.",
+              );
+            const chosenBindings = guided
+              ? { [connection!.id]: { issue: revision.id, feedback, verify } }
+              : documentObject(bindings);
             for (const [repo, value] of Object.entries(chosenBindings)) {
               if (!repositories.data?.some((r) => r.id === repo))
                 throw new Error(
@@ -498,7 +632,9 @@ function RunDefinition({ revision }: { revision: DefinitionRevision }) {
             }
             const body = {
               revision_id: revision.id,
-              input: documentObject(input),
+              input: guided
+                ? { issue_number: Number(issue) }
+                : documentObject(input),
               ...(Object.keys(chosenBindings).length
                 ? { bindings: chosenBindings }
                 : {}),
@@ -541,35 +677,101 @@ function RunDefinition({ revision }: { revision: DefinitionRevision }) {
         {!repositories.isPending && !ownsDefault && (
           <Failure error="Default repository is not connected to this project." />
         )}
-        <label>
-          Run input JSON
-          <textarea
-            disabled={pending}
-            rows={5}
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
+        {guidedAvailable && (
+          <label>
+            Run setup
+            <select
+              disabled={pending}
+              value={guided ? "guided" : "advanced"}
+              onChange={(e) => {
+                if (
+                  e.target.value === "advanced" &&
+                  guided &&
+                  !initializedAdvanced.current
+                ) {
+                  initializedAdvanced.current = true;
+                  setInput(
+                    JSON.stringify(
+                      { issue_number: Number(issue) || 0 },
+                      null,
+                      2,
+                    ),
+                  );
+                  if (connection && followups.valid)
+                    setBindings(
+                      JSON.stringify(
+                        {
+                          [connection.id]: {
+                            issue: revision.id,
+                            feedback,
+                            verify,
+                          },
+                        },
+                        null,
+                        2,
+                      ),
+                    );
+                }
+                setAdvanced(e.target.value === "advanced");
+              }}
+            >
+              <option value="guided">Guided issue launch</option>
+              <option value="advanced">Advanced JSON</option>
+            </select>
+          </label>
+        )}
+        {guidedAvailable && advanced && (
+          <p>
+            Advanced JSON and guided fields are separate drafts. The JSON is
+            initialized only when you first open it.
+          </p>
+        )}
+        {guided ? (
+          <GuidedIssueInput
+            issue={issue}
+            setIssue={setIssue}
+            feedback={feedback}
+            setFeedback={setFeedback}
+            verify={verify}
+            setVerify={setVerify}
+            followups={followups}
+            pending={pending}
           />
-        </label>
-        <label>
-          Follow-up bindings JSON
-          <textarea
-            disabled={pending}
-            rows={5}
-            value={bindings}
-            onChange={(e) => setBindings(e.target.value)}
-          />
-        </label>
-        <small>
-          For non-echo builtins, map repository UUIDs to
-          issue/feedback/verification workflow revision UUIDs. Missing/foreign
-          bindings are rejected by the server. Start the dynamic runtime service
-          before expecting execution; acceptance alone is queued intent.
-        </small>
+        ) : (
+          <>
+            <label>
+              Run input JSON
+              <textarea
+                disabled={pending}
+                rows={5}
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+              />
+            </label>
+            <label>
+              Follow-up bindings JSON
+              <textarea
+                disabled={pending}
+                rows={5}
+                value={bindings}
+                onChange={(e) => setBindings(e.target.value)}
+              />
+            </label>
+            <small>
+              For non-echo builtins, map repository UUIDs to
+              issue/feedback/verification workflow revision UUIDs.
+              Missing/foreign bindings are rejected by the server. Start the
+              dynamic runtime service before expecting execution; acceptance
+              alone is queued intent.
+            </small>
+          </>
+        )}
         <Failure error={error || repositories.error} />
         <button
           className="primary"
           disabled={
             pending ||
+            (guided && !validGuided) ||
             !ownsDefault ||
             repository !== revision.document.default_repository
           }

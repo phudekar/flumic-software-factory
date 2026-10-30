@@ -21,6 +21,7 @@ website/src/content/docs/architecture/decisions/
 website/src/content/docs/handbook/
 website/src/content/docs/reference/
 website/src/content/docs/start/quick-start.md
+website/src/content/docs/start/walkthrough.md
 website/public/images/
 website/public/coverage.json
 
@@ -36,3 +37,6 @@ website/public/social/
 
 # Private local qualification credentials, checkpoints and recovery state.
 .superpowers/
+
+# Cookbook fixtures copied by website/scripts/prepare_content.py
+website/public/examples/

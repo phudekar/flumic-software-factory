@@ -32,3 +32,7 @@ Ask a question only when the answer blocks safe implementation.
 Use **Validate** for complete profile validation without publication and **Format YAML** for indentation. Formatting preserves draft comments, but saved profiles store parsed values rather than original YAML formatting. Use a clone to evaluate new models/prompts without changing every worker attached to the existing family.
 
 [Settings and precedence](/flumic-software-factory/handbook/worker-configuration/) · [Profile revisions](/flumic-software-factory/control-plane/profiles/)
+
+## Artifact quality and evaluation
+
+See [stage prompts, artifact examples and paired evaluation](/flumic-software-factory/handbook/prompt-quality/) for expected outputs, honest validation reporting, effective prompt ownership and deliberate adoption.

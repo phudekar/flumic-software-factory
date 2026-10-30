@@ -12,7 +12,7 @@ The React/TypeScript control plane provides worker lifecycle controls,
 versioned configuration, workflow runs, stage logs, redacted model history, and
 usage estimates. It is intended for a trusted developer running Docker locally.
 
-![Control-plane overview showing worker counts, recent workflow runs, tokens, and estimated spend](docs/images/control-plane-overview.png)
+![Default project overview with repository and workflow counts, recent runs, and known estimated spend](docs/images/control-plane-project-overview-guided.png)
 
 Screenshots show an existing local installation; profiles, counts, and run states
 will differ on a fresh setup. Cost figures are estimates, and missing prices are
@@ -34,94 +34,417 @@ including Hatchet, keep their own licenses.
 
 ## Quick start
 
-Choose your execution path before starting workers:
-
-- **New multi-project installation:** use the [project onboarding guide](website/src/content/docs/start/project-onboarding.md). Projects own repository connections and immutable workflow revisions; shared pools provide execution capacity.
-- **Existing profile-based installation:** follow the steps below. These start the legacy issue-to-PR workflows and use shared-host SQLite state.
-
-Do not run both paths against the same repository. Moving an existing repository
-requires the explicit [dynamic-mode handover](docs/project-runtime-operations.md#roll-out-from-a-current-checkout).
+Use the existing **Default project** and its installed **Issue to pull request**,
+feedback and verification workflows. The only configuration change in this quick
+start is the **target repository**; keep the existing project, repository alias,
+workflow templates, pool assignments and model settings.
 
 ### 1. Prepare your environment
 
-You need:
+This path assumes the Default project is already provisioned with working
+credentials, installed default workflows and authorized, running workers. If it
+is not, use the [complete setup walkthrough](docs/user-walkthrough.md) first.
+Your target repository should be initialized with a default branch and source
+files; the saved source credential must have access to it.
 
-- Git, Python 3, Docker Engine/Desktop, and the `docker-compose` command used by the launch scripts.
-- Hatchet with a reachable instance and a CLI profile named `development`.
-- An initialized target GitHub repository with a default branch and source files.
-- A fine-grained GitHub token scoped to that repository: Contents, Issues, and
-  Pull requests read/write; Checks and Commit statuses read access.
-- An OpenAI API key for the default planner/reviewer. Claude coding additionally
-  requires an Anthropic key. Configured model IDs must be available to your account.
-
-```sh
-git clone https://github.com/phudekar/flumic-software-factory.git
-cd flumic-software-factory
-cp .env.example .env
-```
-
-Edit `.env` with your credentials. Set `defaults.repository` in
-`config/runtime.yaml` to `YOUR_ORG/YOUR_REPO` before starting any workers.
-Review model choices in `config/models.yaml` and
-`config/worker-profiles/developer.yaml` for your provider account.
-
-The launchers load Hatchet credentials from the `development` CLI profile.
-Keep `.env` private; do not copy Hatchet tokens into repository configuration.
-
-### 2. Start the control plane
+For a locally installed factory, open [localhost:3400](http://localhost:3400) and
+sign in with `CONTROL_ADMIN_PASSWORD` from `.env.control-plane`. If the control
+services are stopped, start them from the factory checkout with:
 
 ```sh
-./scripts/start-control-plane.sh
+just control-up api reconciler dynamic-runtime
 ```
 
-Open [localhost:3400](http://localhost:3400). Sign in with
-`CONTROL_ADMIN_PASSWORD` from the generated, Git-ignored `.env.control-plane`.
-The first build can take several minutes. The launcher builds worker images and
-starts the API, PostgreSQL, and reconciler; existing workers are not restarted.
+See [command shortcuts](#command-shortcuts) for launcher prerequisites. Starting
+the control services does not start stopped workers.
 
-### 3. Start a simple worker and a developer worker
+### 2. Update the target repository
 
-In **Workers → Create worker**, create one instance using the **Default** profile
-and another using **Developer**. Creation leaves each container stopped.
-Choose **Start** for each, then verify that Runtime is running and Hatchet is
-registered. Starting workers enables issue scanning, GitHub writes, and billable
-model requests.
+1. Select **Default project** in the project selector.
+2. Open **Repositories** and find the existing connection used by the default
+   workflows. Click **Edit connection** on that card.
+3. Update the owner and repository name to your target, for example `YOUR_ORG`
+   and `YOUR_APP`. Keep its existing **Repository alias** unchanged: the saved
+   default workflows refer to that alias.
+4. Keep the assigned source credential if it already has access to the new target.
+   If access is missing, resolve the credential before attempting a run.
+5. Click **Save repository** and confirm the card shows `YOUR_ORG/YOUR_APP` with
+   the same alias and assigned credential. Do not add another connection or
+   reinstall templates for this quick start.
 
-Simple workers handle intake, planning, and review; developer workers handle code
-changes. Both roles are needed for the complete workflow.
+![Edit the existing target repository: change GitHub owner and Repository name, keep Repository alias](docs/images/quick-start-edit-target-repository.png)
 
-![Workers page showing managed instances, runtime and Hatchet registration, profile revisions, and lifecycle actions](docs/images/control-plane-workers.png)
+In the form above, change **GitHub owner** and **Repository name**, keep
+**Repository alias** unchanged, and click **Save repository**. The shown
+credential name belongs to the example installation; keep your own authorized
+credential. The screenshot shows the example installation’s current values; its edit form was closed without saving.
 
-For a Compose-only deployment, use this instead of creating managed instances:
+Your target repository is where Flumic AI will read issues and propose code
+changes. It is separate from this software-factory checkout. Saving its new
+location does not start a workflow or verify provider access. Existing runs keep
+their pinned repository context; the update applies to newly accepted runs.
 
-```sh
-./scripts/start-workers.sh -d
-docker-compose ps
-```
+### 3. Create and label an issue in GitHub
 
-Compose workers appear as discovered, read-only instances in the control plane.
-Manage their lifecycle through Compose. Avoid starting duplicate fleets
-unintentionally.
+1. Open your **target repository** on GitHub, then **Issues → New issue**.
+   If a template chooser appears, use the relevant issue type or **Open a blank issue**.
+2. Enter a focused title and a description that explains current behavior,
+   the requested change, acceptance criteria and how to verify the result.
+   Use this minimal Python task for your first issue:
 
-### 4. Process your first issue
+   ```text
+   Title: Create a Hello World app in Python
 
-Create a small issue in the configured target repository with clear acceptance
-criteria. The default scan runs every five minutes. To submit an existing issue
-immediately, replace `123` with its number:
+   Create a file named hello.py in the repository root.
+   When run with python3 hello.py, it should print Hello, world! and exit.
 
-```sh
-./scripts/push-sample-event.sh 123
-```
+   Acceptance criteria:
+   - Uses Python 3 and no third-party dependencies.
+   - Prints exactly Hello, world! followed by a newline.
+   - Exits successfully (exit code 0).
 
-Follow **Workflow runs** for stages and logs. If the issue receives
-`needs-discussion`, answer the questions in GitHub and add `ready-for-agent`.
-The factory decomposes work into sub-issues and opens draft PRs for eligible
-implementation tasks. Review the diff and CI results, mark the PR ready, approve,
-and merge. Durable waits track review and merge; the factory then verifies the
-result and closes the associated issue.
+   Validation: Run python3 hello.py and check the output.
+   ```
 
-Configure [GitHub webhooks](docs/issue-lifecycle.md#configure-github-webhook-delivery)
-for immediate issue and PR-feedback events. Polling remains available for recovery.
+3. Review the description, then click **Submit new issue** (or **Create**, depending
+   on GitHub's form). Copy the issue number from its heading or URL.
+
+![Actual Hello World issue number 43 in software-factory-test, showing the requirements and acceptance criteria](docs/images/github-hello-world-issue-43.png)
+
+4. On the issue, open **Labels** in the right sidebar, search for
+   `ready-for-agent` and select it. Close the picker and confirm the label appears.
+   This is the default readiness label; use your saved configuration's label if
+   it has been customized. You do not need to assign a GitHub user to launch the
+   manual workflow.
+5. If the label does not exist, open the repository's **Issues → Labels → New
+   label**, name it exactly `ready-for-agent`, and create it. Return to the issue
+   and apply it. If these controls are unavailable, ask a repository maintainer
+   to create/apply the label.
+
+![Actual issue 43 label picker filtered to ready-for-agent](docs/images/github-hello-world-label-picker-43.png)
+
+These screenshots show the actual [Hello World issue #43](https://github.com/phudekar/software-factory-test/issues/43)
+created in the example `phudekar/software-factory-test` repository for this guide.
+That repository is private, so the link requires access. Create your own issue
+in your target repository and use its number. The issue screenshot shows its verified `ready-for-agent` label. The picker
+screenshot shows the label search before selection; that picker was dismissed
+without changing labels. Applying a readiness label may trigger work if automation
+is enabled.
+
+**Checkpoint:** the issue is open in the intended target repository, has a clear
+scope and displays the readiness label. Labeling alone does not start a run in
+this manual quick start. If an enabled repository trigger already handles that
+label, inspect its accepted run and skip the manual launch below to avoid
+submitting the same work twice.
+
+### 4. Run the default workflow and monitor
+
+Using the issue number from step 3, open **Workflows** and choose **Run** on the existing **Issue to pull request** workflow.
+Confirm the unchanged repository alias, enter the issue number, and select the
+existing feedback/verification revisions in **Guided issue launch**.
+
+Review the selections, then click **Run saved revision** explicitly. Execution
+can make paid model calls and write to the target repository. Follow the new run
+in **Workflow runs**. In **Stage explorer**, select a stage and **Stage attempt**,
+then use **Result**, **Logs**, **Model calls** or **Configuration**. Use **Overview**
+for follow-up runs and **Run activity** / **All model calls** for run-wide evidence.
+**Model history** and **Usage & cost** provide broader model monitoring. Review
+generated PR diffs and CI before approving or merging in your source host.
+
+If execution ownership for the new target has not been enabled, the server can
+refuse the launch. Follow **Repositories → Repository execution** and its linked
+[migration guidance](docs/project-runtime-operations.md#roll-out-from-a-current-checkout)
+to resolve that prerequisite; do not bypass the checks. For detailed stage and
+follow-up explanations, see the [walkthrough](docs/user-walkthrough.md).
+
+For real screenshots of every observed label transition, the captured model
+exchange and the generated PR, see the [recorded Hello World example](docs/hello-world-live-example.md).
+
+#### What a successful run looks like
+
+![Actual completed Hello World implementation run under Default](docs/images/default-project-hello-world-completed.png)
+
+This is the real resumed implementation of child issue #44 under Default. It
+created draft PR #45; it has not merged the change. Completed stage calls alone
+do not prove the business task is finished: another run may finish by requesting
+clarification or finding an existing plan. Inspect stage outcomes and follow-ups,
+then review the PR and CI before merging.
+
+#### How the workflow changed the issue — screenshots
+
+The Hello World example moves from **parent issue #43 → child issue #44 → draft PR #45**.
+The parent tracks the plan, the child tracks implementation, and the PR carries
+review state. Check the object named in each step; all labels do not accumulate
+on the parent issue.
+
+| Step | Where to look | What changed and who did it |
+| --- | --- | --- |
+| 1. Ready | Parent issue #43 | You apply `ready-for-agent`; this signals readiness, not execution. |
+| 2. Planned | Parent issue #43 | Planning adds `agent-plan-created` and consumes the readiness label. |
+| 3. Task created | Child issue #44 | Planning creates a linked implementation issue with `agent-subtask`. |
+| 4. Waiting for clarification | Child issue #44 | Triage adds `needs-discussion` instead of proceeding with an ambiguous change. |
+| 5. Resumed | Child issue #44 timeline | You clarify the requirements and apply `ready-for-agent`; the stored follow-up resumes and the worker removes the discussion/readiness labels. |
+| 6. Draft PR published | Child issue #44 and PR #45 | Implementation opens a draft PR and adds `agent-pr-open` to the child; `agent-subtask` remains. |
+| 7. Review posted | PR #45 | Review posts findings and adds `agent-pr-reviewed` to the PR. Human approval and merge have not occurred. |
+
+Each step pairs its GitHub state with the available Control Pane evidence.
+**Control Pane evidence** beneath each step is expanded by default to show
+its run, activity logs and model exchange. These Control Pane screenshots show retained runs after they finished, rather
+than recreated in-progress states. Log images show retained stage activity;
+model capture/retention may leave gaps. Use your own run IDs when following these
+steps in another installation.
+
+All steps and their run-output subsections are expanded by default. Collapse any section to focus on another step.
+
+<details open>
+<summary>1. Ready to process — parent issue</summary>
+
+The parent initially had `ready-for-agent`. This is a readiness signal, not proof
+of execution. The example was explicitly triggered; automatic launch depends on
+configured repository triggers.
+
+![Parent issue 43 with ready-for-agent before processing](docs/images/github-hello-world-issue-43.png)
+
+No run or model request has started at this point. The readiness label alone
+is not execution evidence; there is no matching run/log screenshot to fabricate.
+
+
+</details>
+
+<details open>
+<summary>2. Plan created — parent issue</summary>
+
+The planner produced one implementation task. The parent acquired
+`agent-plan-created`; its original readiness label was consumed. This does not
+mean the implementation is finished.
+
+![Parent issue 43 after planning, with agent-plan-created](docs/images/github-hello-world-43-plan-created.png)
+
+<details open>
+<summary>Control Pane evidence: planning model logs</summary>
+
+The original planning call was recorded before this installation moved to
+project execution. Its retained exchange is available in **Default → Model history**,
+but it is not a canonical Default project run. Do not substitute the later
+parent run that reused the existing plan for the original plan-creation run.
+
+![Original planning call metadata, timestamp and single-call token accounting](docs/images/hello-world-planning-models.png)
+
+![Original planning response with the generated child-task title and acceptance criteria](docs/images/hello-world-model-response-live.png)
+
+</details>
+
+</details>
+
+<details open>
+<summary>3. Implementation work identified — child issue</summary>
+
+The worker created #44 with `agent-subtask` and linked it to #43. Follow this
+child for implementation progress; PR labels do not all accumulate on the parent.
+
+![Generated child issue 44 with agent-subtask](docs/images/github-hello-world-44-subtask.png)
+
+Child creation belongs to the same planning result shown in step 2. It is
+not a second model call or a separate charge inferred from a new GitHub issue.
+
+
+</details>
+
+<details open>
+<summary>4. Clarification requested — child issue</summary>
+
+The repository already contained `hello_world/`. Triage asked whether to preserve
+that directory and added `needs-discussion`. The control run completed its stage
+calls, but its business outcome was waiting for discussion, not a generated PR.
+
+![Issue 44 paused with needs-discussion](docs/images/github-hello-world-44-needs-discussion.png)
+
+<details open>
+<summary>Control Pane evidence: run, activity logs and model logs</summary>
+
+**Run and stage:** `4b5d6351-5428-4d97-9dc1-537ec2d287ed`, filtered to `triage`.
+The control run completed its invocations, while the business outcome was waiting
+for clarification. No draft PR was produced by this run.
+
+![Clarification run with the triage stage selected](docs/images/hello-world-triage-run.png)
+
+**Activity logs:** the messages identify issue #44, report `needs_discussion=True`
+and say **Waiting for issue clarification**.
+
+![Triage activity excerpt showing the clarification wait and its timestamp](docs/images/hello-world-triage-activity.png)
+
+**Model logs:** the retained call is `729ca069-79ae-428f-bfb5-42777c4108fa`.
+The accounting row is separate from its captured request/response. The response
+sets `needs_discussion` to `true` and lists the questions later posted to the issue.
+
+![Triage model-call metadata and stage-specific accounting](docs/images/hello-world-triage-models.png)
+
+![Triage model response requesting clarification](docs/images/hello-world-triage-response.png)
+
+</details>
+
+</details>
+
+<details open>
+<summary>5. Clarification resolved — child issue timeline</summary>
+
+The reply confirmed a new root-level `hello.py`, preserving existing files with
+no requested CI/documentation changes. Adding `ready-for-agent` resumed the
+stored discussion follow-up. The agent then removed the discussion/readiness
+labels as it continued. This screenshot shows GitHub's actual timeline event
+because readiness was transient, rather than recreating the old state.
+
+![Timeline records readiness and discussion-label removal](docs/images/github-hello-world-44-discussion-resolved.png)
+
+<details open>
+<summary>Control Pane evidence: run, activity logs and model logs</summary>
+
+**Resumed run and stage:** `7d53f1f2-ec3c-448a-80fd-f8e576a9fba7`, filtered to
+`triage`. This is a new run created by the stored follow-up; the earlier run was
+not rewritten. Screenshots inspect its retained state after completion.
+
+![Resumed implementation run with its triage stage selected](docs/images/hello-world-resumed-run.png)
+
+**Activity logs:** issue #44 now has two comments; the log reports
+`discussion_resolved=True`, `needs_discussion=False` and **Issue ready for patch generation**.
+
+![Resolved discussion and readiness for patch generation in stage logs](docs/images/hello-world-resumed-triage-activity.png)
+
+**Model logs:** call `64f60a0a-b3ee-49e7-a221-ad2a2382c72d` returned
+`needs_discussion: false` and an empty questions list. Compare this with step 4.
+
+![Resumed triage model metadata and accounting](docs/images/hello-world-resumed-triage-models.png)
+
+![Resumed triage response no longer requesting discussion](docs/images/hello-world-resumed-triage-response.png)
+
+</details>
+
+</details>
+
+<details open>
+<summary>6. Draft PR created — child issue</summary>
+
+Implementation created draft PR #45 and added `agent-pr-open` to #44. The PR
+contains only `hello.py`. Its CI build checks passed. Independently checking
+commit `7a49fda15eff5ba5abc8f13757a00be837e15bee` confirmed stdout exactly
+`Hello, world!` plus a newline, exit code 0 and empty stderr.
+
+![Child issue 44 with agent-pr-open and its draft PR link](docs/images/github-hello-world-44-pr-open.png)
+
+<details open>
+<summary>Control Pane evidence: run, activity logs and model logs</summary>
+
+**Run and stage:** the same resumed run, `7d53f1f2-ec3c-448a-80fd-f8e576a9fba7`,
+now filtered to `implement`. Selecting a stage narrows the evidence; it does not
+launch another workflow.
+
+![Resumed workflow run with implementation selected](docs/images/hello-world-implementation-run.png)
+
+**Activity logs:** the excerpt shows a single changed file, publishing draft PR #45,
+its creation and registration of a review wait.
+
+![Implementation logs identifying hello.py, draft PR 45 and the review wait](docs/images/hello-world-implementation-activity.png)
+
+**Model logs:** call `e9f8d362-cbc0-4835-947a-7c2b4381eac1` records the coding
+invocation's tokens and estimated cost. Coverage is `cli_prompt_and_result`,
+not a transcript of every internal CLI/model interaction.
+
+![Coding invocation metadata and separately reported versus estimated accounting](docs/images/hello-world-implementation-models.png)
+
+The returned artifact contains progress, a PR title and a detailed PR body with
+acceptance criteria, validation and limitations. Those validation statements are
+the model's report; the independent commit-specific check is described above.
+
+![Coding result with completion report, PR title and detailed PR body](docs/images/hello-world-implementation-response.png)
+
+</details>
+
+</details>
+
+<details open>
+<summary>7. Automated review posted — pull request</summary>
+
+The automated review added `agent-pr-reviewed` to **PR #45**, not the parent issue.
+It posted concerns about import-time execution. This label means a review was
+posted; it does not mean the findings were accepted, the PR was approved or the
+change merged. At the end of this recorded example, the PR was a draft awaiting human review.
+
+![Draft PR 45 and its agent-pr-reviewed label](docs/images/github-hello-world-pr-45-reviewed.png)
+
+<details open>
+<summary>Control Pane evidence: run, activity logs and model logs</summary>
+
+**Run and stage:** the same resumed run, `7d53f1f2-ec3c-448a-80fd-f8e576a9fba7`,
+filtered to `review`.
+
+![Resumed workflow run with review selected](docs/images/hello-world-review-run.png)
+
+**Activity logs:** the post-creation review message identifies issue #44 and PR #45,
+reports two findings including one suggestion, and records `agent-pr-reviewed`.
+It does not record human approval or a merge.
+
+![Review activity excerpt showing findings, suggestion count and the PR label](docs/images/hello-world-review-activity.png)
+
+**Model logs:** two retained calls are listed for this stage. The response opened
+below is the later call, `d60fe46c-0fd5-4f64-8b57-cc1eb72c3372`.
+
+![Review model-call rows with stage timestamps and separate costs](docs/images/hello-world-review-models.png)
+
+The model raised import-time execution concerns and proposed a main guard.
+Its severity labels are model judgments, not independently confirmed defects
+or an approval decision. Review the findings against the actual issue requirements.
+
+![Review response with the model's findings and suggested change](docs/images/hello-world-review-response.png)
+
+</details>
+
+</details>
+
+These are recorded screenshots from October 29, 2026; transient labels were not
+reapplied to recreate earlier states. In this example, worker actions appear
+under `phudekar`, the identity used by the repository credential. That username
+alone does not distinguish a human action from an automated one.
+
+`load` reads the issue and `record` persists the result; not every workflow stage
+adds a GitHub label. A completed run can be waiting for clarification or review.
+`agent-pr-reviewed` means findings were posted, not approval, merge or completion
+of the overall issue. The screenshots stop at a reviewed draft PR.
+
+<details>
+<summary>Optional command shortcuts</summary>
+
+### Command shortcuts
+
+Install the `just` command runner (for example, `brew install just` on macOS),
+then run `just` to list the checked-in shortcuts. Existing scripts remain usable
+without it. Recipes run from the repository root, including when invoked from a
+subdirectory; arguments are forwarded to the underlying commands.
+
+| Shortcut | Underlying command / purpose |
+| --- | --- |
+| `just control-up` | `./scripts/start-control-plane.sh` |
+| `just control-up api reconciler dynamic-runtime` | Start the selected control services for project workflows |
+| `just workers-up` | `./scripts/start-workers.sh -d` — legacy Compose fleet; may make paid calls and repository writes |
+| `just observability-up` | `./scripts/start-observability.sh` |
+| `just hatchet-check` | `./scripts/check-hatchet-connectivity.sh` |
+| `just issue-send 123` | Explicit legacy issue event; may make paid calls and repository writes |
+| `just install-ui` / `just install-docs` | Install locked npm dependencies for the selected component |
+| `just ui-dev` / `just ui-build` | Develop / type-check and bundle the Control Pane |
+| `just docs-dev` / `just docs-preview` | Develop / preview built documentation |
+| `just docs-check` | Build the documentation and validate generated pages, links and assets |
+| `just test` | Worker, backend and frontend unit suites; excludes opt-in integration contracts |
+| `just test-worker` / `just test-backend` / `just test-ui` | Run one unit suite |
+
+Prepare `.env`, Hatchet, Python dependencies and npm dependencies as described
+below before running the relevant shortcuts. Python recipes use `.venv/bin/python`;
+set `FLUMIC_PYTHON=/absolute/path/to/python` to choose another interpreter.
+For example, `just docs-dev --port 4323` forwards the port to Astro. Use
+`just --dry-run control-up api reconciler dynamic-runtime` to inspect a command
+without starting services. Pool creation and project authorization are available
+through **Shared worker pools** in the UI; they do not need shell aliases.
+
+
+</details>
 
 ## Configuration
 
@@ -211,15 +534,14 @@ React/TypeScript with Vite. Worker domain/application code lives under
 ```sh
 python3 -m venv .venv
 .venv/bin/python -m pip install -r worker/requirements.txt -r control-plane/backend/requirements.lock
-.venv/bin/python -m unittest discover -s tests -q
-PYTHONPATH=worker:control-plane/backend .venv/bin/python -m unittest discover -s control-plane/backend/tests -q
+just test-worker
+just test-backend
 ```
 
 ```sh
-cd control-plane/frontend
-npm ci
-npm test
-npm run build
+just install-ui
+just test-ui
+just ui-build
 ```
 
 CI uses Python 3.14 and Node.js 22. The [test workflow](.github/workflows/tests.yml)
