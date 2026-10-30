@@ -40,3 +40,6 @@ website/public/social/
 
 # Cookbook fixtures copied by website/scripts/prepare_content.py
 website/public/examples/
+
+# Private local LLM gateway administration and encryption credentials.
+.env.litellm

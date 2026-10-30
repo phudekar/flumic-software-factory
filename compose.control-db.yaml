@@ -1,0 +1,32 @@
+# Default local database overlay; retains the existing factory-control volume.
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: factory_control
+      POSTGRES_USER: factory_control
+      POSTGRES_PASSWORD: ${CONTROL_DB_PASSWORD:?Run scripts/start-control-plane.sh}
+    volumes:
+    - ${CONTROL_DB_DATA_PATH:-control-db}:/var/lib/postgresql/data
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - pg_isready -U factory_control -d factory_control
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+  api:
+    environment: &local-database
+      CONTROL_DATABASE_URL: postgresql+psycopg://factory_control:${CONTROL_DB_PASSWORD}@postgres:5432/factory_control
+  reconciler:
+    environment: *local-database
+  dynamic-runtime:
+    environment: *local-database
+  migrate:
+    environment: *local-database
+    depends_on:
+      postgres:
+        condition: service_healthy
+volumes:
+  control-db:

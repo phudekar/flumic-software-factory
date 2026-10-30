@@ -24,6 +24,5 @@ fi
 export FACTORY_HOST_ROOT="$PWD"
 mkdir -p data/control-plane/snapshots
 docker network inspect worker-network >/dev/null 2>&1 || docker network create worker-network >/dev/null
-docker-compose -f compose.yaml build worker developer-worker
-docker-compose --env-file .env --env-file .env.control-plane -f compose.control-plane.yaml up --build -d "$@"
+./scripts/control-compose.sh up --build -d "$@"
 printf '%s\n' 'Control plane: http://localhost:3400' 'Sign in with CONTROL_ADMIN_PASSWORD from .env.control-plane (private, ignored by Git).' 'Existing workers were not restarted.'

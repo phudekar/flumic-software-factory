@@ -60,13 +60,15 @@ From the repository root, prepare your private environment and start the control
 services using the quick-start instructions, then:
 
 ```sh
+just images-build
 just control-up api reconciler dynamic-runtime
 ```
 
 **Checkpoint:** `http://localhost:3400` opens. API, PostgreSQL, reconciler and the
 dynamic runtime must be available; a functioning UI alone does not establish that
-Hatchet handlers or shared workers are registered. This launcher builds images
-but does not restart existing managed workers. Keep all control services on the
+Hatchet handlers or shared workers are registered. Worker images are built
+explicitly by `images-build`; the launcher builds only the Control Pane image
+and does not restart existing managed workers. Keep all control services on the
 same runtime namespace and deployment configuration.
 
 **If blocked:** inspect control-service startup logs and Hatchet connectivity

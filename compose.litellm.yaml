@@ -1,0 +1,46 @@
+# Optional standalone gateway. Models and upstream keys are managed in its UI.
+name: flumic-gateway
+services:
+  litellm:
+    image: ${LITELLM_IMAGE:-ghcr.io/berriai/litellm:v1.106.6}
+    environment:
+      DATABASE_URL: postgresql://litellm:${LITELLM_DB_PASSWORD:?Run scripts/start-gateway.sh}@litellm-db:5432/litellm
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:?Run scripts/start-gateway.sh}
+      LITELLM_SALT_KEY: ${LITELLM_SALT_KEY:?Run scripts/start-gateway.sh}
+      STORE_MODEL_IN_DB: "True"
+    ports:
+      - 127.0.0.1:4000:4000
+    depends_on:
+      litellm-db:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, python3, -c, "import urllib.request; urllib.request.urlopen('http://localhost:4000/health/liveliness',timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    networks: [private, workers]
+    restart: unless-stopped
+  litellm-db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: litellm
+      POSTGRES_USER: litellm
+      POSTGRES_PASSWORD: ${LITELLM_DB_PASSWORD:?Run scripts/start-gateway.sh}
+    volumes:
+      - litellm-db:/var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, pg_isready -U litellm -d litellm]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks: [private]
+    restart: unless-stopped
+networks:
+  private:
+    internal: true
+  workers:
+    external: true
+    name: worker-network
+volumes:
+  litellm-db:

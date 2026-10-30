@@ -16,9 +16,11 @@ The startup script provisions `observability/dashboards/software-factory.json`
 through an authenticated, one-shot container. Open **http://localhost:3301** and
 choose **Dashboards → Software Factory**. The provisioned dashboard retains its
 existing name, **Software Factory — Workers and AI Usage**, after the Flumic AI
-product rename; telemetry service names and labels also remain unchanged. Repeated starts update the same dashboard
-by its stable name; they do not create duplicates. Local dashboard edits may be
-replaced by the checked-in JSON on subsequent starts.
+product rename; telemetry service names and labels also remain unchanged. First setup attempts provisioning; later starts preserve dashboard edits. Run
+`just dashboards-provision` to deliberately reconcile the same dashboard by its
+stable name. This may replace local edits with the checked-in JSON. A provisioning
+failure warns without failing the running monitoring stack. See [deployment
+lifecycle](deployment-compose.md#monitoring-and-dashboard-provisioning).
 
 For an existing account, set `SIGNOZ_API_KEY` (with dashboard read/create/update
 access), or `SIGNOZ_ADMIN_EMAIL` and `SIGNOZ_ADMIN_PASSWORD`, in the root
@@ -83,7 +85,7 @@ After the monitoring stack is running:
 ```
 
 This loads the existing Hatchet `development` profile, rebuilds the worker
-images, and uses `compose.yaml` plus `compose.observability.yaml`. **Starting
+images, and uses `compose.yaml` plus `compose.workers-observability.yaml`. **Starting
 these workers enables normal issue scans and real GitHub/agent operations.**
 Both roles join the monitoring network and send to
 `http://factory-signoz-ingester:4318`. The overlay selects

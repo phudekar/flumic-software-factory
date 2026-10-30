@@ -40,14 +40,15 @@ and [history/accounting contract](project-observability.md).
 3. Start the control services explicitly:
 
    ```sh
-   ./scripts/start-control-plane.sh api reconciler dynamic-runtime
+   just images-build
+   just control-up api reconciler dynamic-runtime
    ```
 
-   The API applies migrations, the reconciler manages worker/container operations
+   The one-time migration service gates application startup; the reconciler manages worker/container operations
    and job cleanup, and `dynamic-runtime` registers the fixed Hatchet control/wait
    handlers and repairs dispatch intents. This command targets these control
-   services; it does not restart existing user worker containers. It also builds
-   the repository worker images for later use. Existing workers retain their code
+   services; it does not restart existing user worker containers. Worker image
+   builds are a separate explicit command. Existing workers retain their code
    and configuration until an explicit worker lifecycle action.
 4. Create a project and its repository aliases/credential versions. Authorize
    compatible simple and developer pools. Create shared workers and explicitly

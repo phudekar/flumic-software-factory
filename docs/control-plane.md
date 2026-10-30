@@ -21,8 +21,11 @@ shipped. Back up the database and encryption key together; losing the key makes
 stored conversation content unreadable. Do not casually rotate the key: this
 initial implementation also derives worker ingestion credentials from it.
 
-The launcher loads the existing Hatchet `development` CLI profile, builds updated
-worker images, and starts only the control-plane Compose project. It does not
+The launcher loads the existing Hatchet `development` CLI profile and starts
+only the control-plane Compose project. Build worker images explicitly with
+`just images-build` before creating shared workers. A one-time migration job
+must succeed before application services start. See [deployment stacks](deployment-compose.md)
+for local/external databases and independent lifecycle commands. It does not
 restart existing factory workers. The database is internal; the web port is
 bound to loopback. Both Hatchet and SigNoz remain independent services.
 

@@ -4,7 +4,7 @@ The project runtime runs immutable workflow revisions on shared worker pools. A 
 
 ## Deployment and activation
 
-Use PostgreSQL for the shared runtime. Apply database migrations through the normal API startup, then run the `dynamic-runtime` service from `compose.control-plane.yaml` alongside `api` and `reconciler`. It registers the fixed control coordinator and durable wait handlers in Hatchet. Its background pump repairs missing dispatch intents, retries engine submissions, resumes accepted follow-ups and settles broker-confirmed jobs even when the original worker or parent has disappeared.
+Use PostgreSQL for the shared runtime. Apply database migrations through the one-time `migrate` service during normal control startup, then run the `dynamic-runtime` service from `compose.control-plane.yaml` alongside `api` and `reconciler`. It registers the fixed control coordinator and durable wait handlers in Hatchet. Its background pump repairs missing dispatch intents, retries engine submissions, resumes accepted follow-ups and settles broker-confirmed jobs even when the original worker or parent has disappeared.
 
 The control runtime receives database/encryption/Hatchet configuration and has no Docker socket. The reconciler owns Docker job execution. Shared workers receive scoped assignment credentials through the API. `CONTROL_RUNTIME_NAMESPACE` defaults to `flumic-dynamic-v1`; use the same value on the API and control runtime. It selects the registered control workflow names, not a project or repository. Restart the control runtime when changing saved default-factory Hatchet transport/TLS settings. Business settings always come from each run's database pin.
 

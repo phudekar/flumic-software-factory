@@ -6,7 +6,7 @@ For activation and run lifecycle, see the [runtime API guide](project-runtime-ap
 
 ## Roll out the history transport
 
-Rebuild the Control Plane and the images used by shared pools from this revision, apply the additive database migration through normal API startup, and recreate shared workers through the managed lifecycle when ready. Updating saved configuration does not replace code in an already-running image. No existing live worker or database was restarted during the implementation tests.
+Rebuild the Control Plane and the images used by shared pools from this revision, apply the additive database migration through the one-time `migrate` service during normal control startup, and recreate shared workers through the managed lifecycle when ready. Updating saved configuration does not replace code in an already-running image. No existing live worker or database was restarted during the implementation tests.
 
 The worker needs writable private spool storage. The managed root worker takes ownership of its dedicated mount before writing; arbitrary action/CLI users do not receive that infrastructure directory. The operator-provided price table is mounted read-only. These mounts contain no global business-state database or worker control socket.
 
