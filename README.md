@@ -415,6 +415,8 @@ of the overall issue. The screenshots stop at a reviewed draft PR.
 
 ### Command shortcuts
 
+See [local deployment stacks](docs/deployment-compose.md) for database modes, migrations, the optional LiteLLM gateway and independent lifecycle commands. New installations should run `just images-build` before creating shared workers; restarting the Control Pane no longer rebuilds their images.
+
 Install the `just` command runner (for example, `brew install just` on macOS),
 then run `just` to list the checked-in shortcuts. Existing scripts remain usable
 without it. Recipes run from the repository root, including when invoked from a
@@ -422,10 +424,15 @@ subdirectory; arguments are forwarded to the underlying commands.
 
 | Shortcut | Underlying command / purpose |
 | --- | --- |
-| `just control-up` | `./scripts/start-control-plane.sh` |
+| `just images-build` | Build managed worker images explicitly; does not start containers |
+| `just control-up` | Start core services, one-time migrations and the default local database; no worker image builds |
+| `just control-logs` / `just control-down` | Inspect / stop the core stack; default down retains volumes |
+| `just gateway-up` / `just gateway-logs` / `just gateway-down` | Optional standalone LiteLLM gateway; does not change Flumic model routing |
 | `just control-up api reconciler dynamic-runtime` | Start the selected control services for project workflows |
 | `just workers-up` | `./scripts/start-workers.sh -d` — legacy Compose fleet; may make paid calls and repository writes |
-| `just observability-up` | `./scripts/start-observability.sh` |
+| `just observability-up` / `just observability-logs` / `just observability-down` | Independent SigNoz stack |
+| `just dashboards-provision` | Explicitly reconcile the checked-in dashboard; first setup also attempts this |
+| `just metrics-up` / `just metrics-logs` / `just metrics-down` | Independent host resource collector |
 | `just hatchet-check` | `./scripts/check-hatchet-connectivity.sh` |
 | `just issue-send 123` | Explicit legacy issue event; may make paid calls and repository writes |
 | `just install-ui` / `just install-docs` | Install locked npm dependencies for the selected component |

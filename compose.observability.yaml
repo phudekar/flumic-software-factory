@@ -1,3 +1,5 @@
+# Compatibility alias for compose.workers-observability.yaml.
+# Use the new filename for legacy-worker telemetry deployments.
 # Select the observed worker profiles defined in worker-config.yaml.
 services:
   worker:

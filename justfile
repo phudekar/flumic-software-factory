@@ -11,6 +11,28 @@ default:
 control-up *args:
     ./scripts/start-control-plane.sh "$@"
 
+# Build both worker images without starting containers.
+images-build *args:
+    ./scripts/build-worker-images.sh "$@"
+
+# Stop control services, preserving database volumes. Keep the same DB mode as startup.
+control-down *args:
+    ./scripts/control-compose.sh down "$@"
+
+# Follow control-service logs; optional arguments select services or log options.
+control-logs *args:
+    ./scripts/control-compose.sh logs -f "$@"
+
+# Start the optional local gateway; does not change Flumic model routing.
+gateway-up *args:
+    ./scripts/start-gateway.sh "$@"
+
+gateway-down *args:
+    ./scripts/gateway-compose.sh down "$@"
+
+gateway-logs *args:
+    ./scripts/gateway-compose.sh logs -f "$@"
+
 # Start the legacy Compose worker fleet; may call models and write repositories.
 workers-up *args:
     ./scripts/start-workers.sh -d "$@"
@@ -18,6 +40,25 @@ workers-up *args:
 # Start SigNoz dashboards and resource metrics.
 observability-up *args:
     ./scripts/start-observability.sh "$@"
+
+observability-down *args:
+    ./scripts/observability-compose.sh down "$@"
+
+observability-logs *args:
+    ./scripts/observability-compose.sh logs -f "$@"
+
+# Reconcile the factory dashboard explicitly; monitoring remains independent.
+dashboards-provision *args:
+    ./scripts/provision-dashboards.sh "$@"
+
+metrics-up *args:
+    ./scripts/start-resource-metrics.sh "$@"
+
+metrics-down *args:
+    ./scripts/compose-command.sh -f compose.resource-metrics.yaml down "$@"
+
+metrics-logs *args:
+    ./scripts/compose-command.sh -f compose.resource-metrics.yaml logs -f "$@"
 
 # Check connectivity to the Hatchet development profile through Docker.
 hatchet-check *args:

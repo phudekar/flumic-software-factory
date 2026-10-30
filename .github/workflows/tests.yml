@@ -39,6 +39,25 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  deployment:
+    name: Compose deployment contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+      - name: Require Docker Compose for real configuration validation
+        run: ./scripts/compose-command.sh version
+      - name: Validate manifests and isolated lifecycle commands
+        run: python -m unittest discover -s tests -p test_compose_deployment.py -v
+      - name: Check shell syntax
+        run: |
+          for script in scripts/*compose*.sh scripts/start-*.sh scripts/build-worker-images.sh scripts/provision-dashboards.sh; do
+            sh -n "$script"
+          done
+
   worker:
     name: Worker tests
     runs-on: ubuntu-latest

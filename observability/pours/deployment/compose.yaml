@@ -142,6 +142,7 @@ services:
     - factory-signoz-network
     restart: on-failure
   dashboard-bootstrap:
+    profiles: [provisioning]
     image: python:3.12-alpine
     entrypoint: ["python", "/bootstrap/bootstrap-dashboard.py"]
     depends_on:

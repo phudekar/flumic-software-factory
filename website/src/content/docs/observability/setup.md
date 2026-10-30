@@ -49,3 +49,7 @@ Resource charts include shared services and can include other Docker workloads o
 ```
 
 Synthetic events use `telemetry-smoke` and `factory.synthetic=true`. They do not populate the default development filter. See the [complete observability guide](/flumic-software-factory/handbook/observability/) for credential bootstrap, pricing, panel semantics, shutdown and reproducible upgrades.
+
+## Independent lifecycle and dashboard updates
+
+First setup attempts dashboard provisioning separately; later starts preserve local edits. Use `just dashboards-provision` to reconcile the checked-in JSON explicitly. Provisioning failures warn without failing the monitoring startup. Start without host resource collection with `FLUMIC_RESOURCE_METRICS=0 just observability-up`. See [local deployment stacks](/flumic-software-factory/handbook/deployment-compose/) for logs, shutdown and recovery commands.

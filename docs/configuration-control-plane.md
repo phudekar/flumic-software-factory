@@ -4,7 +4,7 @@ This reference covers the server, deployment environment, and worker credentials
 
 ## Configuration layers and when changes apply
 
-`./scripts/start-control-plane.sh` changes to the repository root and runs Compose with `--env-file .env --env-file .env.control-plane`. The second file takes precedence over the first; exported shell values can override Compose interpolation. Neither file is automatically a complete container environment: only entries listed under a service's `environment` are delivered to it. Do not put runtime settings in `.env` expecting them to override YAML.
+`./scripts/start-control-plane.sh` changes to the repository root and runs Compose with `--env-file .env --env-file .env.control-plane`. The root `.env` is optional; the second file takes precedence over the first; exported shell values can override Compose interpolation. Neither file is automatically a complete container environment: only entries listed under a service's `environment` are delivered to it. Do not put runtime settings in `.env` expecting them to override YAML.
 
 The server loads `AppSettings` at process startup. Apply server environment changes by recreating **both** `api` and `reconciler`; restarting an existing container preserves its original environment. The reconciler also creates managed worker containers from its environment. Changing its credentials does not update existing worker container environments: stop and reconfigure/recreate those runtimes to deliver new credentials. Merely starting an existing worker does refresh its linked saved profile through bootstrap, but does not refresh its environment.
 
@@ -16,7 +16,7 @@ Standalone workers use `Settings.load`, which reads the selected YAML file/profi
 
 | Field / environment input | Load default and deployed value | Effect and example |
 | --- | --- | --- |
-| `database_url` / `CONTROL_DATABASE_URL` | Required. Compose constructs `postgresql+psycopg://factory_control:${CONTROL_DB_PASSWORD}@postgres:5432/factory_control`. | SQLAlchemy connection for revisions, profiles, worker desired state, operations, sessions, events, conversations and audit history. Example direct process value: `postgresql+psycopg://factory_control:<url-encoded-password>@db:5432/factory_control`. A shell `CONTROL_DATABASE_URL` does **not** override the hard-coded Compose environment expression; use an override manifest for an external database. |
+| `database_url` / `CONTROL_DATABASE_URL` | Required. The default local overlay constructs `postgresql+psycopg://factory_control:${CONTROL_DB_PASSWORD}@postgres:5432/factory_control`; external mode reads `CONTROL_DATABASE_URL`. | SQLAlchemy connection for revisions, profiles, worker desired state, operations, sessions, events, conversations and audit history. Example direct process value: `postgresql+psycopg://factory_control:<url-encoded-password>@db:5432/factory_control`. Select `CONTROL_DATABASE_MODE=external` in the shell to use the URL from your private env file or exported environment. Local mode deliberately keeps the local URL. See [deployment modes](deployment-compose.md#local-or-external-control-postgresql). |
 | `admin_password` / `CONTROL_ADMIN_PASSWORD` | Required; script generates a random URL-safe value on first use. | Sole administrator login password, hashed in memory when the API starts. Example: `<generated-admin-password>`. Updating the file requires API recreation; existing database-backed sessions are not automatically revoked by a password change. Keep credentials out of committed documentation and YAML profiles. |
 | `encryption_key` / `CONTROL_ENCRYPTION_KEY` | Required; script generates URL-safe base64 for 32 random bytes. | Must be a valid Fernet key or API startup fails. Encrypts stored captured conversations and is also the HMAC secret used to derive per-worker bearer tokens. Example: `<generated-Fernet-key>`, not an arbitrary password. Preserve it with the database; see backup notes below. |
 | `root` / `FACTORY_ROOT` | `.` resolved to an absolute path; Compose sets `/factory`. | Repository root used for bootstrap configuration/profile imports, worker image build sources, and derived control-plane data paths. Example direct process value: `/srv/software-factory`. A host path is not appropriate here when the process runs inside `/factory`. Compose fixes this value. |
@@ -32,9 +32,17 @@ Standalone workers use `Settings.load`, which reads the selected YAML file/profi
 
 Configures optional `job_bridge` (default `None`): the fixed, pre-created dedicated Docker network used by internal one-time job stages declaring `network: bridge`. Example: `CONTROL_JOB_BRIDGE=flumic-action-network`. Reserved `host`, `bridge` and `none` names are rejected. Jobs default to no network; this is not a host/metadata egress firewall. The base Compose manifest forwards it to the API and reconciler. Recreate both after changing it: publication policy and broker execution must agree. For Docker execution, bridge stages require this fixed deployment network. A qualified Kubernetes target can independently enable bridge stages through its approved `network_policy_names.bridge` policy; it does not require `CONTROL_JOB_BRIDGE`. Workers claim only stages supported by their selected target. See the [job contract](docker-action-jobs.md).
 
+### `CONTROL_DATABASE_MODE` (launcher only)
+
+Export `CONTROL_DATABASE_MODE=local` (default) or `external` in your shell. The
+wrapper does not read this selector from `.env` files. Local mode includes
+`compose.control-db.yaml` and retains the existing database volume; external mode
+uses the private `CONTROL_DATABASE_URL` and omits bundled Postgres. Keep the same
+mode for startup, logs and shutdown. See [database modes](deployment-compose.md#local-or-external-control-postgresql).
+
 ### `CONTROL_DATABASE_URL`
 
-Configures `database_url`; required for direct server startup. Under Compose the URL is assembled from `CONTROL_DB_PASSWORD`, so use a service environment override for a different database.
+Configures `database_url`; required for direct server startup. The default local overlay assembles the URL from `CONTROL_DB_PASSWORD`. To use an external PostgreSQL database, save the URL in `.env.control-plane` and export `CONTROL_DATABASE_MODE=external` for every lifecycle command. The wrapper validates the URL and omits local PostgreSQL. Switching modes does not transfer existing data.
 
 ### `CONTROL_ADMIN_PASSWORD`
 
@@ -82,14 +90,14 @@ The browser always calls relative `/api/v1` with same-origin credentials; there 
 
 | Input or fixed deployment choice | Default/example | Operational effect |
 | --- | --- | --- |
-| `CONTROL_DB_PASSWORD` | Generated at first startup; example `<generated-db-password>`. Required by Compose. | Sets PostgreSQL `POSTGRES_PASSWORD` and the API/reconciler URL password. It is Compose interpolation, **not** an `AppSettings` field. PostgreSQL initializes credentials only for a fresh data directory; changing this variable alone on an existing volume does not change the database user's actual password. Coordinate a real DB password update with server recreation. |
+| `CONTROL_DB_PASSWORD` | Generated at first startup; example `<generated-db-password>`. Required by the local database overlay. | Sets PostgreSQL `POSTGRES_PASSWORD` and the API/reconciler URL password. It is Compose interpolation, **not** an `AppSettings` field. PostgreSQL initializes credentials only for a fresh data directory; changing this variable alone on an existing volume does not change the database user's actual password. Coordinate a real DB password update with server recreation. |
 | `CONTROL_DB_DATA_PATH` | `control-db`; example `/srv/factory-postgres`. | Selects the Postgres volume or host bind mount at `/var/lib/postgresql/data`. The default is a Compose-managed named volume (normally project-prefixed). Use an absolute existing host path for an intentional bind mount. Changing it selects a different database directory and may initialize an empty database; it does not migrate data. |
 | `.env.control-plane` existence | Script creates it only if missing, mode `0600`. | Generates only admin password, DB password and encryption key. An existing partial file is not repaired or rotated. Back it up securely; rerunning the script preserves its values. `.env.example` documents GitHub/model credentials for `.env`, not these generated server secrets. |
-| Script `"$@"` arguments | Example `./scripts/start-control-plane.sh --force-recreate`. | Passed to the control Compose `up --build -d` invocation, after initial worker image builds. Service selection and Compose options apply there. This script does not restart the existing standalone worker services. |
+| Script `"$@"` arguments | Example `./scripts/start-control-plane.sh --force-recreate`. | Passed to the control Compose `up --build -d` invocation. Worker builds are separate through `just images-build`. Service selection and Compose options apply there. This script does not restart the existing standalone worker services. |
 | Hatchet development profile | Fixed name `development`; used only if `hatchet` is on `PATH`. | Script evaluates `hatchet profile env --name development`; failure aborts. Without CLI, supply the token through the environment/files. Control Compose allows an empty token, so API startup can succeed while engine actions or managed-worker creation fail. |
 | Host root and network | Script exports `$PWD`; creates `worker-network` if missing. | Connects managed workers, API and reconciler on a shared Docker network. Fixed API container name `factory-control-api` supplies the internal DNS name. Existing standalone `compose.yaml` uses the same worker network. |
 | Exposed port | Fixed `127.0.0.1:3400:8000`. | Browser access is host-local at `http://localhost:3400`. Changing `CONTROL_PUBLIC_ORIGIN` does not publish a new port or expose it remotely; edit/override the port and configure a proxy for other access. The startup message is also fixed to localhost. |
-| Server image and storage mounts | `software-factory-control:local`; repository read-only at `/factory`, `./data/control-plane` writable there; Docker socket mounted. | API startup runs Alembic migrations before Uvicorn; reconciler waits for API health. Both need shared snapshots/build progress. Docker socket access enables worker lifecycle/image operations on the daemon. File permissions and Docker daemon host paths must match this topology. |
+| Server image and storage mounts | `software-factory-control:local`; repository read-only at `/factory`, `./data/control-plane` writable there; Docker socket mounted. | The one-time `migrate` service runs Alembic before application startup; API startup runs only Uvicorn; reconciler waits for API health. Both need shared snapshots/build progress. Docker socket access enables worker lifecycle/image operations on the daemon. File permissions and Docker daemon host paths must match this topology. |
 
 Example override for HTTPS behind a same-origin proxy (proxy provisioning and TLS are separate):
 
@@ -127,7 +135,7 @@ These are real runtime inputs, separate from YAML `Settings`. Credentials are no
 | `FACTORY_SHARED_TELEMETRY_ENDPOINT` | Empty; examples use `http://factory-signoz-ingester:4318`. | Selects worker-lifetime OTEL infrastructure gauges. Empty activates lazily at the first OTEL action's collector, then retains that target. Explicit configuration enables infrastructure metrics at worker startup. Forwarded by the base manifest; recreate the reconciler/API environment and worker runtime to change it. Action exporters remain pinned per invocation. |
 | `FACTORY_SHARED_DEPLOYMENT_ENVIRONMENT` | `development`; e.g. `production`. | Infrastructure metric resource label for the shared physical worker, independent of project deployment labels. Forwarded to newly created workers; requires runtime recreation to change. |
 
-`./scripts/start-workers.sh` and `./scripts/start-observed-workers.sh` always require the Hatchet CLI development profile and a nonempty exported token, unlike the control-plane script's optional CLI lookup. They pass arguments to Compose `up --build`; the observed variant also includes `compose.observability.yaml`. See the worker and observability references for those settings.
+`./scripts/start-workers.sh` and `./scripts/start-observed-workers.sh` always require the Hatchet CLI development profile and a nonempty exported token, unlike the control-plane script's optional CLI lookup. They pass arguments to Compose `up --build`; the observed variant also includes `compose.workers-observability.yaml`. See the worker and observability references for those settings.
 
 ## Dynamic control workflow namespace
 

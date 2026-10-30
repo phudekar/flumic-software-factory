@@ -1,27 +1,14 @@
+# Core services. Use scripts/start-control-plane.sh for the default local DB overlay.
 name: factory-control
 services:
-  postgres:
-    image: postgres:16
-    environment:
-      POSTGRES_DB: factory_control
-      POSTGRES_USER: factory_control
-      POSTGRES_PASSWORD: ${CONTROL_DB_PASSWORD:?Run scripts/start-control-plane.sh}
-    volumes:
-      - ${CONTROL_DB_DATA_PATH:-control-db}:/var/lib/postgresql/data
-    healthcheck:
-      test: [CMD-SHELL, 'pg_isready -U factory_control -d factory_control']
-      interval: 5s
-      timeout: 5s
-      retries: 20
-    restart: unless-stopped
   api:
-    build:
+    build: &control-build
       context: .
       dockerfile: control-plane/Dockerfile
     image: software-factory-control:local
     container_name: factory-control-api
     environment: &backend
-      CONTROL_DATABASE_URL: postgresql+psycopg://factory_control:${CONTROL_DB_PASSWORD}@postgres:5432/factory_control
+      CONTROL_DATABASE_URL: ${CONTROL_DATABASE_URL:-}
       CONTROL_ADMIN_PASSWORD: ${CONTROL_ADMIN_PASSWORD:?Run scripts/start-control-plane.sh}
       CONTROL_ENCRYPTION_KEY: ${CONTROL_ENCRYPTION_KEY:?Run scripts/start-control-plane.sh}
       CONTROL_PUBLIC_ORIGIN: ${CONTROL_PUBLIC_ORIGIN:-http://localhost:3400}
@@ -38,19 +25,33 @@ services:
       DEVELOPER_OPENAI_API_KEY: ${DEVELOPER_OPENAI_API_KEY:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
     volumes: &volumes
-      - .:/factory:ro
-      - ./data/control-plane:/factory/data/control-plane
-      - /var/run/docker.sock:/var/run/docker.sock
+    - .:/factory:ro
+    - ./data/control-plane:/factory/data/control-plane
+    - /var/run/docker.sock:/var/run/docker.sock
     ports:
-      - 127.0.0.1:3400:8000
-    command: [sh, -c, 'alembic upgrade head && exec uvicorn app.main:create_app --factory --host 0.0.0.0 --port 8000 --no-access-log']
+    - 127.0.0.1:3400:8000
+    command:
+    - uvicorn
+    - app.main:create_app
+    - --factory
+    - --host
+    - 0.0.0.0
+    - --port
+    - '8000'
+    - --no-access-log
     depends_on:
-      postgres:
-        condition: service_healthy
-    networks: [default, workers]
+      migrate:
+        condition: service_completed_successfully
+    networks:
+    - default
+    - workers
     restart: unless-stopped
     healthcheck:
-      test: [CMD, python, -c, 'import urllib.request; urllib.request.urlopen("http://localhost:8000/api/v1/health",timeout=3)']
+      test:
+      - CMD
+      - python
+      - -c
+      - import urllib.request; urllib.request.urlopen("http://localhost:8000/api/v1/health",timeout=3)
       interval: 10s
       timeout: 5s
       retries: 10
@@ -59,16 +60,23 @@ services:
     image: software-factory-control:local
     environment: *backend
     volumes: *volumes
-    command: [python, -m, app.reconciler]
+    command:
+    - python
+    - -m
+    - app.reconciler
     depends_on:
       api:
         condition: service_healthy
-    networks: [default, workers]
+      migrate:
+        condition: service_completed_successfully
+    networks:
+    - default
+    - workers
     restart: unless-stopped
   dynamic-runtime:
     image: software-factory-control:local
     environment:
-      CONTROL_DATABASE_URL: postgresql+psycopg://factory_control:${CONTROL_DB_PASSWORD}@postgres:5432/factory_control
+      CONTROL_DATABASE_URL: ${CONTROL_DATABASE_URL:-}
       CONTROL_ADMIN_PASSWORD: ${CONTROL_ADMIN_PASSWORD:?Run scripts/start-control-plane.sh}
       CONTROL_ENCRYPTION_KEY: ${CONTROL_ENCRYPTION_KEY:?Run scripts/start-control-plane.sh}
       FACTORY_ROOT: /factory
@@ -76,17 +84,34 @@ services:
       HATCHET_CLIENT_TOKEN: ${HATCHET_CLIENT_TOKEN:-}
       CONTROL_RUNTIME_NAMESPACE: ${CONTROL_RUNTIME_NAMESPACE:-flumic-dynamic-v1}
     volumes:
-      - .:/factory:ro
-      - ./data/control-plane:/factory/data/control-plane
-    command: [python, -m, app.dynamic_runtime]
+    - .:/factory:ro
+    - ./data/control-plane:/factory/data/control-plane
+    command:
+    - python
+    - -m
+    - app.dynamic_runtime
     depends_on:
       api:
         condition: service_healthy
-    networks: [default, workers]
+      migrate:
+        condition: service_completed_successfully
+    networks:
+    - default
+    - workers
     restart: unless-stopped
+  migrate:
+    build: *control-build
+    image: software-factory-control:local
+    environment:
+      CONTROL_DATABASE_URL: ${CONTROL_DATABASE_URL:-}
+    command:
+    - alembic
+    - upgrade
+    - head
+    networks:
+    - default
+    restart: 'no'
 networks:
   workers:
     external: true
     name: worker-network
-volumes:
-  control-db:

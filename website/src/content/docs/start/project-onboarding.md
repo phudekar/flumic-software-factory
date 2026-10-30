@@ -17,14 +17,16 @@ Clone the repository and prepare private credentials using the prerequisites in
 Then run:
 
 ```sh
-./scripts/start-control-plane.sh api reconciler dynamic-runtime
+just images-build
+just control-up api reconciler dynamic-runtime
 ```
 
 Open `http://localhost:3400` and sign in using `.env.control-plane`. The API stores
 configuration and accepts commands; the reconciler manages infrastructure; the
 dynamic runtime registers the fixed Hatchet handlers. A working UI alone does
-not prove Hatchet connectivity or worker registration. This command also builds
-worker images; existing workers need an explicit lifecycle action to adopt them.
+not prove Hatchet connectivity or worker registration. Worker images are built explicitly by `images-build`; existing workers need an
+explicit lifecycle action to adopt them. The migration job must succeed before
+application startup. See [local deployment stacks](/flumic-software-factory/handbook/deployment-compose/).
 
 For a screen-by-screen guide, see [guided project setup](/flumic-software-factory/control-plane/project-setup/).
 
