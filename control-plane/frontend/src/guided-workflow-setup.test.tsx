@@ -53,6 +53,7 @@ const simple = [
 function mount(
   path: string,
   failure?: "handover" | "seed" | "run" | "foreign",
+  repositoriesDelayMs = 0,
 ) {
   const fetcher = vi.fn(async (url: string, options?: RequestInit) => {
     if (options?.method === "POST") {
@@ -79,7 +80,11 @@ function mount(
     if (url.endsWith("/auth/session")) return json({ csrf: "test" });
     if (url === "/api/v1/projects")
       return json([{ id: "a", name: "Alpha", slug: "alpha" }]);
-    if (url.endsWith("/repositories"))
+    if (url.endsWith("/repositories")) {
+      if (repositoriesDelayMs)
+        await new Promise((resolve) =>
+          setTimeout(resolve, repositoriesDelayMs),
+        );
       return json([
         {
           id: "connection-uuid",
@@ -91,6 +96,7 @@ function mount(
           overrides: {},
         },
       ]);
+    }
     if (url.endsWith("/secrets"))
       return json([
         {
@@ -229,6 +235,7 @@ async function chooseTemplates() {
   fireEvent.click(
     await screen.findByRole("button", { name: "Install templates" }),
   );
+  await screen.findByRole("option", { name: "backend" });
   fireEvent.change(await screen.findByLabelText("Target repository"), {
     target: { value: "backend" },
   });
@@ -239,42 +246,46 @@ async function chooseTemplates() {
   fireEvent.change(screen.getByLabelText("Developer worker pool"), {
     target: { value: "dev-pool" },
   });
+  await screen.findByRole("option", { name: "Planner key" });
   fireEvent.change(screen.getByLabelText("OpenAI credential grant"), {
     target: { value: "openai-ref" },
   });
 }
-it("installs templates with the alias and scoped credential IDs without launching", async () => {
-  const f = mount("/projects/a/workflows");
-  await chooseTemplates();
-  expect(
-    screen.queryByRole("option", { name: "Other repo key" }),
-  ).not.toBeInTheDocument();
-  expect(
-    screen.queryByRole("option", { name: "Revoked key" }),
-  ).not.toBeInTheDocument();
-  expect(
-    screen.queryByRole("option", { name: "Unapproved pool" }),
-  ).not.toBeInTheDocument();
-  fireEvent.click(
-    screen
-      .getAllByRole("button", { name: "Install templates" })
-      .find((b) => !b.hasAttribute("disabled"))!,
-  );
-  await screen.findByRole("link", { name: "issue: view saved revision" });
-  expect(writes(f)).toHaveLength(1);
-  expect(writes(f)[0][0]).toBe(
-    "/api/v1/projects/a/workflow-definitions/seed-builtins",
-  );
-  expect(JSON.parse(writes(f)[0][1]!.body as string)).toEqual({
-    repository: "backend",
-    simple_pool: "simple-pool",
-    developer_pool: "dev-pool",
-    secrets: { openai: "openai-ref" },
-  });
-  expect(
-    screen.getByText(/Existing recipes were retained/),
-  ).toBeInTheDocument();
-});
+it.each([0, 300])(
+  "installs templates with scoped IDs after a %s ms repository response without launching",
+  async (delay) => {
+    const f = mount("/projects/a/workflows", undefined, delay);
+    await chooseTemplates();
+    expect(
+      screen.queryByRole("option", { name: "Other repo key" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("option", { name: "Revoked key" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("option", { name: "Unapproved pool" }),
+    ).not.toBeInTheDocument();
+    fireEvent.click(
+      screen
+        .getAllByRole("button", { name: "Install templates" })
+        .find((b) => !b.hasAttribute("disabled"))!,
+    );
+    await screen.findByRole("link", { name: "issue: view saved revision" });
+    expect(writes(f)).toHaveLength(1);
+    expect(writes(f)[0][0]).toBe(
+      "/api/v1/projects/a/workflow-definitions/seed-builtins",
+    );
+    expect(JSON.parse(writes(f)[0][1]!.body as string)).toEqual({
+      repository: "backend",
+      simple_pool: "simple-pool",
+      developer_pool: "dev-pool",
+      secrets: { openai: "openai-ref" },
+    });
+    expect(
+      screen.getByText(/Existing recipes were retained/),
+    ).toBeInTheDocument();
+  },
+);
 it("retains installation errors and cancels without a further write", async () => {
   const f = mount("/projects/a/workflows", "seed");
   await chooseTemplates();
