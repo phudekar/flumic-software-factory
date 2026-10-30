@@ -1,0 +1,211 @@
+path,area,required_verification,coverage_status,next_action
+.github/workflows/pages.yml,configuration-infrastructure,Schema/manifest/command fixture checks + relevant runtime E2E,not measured,Assign test owner and measured evidence in slice 0
+.github/workflows/tests.yml,configuration-infrastructure,Schema/manifest/command fixture checks + relevant runtime E2E,not measured,Assign test owner and measured evidence in slice 0
+compose.control-plane.yaml,configuration-infrastructure,Schema/manifest/command fixture checks + relevant runtime E2E,not measured,Assign test owner and measured evidence in slice 0
+compose.observability.yaml,configuration-infrastructure,Schema/manifest/command fixture checks + relevant runtime E2E,not measured,Assign test owner and measured evidence in slice 0
+compose.resource-metrics.yaml,configuration-infrastructure,Schema/manifest/command fixture checks + relevant runtime E2E,not measured,Assign test owner and measured evidence in slice 0
+compose.yaml,configuration-infrastructure,Schema/manifest/command fixture checks + relevant runtime E2E,not measured,Assign test owner and measured evidence in slice 0
+config/models.yaml,configuration-infrastructure,Schema/manifest/command fixture checks + relevant runtime E2E,not measured,Assign test owner and measured evidence in slice 0
+config/runtime.yaml,configuration-infrastructure,Schema/manifest/command fixture checks + relevant runtime E2E,not measured,Assign test owner and measured evidence in slice 0
+config/worker-profiles/default.yaml,configuration-infrastructure,Schema/manifest/command fixture checks + relevant runtime E2E,not measured,Assign test owner and measured evidence in slice 0
+config/worker-profiles/developer.yaml,configuration-infrastructure,Schema/manifest/command fixture checks + relevant runtime E2E,not measured,Assign test owner and measured evidence in slice 0
+config/workflow.yaml,configuration-infrastructure,Schema/manifest/command fixture checks + relevant runtime E2E,not measured,Assign test owner and measured evidence in slice 0
+control-plane/Dockerfile,configuration-infrastructure,Schema/manifest/command fixture checks + relevant runtime E2E,not measured,Assign test owner and measured evidence in slice 0
+control-plane/backend/app/__init__.py,backend,Unit + API/database contract + relevant workflow E2E,not measured,Assign test owner and measured evidence in slice 0
+control-plane/backend/app/adapters/docker.py,backend,Unit + API/database contract + relevant workflow E2E,not measured,Assign test owner and measured evidence in slice 0
+control-plane/backend/app/adapters/docker_jobs.py,backend,Unit + API/database contract + relevant workflow E2E,not measured,Assign test owner and measured evidence in slice 0
+control-plane/backend/app/adapters/hatchet.py,backend,Unit + API/database contract + relevant workflow E2E,not measured,Assign test owner and measured evidence in slice 0
+control-plane/backend/app/adapters/image_builder.py,backend,Unit + API/database contract + relevant workflow E2E,not measured,Assign test owner and measured evidence in slice 0
+control-plane/backend/app/adapters/kubernetes_api.py,backend,Unit + API/database contract + relevant workflow E2E,not measured,Assign test owner and measured evidence in slice 0
+control-plane/backend/app/adapters/kubernetes_job_manifests.py,backend,Unit + API/database contract + relevant workflow E2E,not measured,Assign test owner and measured evidence in slice 0
+control-plane/backend/app/adapters/kubernetes_jobs.py,backend,Unit + API/database contract + relevant workflow E2E,not measured,Assign test owner and measured evidence in slice 0
+control-plane/backend/app/adapters/kubernetes_workers.py,backend,Unit + API/database contract + relevant workflow E2E,not measured,Assign test owner and measured evidence in slice 0
+control-plane/backend/app/builtin_workflows.py,backend,Unit + API/database contract + relevant workflow E2E,not measured,Assign test owner and measured evidence in slice 0
+control-plane/backend/app/database.py,backend,Unit + API/database contract + relevant workflow E2E,not measured,Assign test owner and measured evidence in slice 0
+control-plane/backend/app/dynamic_runtime.py,backend,Unit + API/database contract + relevant workflow E2E,not measured,Assign test owner and measured evidence in slice 0
+control-plane/backend/app/followups.py,backend,Unit + API/database contract + relevant workflow E2E,not measured,Assign test owner and measured evidence in slice 0
+control-plane/backend/app/history.py,backend,Unit + API/database contract + relevant workflow E2E,not measured,Assign test owner and measured evidence in slice 0
+control-plane/backend/app/job_broker.py,backend,Unit + API/database contract + relevant workflow E2E,not measured,Assign test owner and measured evidence in slice 0
+control-plane/backend/app/job_contracts.py,backend,Unit + API/database contract + relevant workflow E2E,not measured,Assign test owner and measured evidence in slice 0
+control-plane/backend/app/main.py,backend,Unit + API/database contract + relevant workflow E2E,not measured,Assign test owner and measured evidence in slice 0
+control-plane/backend/app/ports.py,backend,Unit + API/database contract + relevant workflow E2E,not measured,Assign test owner and measured evidence in slice 0
+control-plane/backend/app/project_context.py,backend,Unit + API/database contract + relevant workflow E2E,not measured,Assign test owner and measured evidence in slice 0
+control-plane/backend/app/projects.py,backend,Unit + API/database contract + relevant workflow E2E,not measured,Assign test owner and measured evidence in slice 0
+control-plane/backend/app/reconciler.py,backend,Unit + API/database contract + relevant workflow E2E,not measured,Assign test owner and measured evidence in slice 0
+control-plane/backend/app/repository_triggers.py,backend,Unit + API/database contract + relevant workflow E2E,not measured,Assign test owner and measured evidence in slice 0
+control-plane/backend/app/repository_validation.py,backend,Unit + API/database contract + relevant workflow E2E,not measured,Assign test owner and measured evidence in slice 0
+control-plane/backend/app/runtime_claims.py,backend,Unit + API/database contract + relevant workflow E2E,not measured,Assign test owner and measured evidence in slice 0
+control-plane/backend/app/runtime_resources.py,backend,Unit + API/database contract + relevant workflow E2E,not measured,Assign test owner and measured evidence in slice 0
+control-plane/backend/app/runtime_router.py,backend,Unit + API/database contract + relevant workflow E2E,not measured,Assign test owner and measured evidence in slice 0
+control-plane/backend/app/runtime_targets.py,backend,Unit + API/database contract + relevant workflow E2E,not measured,Assign test owner and measured evidence in slice 0
+control-plane/backend/app/security.py,backend,Unit + API/database contract + relevant workflow E2E,not measured,Assign test owner and measured evidence in slice 0
+control-plane/backend/app/services.py,backend,Unit + API/database contract + relevant workflow E2E,not measured,Assign test owner and measured evidence in slice 0
+control-plane/backend/app/settings.py,backend,Unit + API/database contract + relevant workflow E2E,not measured,Assign test owner and measured evidence in slice 0
+control-plane/backend/app/trigger_policy.py,backend,Unit + API/database contract + relevant workflow E2E,not measured,Assign test owner and measured evidence in slice 0
+control-plane/backend/app/trigger_runtime.py,backend,Unit + API/database contract + relevant workflow E2E,not measured,Assign test owner and measured evidence in slice 0
+control-plane/backend/app/worker_configs.py,backend,Unit + API/database contract + relevant workflow E2E,not measured,Assign test owner and measured evidence in slice 0
+control-plane/backend/app/worker_pools.py,backend,Unit + API/database contract + relevant workflow E2E,not measured,Assign test owner and measured evidence in slice 0
+control-plane/backend/app/worker_runtime.py,backend,Unit + API/database contract + relevant workflow E2E,not measured,Assign test owner and measured evidence in slice 0
+control-plane/backend/app/workflow_controls.py,backend,Unit + API/database contract + relevant workflow E2E,not measured,Assign test owner and measured evidence in slice 0
+control-plane/backend/app/workflow_definitions.py,backend,Unit + API/database contract + relevant workflow E2E,not measured,Assign test owner and measured evidence in slice 0
+control-plane/backend/app/workflow_runs.py,backend,Unit + API/database contract + relevant workflow E2E,not measured,Assign test owner and measured evidence in slice 0
+control-plane/backend/app/workflow_state.py,backend,Unit + API/database contract + relevant workflow E2E,not measured,Assign test owner and measured evidence in slice 0
+control-plane/backend/migrations/env.py,operations-scripts,Controlled fixture execution + relevant deployment E2E,not measured,Assign test owner and measured evidence in slice 0
+control-plane/backend/migrations/versions/914e381e2a9c_initial_control_plane_schema.py,operations-scripts,Controlled fixture execution + relevant deployment E2E,not measured,Assign test owner and measured evidence in slice 0
+control-plane/backend/migrations/versions/b47c02a15f01_worker_configurations.py,operations-scripts,Controlled fixture execution + relevant deployment E2E,not measured,Assign test owner and measured evidence in slice 0
+control-plane/backend/migrations/versions/c82a1d6e40f3_workflow_controls.py,operations-scripts,Controlled fixture execution + relevant deployment E2E,not measured,Assign test owner and measured evidence in slice 0
+control-plane/backend/migrations/versions/e201f1000001_projects.py,operations-scripts,Controlled fixture execution + relevant deployment E2E,not measured,Assign test owner and measured evidence in slice 0
+control-plane/backend/migrations/versions/e201f1000002_scoped_controls.py,operations-scripts,Controlled fixture execution + relevant deployment E2E,not measured,Assign test owner and measured evidence in slice 0
+control-plane/backend/migrations/versions/e201f1000003_context.py,operations-scripts,Controlled fixture execution + relevant deployment E2E,not measured,Assign test owner and measured evidence in slice 0
+control-plane/backend/migrations/versions/e201f1000004_worker_pools.py,operations-scripts,Controlled fixture execution + relevant deployment E2E,not measured,Assign test owner and measured evidence in slice 0
+control-plane/backend/migrations/versions/e201f1000005_workflow_definitions.py,operations-scripts,Controlled fixture execution + relevant deployment E2E,not measured,Assign test owner and measured evidence in slice 0
+control-plane/backend/migrations/versions/e201f1000006_workflow_state.py,operations-scripts,Controlled fixture execution + relevant deployment E2E,not measured,Assign test owner and measured evidence in slice 0
+control-plane/backend/migrations/versions/e201f1000007_runtime_jobs.py,operations-scripts,Controlled fixture execution + relevant deployment E2E,not measured,Assign test owner and measured evidence in slice 0
+control-plane/backend/migrations/versions/e201f1000008_runtime_api.py,operations-scripts,Controlled fixture execution + relevant deployment E2E,not measured,Assign test owner and measured evidence in slice 0
+control-plane/backend/migrations/versions/e201f1000009_project_history.py,operations-scripts,Controlled fixture execution + relevant deployment E2E,not measured,Assign test owner and measured evidence in slice 0
+control-plane/backend/migrations/versions/e201f1000010_gitlab_namespaces.py,operations-scripts,Controlled fixture execution + relevant deployment E2E,not measured,Assign test owner and measured evidence in slice 0
+control-plane/backend/migrations/versions/e201f1000011_repository_triggers.py,operations-scripts,Controlled fixture execution + relevant deployment E2E,not measured,Assign test owner and measured evidence in slice 0
+control-plane/backend/migrations/versions/e201f1000012_runtime_targets.py,operations-scripts,Controlled fixture execution + relevant deployment E2E,not measured,Assign test owner and measured evidence in slice 0
+control-plane/frontend/src/api.ts,frontend,Unit/component + real browser journey; compile type-only files,not measured,Assign test owner and measured evidence in slice 0
+control-plane/frontend/src/app/App.tsx,frontend,Unit/component + real browser journey; compile type-only files,not measured,Assign test owner and measured evidence in slice 0
+control-plane/frontend/src/components/image-build-editor.tsx,frontend,Unit/component + real browser journey; compile type-only files,not measured,Assign test owner and measured evidence in slice 0
+control-plane/frontend/src/components/logs.tsx,frontend,Unit/component + real browser journey; compile type-only files,not measured,Assign test owner and measured evidence in slice 0
+control-plane/frontend/src/components/markdown-prompt-editor.tsx,frontend,Unit/component + real browser journey; compile type-only files,not measured,Assign test owner and measured evidence in slice 0
+control-plane/frontend/src/components/project-activity.tsx,frontend,Unit/component + real browser journey; compile type-only files,not measured,Assign test owner and measured evidence in slice 0
+control-plane/frontend/src/components/project-format.ts,frontend,Unit/component + real browser journey; compile type-only files,not measured,Assign test owner and measured evidence in slice 0
+control-plane/frontend/src/components/project-navigation.tsx,frontend,Unit/component + real browser journey; compile type-only files,not measured,Assign test owner and measured evidence in slice 0
+control-plane/frontend/src/components/project-run-table.tsx,frontend,Unit/component + real browser journey; compile type-only files,not measured,Assign test owner and measured evidence in slice 0
+control-plane/frontend/src/components/ui.tsx,frontend,Unit/component + real browser journey; compile type-only files,not measured,Assign test owner and measured evidence in slice 0
+control-plane/frontend/src/components/workflow-summary.tsx,frontend,Unit/component + real browser journey; compile type-only files,not measured,Assign test owner and measured evidence in slice 0
+control-plane/frontend/src/components/yaml-editor.tsx,frontend,Unit/component + real browser journey; compile type-only files,not measured,Assign test owner and measured evidence in slice 0
+control-plane/frontend/src/components/yaml-input.tsx,frontend,Unit/component + real browser journey; compile type-only files,not measured,Assign test owner and measured evidence in slice 0
+control-plane/frontend/src/features/auth.tsx,frontend,Unit/component + real browser journey; compile type-only files,not measured,Assign test owner and measured evidence in slice 0
+control-plane/frontend/src/features/configuration.tsx,frontend,Unit/component + real browser journey; compile type-only files,not measured,Assign test owner and measured evidence in slice 0
+control-plane/frontend/src/features/guided-issue-input.tsx,frontend,Unit/component + real browser journey; compile type-only files,not measured,Assign test owner and measured evidence in slice 0
+control-plane/frontend/src/features/history.tsx,frontend,Unit/component + real browser journey; compile type-only files,not measured,Assign test owner and measured evidence in slice 0
+control-plane/frontend/src/features/overview.tsx,frontend,Unit/component + real browser journey; compile type-only files,not measured,Assign test owner and measured evidence in slice 0
+control-plane/frontend/src/features/pool-create-form.tsx,frontend,Unit/component + real browser journey; compile type-only files,not measured,Assign test owner and measured evidence in slice 0
+control-plane/frontend/src/features/project-config-editor.tsx,frontend,Unit/component + real browser journey; compile type-only files,not measured,Assign test owner and measured evidence in slice 0
+control-plane/frontend/src/features/project-editors.css,frontend-styles,Responsive browser journey + visual/accessibility checks,not measured,Assign test owner and measured evidence in slice 0
+control-plane/frontend/src/features/project-model-calls.css,frontend-styles,Responsive browser journey + visual/accessibility checks,not measured,Assign test owner and measured evidence in slice 0
+control-plane/frontend/src/features/project-model-calls.tsx,frontend,Unit/component + real browser journey; compile type-only files,not measured,Assign test owner and measured evidence in slice 0
+control-plane/frontend/src/features/project-overview.tsx,frontend,Unit/component + real browser journey; compile type-only files,not measured,Assign test owner and measured evidence in slice 0
+control-plane/frontend/src/features/project-run-evidence.tsx,frontend,Unit/component + real browser journey; compile type-only files,not measured,Assign test owner and measured evidence in slice 0
+control-plane/frontend/src/features/project-run-inspector.css,frontend-styles,Responsive browser journey + visual/accessibility checks,not measured,Assign test owner and measured evidence in slice 0
+control-plane/frontend/src/features/project-run-inspector.tsx,frontend,Unit/component + real browser journey; compile type-only files,not measured,Assign test owner and measured evidence in slice 0
+control-plane/frontend/src/features/project-runs.tsx,frontend,Unit/component + real browser journey; compile type-only files,not measured,Assign test owner and measured evidence in slice 0
+control-plane/frontend/src/features/projects.tsx,frontend,Unit/component + real browser journey; compile type-only files,not measured,Assign test owner and measured evidence in slice 0
+control-plane/frontend/src/features/repository-handover.tsx,frontend,Unit/component + real browser journey; compile type-only files,not measured,Assign test owner and measured evidence in slice 0
+control-plane/frontend/src/features/repository-triggers.tsx,frontend,Unit/component + real browser journey; compile type-only files,not measured,Assign test owner and measured evidence in slice 0
+control-plane/frontend/src/features/runs.tsx,frontend,Unit/component + real browser journey; compile type-only files,not measured,Assign test owner and measured evidence in slice 0
+control-plane/frontend/src/features/runtime-targets.tsx,frontend,Unit/component + real browser journey; compile type-only files,not measured,Assign test owner and measured evidence in slice 0
+control-plane/frontend/src/features/template-install-form.tsx,frontend,Unit/component + real browser journey; compile type-only files,not measured,Assign test owner and measured evidence in slice 0
+control-plane/frontend/src/features/usage.tsx,frontend,Unit/component + real browser journey; compile type-only files,not measured,Assign test owner and measured evidence in slice 0
+control-plane/frontend/src/features/workers.tsx,frontend,Unit/component + real browser journey; compile type-only files,not measured,Assign test owner and measured evidence in slice 0
+control-plane/frontend/src/features/workflow-definitions.tsx,frontend,Unit/component + real browser journey; compile type-only files,not measured,Assign test owner and measured evidence in slice 0
+control-plane/frontend/src/features/workflows.tsx,frontend,Unit/component + real browser journey; compile type-only files,not measured,Assign test owner and measured evidence in slice 0
+control-plane/frontend/src/hooks.ts,frontend,Unit/component + real browser journey; compile type-only files,not measured,Assign test owner and measured evidence in slice 0
+control-plane/frontend/src/main.tsx,frontend,Unit/component + real browser journey; compile type-only files,not measured,Assign test owner and measured evidence in slice 0
+control-plane/frontend/src/project-context.tsx,frontend,Unit/component + real browser journey; compile type-only files,not measured,Assign test owner and measured evidence in slice 0
+control-plane/frontend/src/style.css,frontend-styles,Responsive browser journey + visual/accessibility checks,not measured,Assign test owner and measured evidence in slice 0
+control-plane/frontend/src/vite-env.d.ts,frontend,Unit/component + real browser journey; compile type-only files,not measured,Assign test owner and measured evidence in slice 0
+control-plane/frontend/src/workflow-api.ts,frontend,Unit/component + real browser journey; compile type-only files,not measured,Assign test owner and measured evidence in slice 0
+control-plane/kubernetes-helper/Dockerfile,configuration-infrastructure,Schema/manifest/command fixture checks + relevant runtime E2E,not measured,Assign test owner and measured evidence in slice 0
+control-plane/kubernetes-helper/flumic_job_helper.py,operations-scripts,Controlled fixture execution + relevant deployment E2E,not measured,Assign test owner and measured evidence in slice 0
+deploy/kubernetes/admission-policy.yaml,configuration-infrastructure,Schema/manifest/command fixture checks + relevant runtime E2E,not measured,Assign test owner and measured evidence in slice 0
+deploy/kubernetes/bootstrap-fence.py,operations-scripts,Controlled fixture execution + relevant deployment E2E,not measured,Assign test owner and measured evidence in slice 0
+deploy/kubernetes/namespaces.yaml,configuration-infrastructure,Schema/manifest/command fixture checks + relevant runtime E2E,not measured,Assign test owner and measured evidence in slice 0
+deploy/kubernetes/network-policies.yaml,configuration-infrastructure,Schema/manifest/command fixture checks + relevant runtime E2E,not measured,Assign test owner and measured evidence in slice 0
+deploy/kubernetes/rbac.yaml,configuration-infrastructure,Schema/manifest/command fixture checks + relevant runtime E2E,not measured,Assign test owner and measured evidence in slice 0
+docs/examples/walkthrough/echo-workflow.yaml,configuration-infrastructure,Schema/manifest/command fixture checks + relevant runtime E2E,not measured,Assign test owner and measured evidence in slice 0
+docs/examples/walkthrough/fanout-workflow.yaml,configuration-infrastructure,Schema/manifest/command fixture checks + relevant runtime E2E,not measured,Assign test owner and measured evidence in slice 0
+justfile,configuration-infrastructure,Schema/manifest/command fixture checks + relevant runtime E2E,not measured,Assign test owner and measured evidence in slice 0
+observability/bootstrap-dashboard.py,operations-scripts,Controlled fixture execution + relevant deployment E2E,not measured,Assign test owner and measured evidence in slice 0
+observability/casting.yaml,configuration-infrastructure,Schema/manifest/command fixture checks + relevant runtime E2E,not measured,Assign test owner and measured evidence in slice 0
+observability/resource-metrics.yaml,configuration-infrastructure,Schema/manifest/command fixture checks + relevant runtime E2E,not measured,Assign test owner and measured evidence in slice 0
+scripts/check-hatchet-connectivity.sh,operations-scripts,Controlled fixture execution + relevant deployment E2E,not measured,Assign test owner and measured evidence in slice 0
+scripts/push-sample-event.sh,operations-scripts,Controlled fixture execution + relevant deployment E2E,not measured,Assign test owner and measured evidence in slice 0
+scripts/push_sample_event.py,operations-scripts,Controlled fixture execution + relevant deployment E2E,not measured,Assign test owner and measured evidence in slice 0
+scripts/start-control-plane.sh,operations-scripts,Controlled fixture execution + relevant deployment E2E,not measured,Assign test owner and measured evidence in slice 0
+scripts/start-observability.sh,operations-scripts,Controlled fixture execution + relevant deployment E2E,not measured,Assign test owner and measured evidence in slice 0
+scripts/start-observed-workers.sh,operations-scripts,Controlled fixture execution + relevant deployment E2E,not measured,Assign test owner and measured evidence in slice 0
+scripts/start-resource-metrics.sh,operations-scripts,Controlled fixture execution + relevant deployment E2E,not measured,Assign test owner and measured evidence in slice 0
+scripts/start-workers.sh,operations-scripts,Controlled fixture execution + relevant deployment E2E,not measured,Assign test owner and measured evidence in slice 0
+scripts/telemetry-smoke.py,operations-scripts,Controlled fixture execution + relevant deployment E2E,not measured,Assign test owner and measured evidence in slice 0
+website/astro.config.mjs,documentation-tooling,Fixture execution + build/link/example checks + site smoke journey,not measured,Assign test owner and measured evidence in slice 0
+website/scripts/api_routes.py,documentation-tooling,Fixture execution + build/link/example checks + site smoke journey,not measured,Assign test owner and measured evidence in slice 0
+website/scripts/check-site.mjs,documentation-tooling,Fixture execution + build/link/example checks + site smoke journey,not measured,Assign test owner and measured evidence in slice 0
+website/scripts/check_site.py,documentation-tooling,Fixture execution + build/link/example checks + site smoke journey,not measured,Assign test owner and measured evidence in slice 0
+website/scripts/prepare_content.py,documentation-tooling,Fixture execution + build/link/example checks + site smoke journey,not measured,Assign test owner and measured evidence in slice 0
+website/scripts/render-social-assets.mjs,documentation-tooling,Fixture execution + build/link/example checks + site smoke journey,not measured,Assign test owner and measured evidence in slice 0
+website/src/content.config.ts,documentation-tooling,Fixture execution + build/link/example checks + site smoke journey,not measured,Assign test owner and measured evidence in slice 0
+website/src/pages/index.astro,documentation-tooling,Fixture execution + build/link/example checks + site smoke journey,not measured,Assign test owner and measured evidence in slice 0
+website/src/social.mjs,documentation-tooling,Fixture execution + build/link/example checks + site smoke journey,not measured,Assign test owner and measured evidence in slice 0
+worker-config.yaml,configuration-infrastructure,Schema/manifest/command fixture checks + relevant runtime E2E,not measured,Assign test owner and measured evidence in slice 0
+worker/Dockerfile,configuration-infrastructure,Schema/manifest/command fixture checks + relevant runtime E2E,not measured,Assign test owner and measured evidence in slice 0
+worker/Dockerfile.developer,configuration-infrastructure,Schema/manifest/command fixture checks + relevant runtime E2E,not measured,Assign test owner and measured evidence in slice 0
+worker/bootstrap.sh,operations-scripts,Controlled fixture execution + relevant deployment E2E,not measured,Assign test owner and measured evidence in slice 0
+worker/check_hatchet_connectivity.py,worker,Unit + adapter contract + relevant workflow E2E,not measured,Assign test owner and measured evidence in slice 0
+worker/cli_agent.py,worker,Unit + adapter contract + relevant workflow E2E,not measured,Assign test owner and measured evidence in slice 0
+worker/codex_healthcheck.py,worker,Unit + adapter contract + relevant workflow E2E,not measured,Assign test owner and measured evidence in slice 0
+worker/factory/__init__.py,worker,Unit + adapter contract + relevant workflow E2E,not measured,Assign test owner and measured evidence in slice 0
+worker/factory/adapters/__init__.py,worker,Unit + adapter contract + relevant workflow E2E,not measured,Assign test owner and measured evidence in slice 0
+worker/factory/adapters/agents.py,worker,Unit + adapter contract + relevant workflow E2E,not measured,Assign test owner and measured evidence in slice 0
+worker/factory/adapters/cli_usage.py,worker,Unit + adapter contract + relevant workflow E2E,not measured,Assign test owner and measured evidence in slice 0
+worker/factory/adapters/control.py,worker,Unit + adapter contract + relevant workflow E2E,not measured,Assign test owner and measured evidence in slice 0
+worker/factory/adapters/git_ignore.py,worker,Unit + adapter contract + relevant workflow E2E,not measured,Assign test owner and measured evidence in slice 0
+worker/factory/adapters/git_publish.py,worker,Unit + adapter contract + relevant workflow E2E,not measured,Assign test owner and measured evidence in slice 0
+worker/factory/adapters/github_events.py,worker,Unit + adapter contract + relevant workflow E2E,not measured,Assign test owner and measured evidence in slice 0
+worker/factory/adapters/gitlab.py,worker,Unit + adapter contract + relevant workflow E2E,not measured,Assign test owner and measured evidence in slice 0
+worker/factory/adapters/gitlab_checks.py,worker,Unit + adapter contract + relevant workflow E2E,not measured,Assign test owner and measured evidence in slice 0
+worker/factory/adapters/gitlab_events.py,worker,Unit + adapter contract + relevant workflow E2E,not measured,Assign test owner and measured evidence in slice 0
+worker/factory/adapters/orchestration/__init__.py,worker,Unit + adapter contract + relevant workflow E2E,not measured,Assign test owner and measured evidence in slice 0
+worker/factory/adapters/orchestration/dynamic.py,worker,Unit + adapter contract + relevant workflow E2E,not measured,Assign test owner and measured evidence in slice 0
+worker/factory/adapters/orchestration/hatchet.py,worker,Unit + adapter contract + relevant workflow E2E,not measured,Assign test owner and measured evidence in slice 0
+worker/factory/adapters/orchestration/local.py,worker,Unit + adapter contract + relevant workflow E2E,not measured,Assign test owner and measured evidence in slice 0
+worker/factory/adapters/otel.py,worker,Unit + adapter contract + relevant workflow E2E,not measured,Assign test owner and measured evidence in slice 0
+worker/factory/adapters/pricing.py,worker,Unit + adapter contract + relevant workflow E2E,not measured,Assign test owner and measured evidence in slice 0
+worker/factory/adapters/repository_state.py,worker,Unit + adapter contract + relevant workflow E2E,not measured,Assign test owner and measured evidence in slice 0
+worker/factory/adapters/shared_history.py,worker,Unit + adapter contract + relevant workflow E2E,not measured,Assign test owner and measured evidence in slice 0
+worker/factory/adapters/state.py,worker,Unit + adapter contract + relevant workflow E2E,not measured,Assign test owner and measured evidence in slice 0
+worker/factory/adapters/telemetry.py,worker,Unit + adapter contract + relevant workflow E2E,not measured,Assign test owner and measured evidence in slice 0
+worker/factory/adapters/token_budget.py,worker,Unit + adapter contract + relevant workflow E2E,not measured,Assign test owner and measured evidence in slice 0
+worker/factory/application/__init__.py,worker,Unit + adapter contract + relevant workflow E2E,not measured,Assign test owner and measured evidence in slice 0
+worker/factory/application/helpers.py,worker,Unit + adapter contract + relevant workflow E2E,not measured,Assign test owner and measured evidence in slice 0
+worker/factory/application/operations.py,worker,Unit + adapter contract + relevant workflow E2E,not measured,Assign test owner and measured evidence in slice 0
+worker/factory/application/ports.py,worker,Unit + adapter contract + relevant workflow E2E,not measured,Assign test owner and measured evidence in slice 0
+worker/factory/application/service.py,worker,Unit + adapter contract + relevant workflow E2E,not measured,Assign test owner and measured evidence in slice 0
+worker/factory/application/telemetry.py,worker,Unit + adapter contract + relevant workflow E2E,not measured,Assign test owner and measured evidence in slice 0
+worker/factory/bootstrap.py,worker,Unit + adapter contract + relevant workflow E2E,not measured,Assign test owner and measured evidence in slice 0
+worker/factory/configuration.py,worker,Unit + adapter contract + relevant workflow E2E,not measured,Assign test owner and measured evidence in slice 0
+worker/factory/domain/__init__.py,worker,Unit + adapter contract + relevant workflow E2E,not measured,Assign test owner and measured evidence in slice 0
+worker/factory/domain/events.py,worker,Unit + adapter contract + relevant workflow E2E,not measured,Assign test owner and measured evidence in slice 0
+worker/factory/domain/models.py,worker,Unit + adapter contract + relevant workflow E2E,not measured,Assign test owner and measured evidence in slice 0
+worker/factory/domain/policy.py,worker,Unit + adapter contract + relevant workflow E2E,not measured,Assign test owner and measured evidence in slice 0
+worker/factory/domain/repositories.py,worker,Unit + adapter contract + relevant workflow E2E,not measured,Assign test owner and measured evidence in slice 0
+worker/factory/domain/safety.py,worker,Unit + adapter contract + relevant workflow E2E,not measured,Assign test owner and measured evidence in slice 0
+worker/factory/settings.py,worker,Unit + adapter contract + relevant workflow E2E,not measured,Assign test owner and measured evidence in slice 0
+worker/factory/shared_worker.py,worker,Unit + adapter contract + relevant workflow E2E,not measured,Assign test owner and measured evidence in slice 0
+worker/factory/startup.py,worker,Unit + adapter contract + relevant workflow E2E,not measured,Assign test owner and measured evidence in slice 0
+worker/factory/task_defaults.py,worker,Unit + adapter contract + relevant workflow E2E,not measured,Assign test owner and measured evidence in slice 0
+worker/factory/workflows/__init__.py,worker,Unit + adapter contract + relevant workflow E2E,not measured,Assign test owner and measured evidence in slice 0
+worker/factory/workflows/action_schemas.py,worker,Unit + adapter contract + relevant workflow E2E,not measured,Assign test owner and measured evidence in slice 0
+worker/factory/workflows/actions.py,worker,Unit + adapter contract + relevant workflow E2E,not measured,Assign test owner and measured evidence in slice 0
+worker/factory/workflows/bindings.py,worker,Unit + adapter contract + relevant workflow E2E,not measured,Assign test owner and measured evidence in slice 0
+worker/factory/workflows/contracts.py,worker,Unit + adapter contract + relevant workflow E2E,not measured,Assign test owner and measured evidence in slice 0
+worker/factory/workflows/coordinator.py,worker,Unit + adapter contract + relevant workflow E2E,not measured,Assign test owner and measured evidence in slice 0
+worker/factory/workflows/definitions.py,worker,Unit + adapter contract + relevant workflow E2E,not measured,Assign test owner and measured evidence in slice 0
+worker/factory/workflows/policy.py,worker,Unit + adapter contract + relevant workflow E2E,not measured,Assign test owner and measured evidence in slice 0
+worker/factory/workflows/project_dispatch.py,worker,Unit + adapter contract + relevant workflow E2E,not measured,Assign test owner and measured evidence in slice 0
+worker/factory/workflows/project_waits.py,worker,Unit + adapter contract + relevant workflow E2E,not measured,Assign test owner and measured evidence in slice 0
+worker/factory/workflows/redaction.py,worker,Unit + adapter contract + relevant workflow E2E,not measured,Assign test owner and measured evidence in slice 0
+worker/factory/workflows/references.py,worker,Unit + adapter contract + relevant workflow E2E,not measured,Assign test owner and measured evidence in slice 0
+worker/factory/workflows/resources.py,worker,Unit + adapter contract + relevant workflow E2E,not measured,Assign test owner and measured evidence in slice 0
+worker/factory/workflows/templates.py,worker,Unit + adapter contract + relevant workflow E2E,not measured,Assign test owner and measured evidence in slice 0
+worker/github_client.py,worker,Unit + adapter contract + relevant workflow E2E,not measured,Assign test owner and measured evidence in slice 0
+worker/guardrails.py,worker,Unit + adapter contract + relevant workflow E2E,not measured,Assign test owner and measured evidence in slice 0
+worker/image/Dockerfile.template,configuration-infrastructure,Schema/manifest/command fixture checks + relevant runtime E2E,not measured,Assign test owner and measured evidence in slice 0
+worker/image/install-coding-tools.sh,operations-scripts,Controlled fixture execution + relevant deployment E2E,not measured,Assign test owner and measured evidence in slice 0
+worker/image/install-system-dependencies.sh,operations-scripts,Controlled fixture execution + relevant deployment E2E,not measured,Assign test owner and measured evidence in slice 0
+worker/model_client.py,worker,Unit + adapter contract + relevant workflow E2E,not measured,Assign test owner and measured evidence in slice 0
+worker/worker.py,worker,Unit + adapter contract + relevant workflow E2E,not measured,Assign test owner and measured evidence in slice 0
