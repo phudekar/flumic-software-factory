@@ -1,43 +1,39 @@
 ---
-title: "Navigate the control plane"
+title: "Navigate the Control Pane"
 ---
 
-Open `http://localhost:3400` and sign in with the administrator password from `.env.control-plane`. The private launcher-generated file is ignored by Git. Sessions expire after eight hours.
+Open `http://localhost:3400` and sign in using the private administrator password
+from `.env.control-plane`. Sessions expire after eight hours.
 
-## Overview
+## Start with a project
 
-Overview summarizes managed workers, the latest page of workflow runs, recorded tokens and known estimated spend. Treat these as bounded views of retained records. A missing price or absent usage is not zero spend.
+The landing page is **Projects**. Choose a project to scope its navigation and
+history. **All projects** returns to the workspace. The workspace infrastructure
+menu exposes **Shared workers** and **Runtime targets**.
 
-![Overview with recent runs, worker totals and usage estimates](/flumic-software-factory/images/control-plane-overview.png)
+![Current project landing page](/flumic-software-factory/images/control-plane-projects.png)
 
-## Project work and global infrastructure
-
-Start in **Projects** for project-scoped setup and execution. Selecting a project
-switches the sidebar to its Overview, Workflows, Runs, Model history, Usage and
-setup pages. Use **All projects** to return to workspace navigation. **Workers**
-and **Runtime targets** describe shared infrastructure outside that project menu. The remaining legacy views
-retain static workflow IDs and history; selecting a project does not convert
-legacy executions into project workflows.
-
-Follow [First project and workflow](/flumic-software-factory/start/project-onboarding/)
-for the setup sequence.
-
-## Where to go
-
-| Screen | Use it for |
+| Screen | Scope and purpose |
 | --- | --- |
-| Projects | Select a project; manage workflows/runs, repositories, triggers, credentials, project configuration and pool membership |
-| Runtime targets | Inspect operator-approved destinations and runtime availability |
-| Workers | Create instances, inspect registration, start/stop/restart and read build/startup logs |
-| Workflows | Trigger definitions, pause/resume supported workflows, inspect action history |
-| Workflow runs | Follow stages, attempts, status and scoped logs/model calls |
-| Model history | Find captured model exchanges; open redacted content when retained |
-| Usage & cost | Aggregate known token/cost records and see accounting gaps |
-| Configuration | Worker profiles, image builds and shared factory settings |
-| Worker prompts | Stage-specific Markdown guidance and history |
+| Overview | Selected project's setup, recent runs and known usage |
+| Workflows | Versioned project definitions, stage links and explicit launch |
+| Workflow runs | Project executions, attempts, outputs, logs and model calls |
+| Model history | Retained project request/response exchanges and capture gaps |
+| Usage & cost | Known project tokens, reported costs and estimates |
+| Repositories, credentials, triggers | Project connection and execution setup |
+| Configuration | Project defaults, models, prompts and limits |
+| Shared worker pools | This project's authorization to deployment-wide pools |
+| Shared workers | Workspace-wide provisioning and runtime lifecycle |
+| Runtime targets | Operator-approved Docker/Kubernetes destinations |
 
-The UI refreshes through bounded polling. **Refresh all data** requests fresh views; integration warnings indicate unknown state rather than an inferred healthy/idle system. Use the [full operator handbook](/flumic-software-factory/handbook/control-plane/) for field-level behavior and limits.
+The duplicate legacy sidebar and saved-worker-profile screens are removed. Old
+unscoped project URLs ask you to select a project; they do not translate old run IDs
+or submit work. Project configuration changes affect new admissions, not existing
+run pins. Worker restarts change infrastructure, not historical execution settings.
 
-## Guided setup
+The UI polls bounded views. **Refresh all data** or **Refresh project data** requests
+fresh observations. Missing usage is unknown, not zero; a running container is not
+proof of Hatchet registration.
 
-See [Projects, repositories and credentials](/flumic-software-factory/control-plane/project-setup/) for the list-first screens, Add/Edit/Cancel forms, workflow cards and stage summaries.
+[Project walkthrough](/flumic-software-factory/start/walkthrough/) ·
+[Operator handbook](/flumic-software-factory/handbook/control-plane/)

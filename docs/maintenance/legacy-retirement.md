@@ -47,6 +47,19 @@ storage remain. Backups are private, outside the repository.
 
 Code retirement is staged on the implementation branch. The primary worker entry
 point is shared-only; static Compose launch files and helpers are removed. Static
-workflow registrations, compatibility API/UI paths and schema retirement still
+workflow registrations, compatibility backend API paths and schema retirement still
 require follow-up work. Do not interpret this record as completion of the entire
 retirement design.
+
+## Current Control Pane and local images
+
+Projects is the landing page. Project pages provide workflows, runs, models, usage
+and configuration; workspace infrastructure provides shared workers and runtime
+targets. Old unscoped project URLs show selection guidance. Legacy profile forms,
+overview and global static workflow screens are removed from the frontend bundle.
+
+Both local shared workers and the Control Pane were rebuilt and replaced with
+these changes. Preserve `FACTORY_HOST_ROOT` at its original canonical value when
+rebuilding a deployment: Docker target identity includes that root. A target-pin
+mismatch should be diagnosed against the original configuration, not fixed by
+silently overwriting saved authority pins. Keep rollback images and private backups.

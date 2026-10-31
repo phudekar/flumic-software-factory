@@ -33,8 +33,8 @@ bridge support cannot block a capable native worker by claiming native-only work
 
 1. **Save and pin behavior.** A project owns repository connections, immutable
    workflow revisions, configuration and grants. New runs pin their inputs and
-   context; later edits do not rewrite admitted work. Legacy profile-based
-   workers adopt saved bootstrap settings at startup rather than through hot reload.
+   context; later edits do not rewrite admitted work. Shared workers receive
+   action settings through assignment-authenticated context transport.
 2. **Request infrastructure changes.** The authenticated API writes a durable
    lifecycle operation. The reconciler applies it through the runtime router:
    Docker containers or native one-replica worker Deployments with private PVCs.
@@ -74,9 +74,8 @@ remain implementation history rather than architectural decisions.
 
 ## Guarantees and operational limits
 
-PostgreSQL is required for the default native Kubernetes composition. Legacy
-static workflows retain shared-host SQLite and file locks; that path does not
-become multi-node safe by moving its files onto network storage. The dynamic
+PostgreSQL stores project execution state and is required for the default native
+Kubernetes composition. Static startup and its SQLite/file-lock runtime are retired. The dynamic
 project coordinator, shared-worker transport and Docker/native action runtime
 are implemented; see [runtime rollout and qualification](project-runtime-operations.md).
 
@@ -95,7 +94,7 @@ roles and verified graceful drain are not supplied by these adapters.
 | --- | --- | --- | --- |
 | React Control UI | Operator navigation, forms and execution views | Presentation is separate from workflow execution and vendor SDKs; backend contracts can serve another operator client. | An API client can inspect a run or save a profile without automating the browser. Same-origin authentication/CSRF rules still apply. |
 | FastAPI Control API | Authentication, validated commands, versioned settings and bounded query responses | Browser code does not need Docker, Hatchet or model credentials; adapters normalize external responses. | Workflow examples and repository validation read the latest saved factory revision; worker adoption still follows the profile/restart path. |
-| Control Plane PostgreSQL | Saved profiles/revisions, sessions, events, audits and operation receipts | Desired configuration and command state survive API process restarts and remain distinct from a particular container. | Several worker instances can follow one profile family; an accepted lifecycle command remains inspectable if a request ends. PostgreSQL also stores project-qualified dynamic run state and claims; legacy workers retain their separate SQLite/file-lock adapter. |
+| Control Plane PostgreSQL | Saved profiles/revisions, sessions, events, audits and operation receipts | Desired configuration and command state survive API process restarts and remain distinct from a particular container. | Shared workers serve authorized projects through pools; an accepted lifecycle command remains inspectable if a request ends. PostgreSQL also stores project-qualified dynamic run state and claims; the static SQLite runtime is retired. |
 | Background reconciler | Applying durable worker lifecycle requests outside HTTP handlers | Long builds/restarts and interrupted operations can be handled through one execution path rather than embedded in UI requests. | The reconciler can reclaim an expired operation lease. This does not make every external side effect exactly once or provide zero-downtime rollout. |
 | Runtime adapter | Container creation, configuration, lifecycle and logs | Docker operations and native Kubernetes Deployment/Job operations sit behind the same backend boundary rather than inside application stages. | Kubernetes targets pin operator-approved images, namespace UIDs and controller authority. Private worker PVCs, immutable payloads, database claims and UID-bound cleanup preserve ownership across nodes. Networking and PID enforcement require operator qualification. |
 | Hatchet orchestration adapter | Workflow/task registration, dependency graph, scheduling, routing, retry and wait semantics | Task operations are separate from the scheduler, so orchestration policy can be tuned without embedding engine calls in use-case logic. | Route coding to `developer` workers and adjust task timeouts/concurrency. Another production engine needs explicit adapter/bootstrap integration, not a configuration string alone. |
@@ -104,9 +103,9 @@ roles and verified graceful drain are not supplied by these adapters.
 | Domain models and patch policy | Change contracts, path/file limits, completeness and content validation | Shared checks remain consistent as coding backends change; model choice does not redefine what the application can publish. | API coding and CLI coding return the same completed-patch contract. Publication policy is not an OS/network sandbox, and trusted adapters must protect extra data they load. |
 | Agent adapters | Planner/reviewer/coder implementations and context capabilities | Planning, review and coding can be chosen independently; model and prompt overrides can vary by task. | Use direct API planning/review with Codex or Claude coding, or implement a trusted coding port for a remote service. Custom managed factories require registry approval and installed code. |
 | Repository adapter | Issues, source snapshots, commits, PRs, review/merge state | Source-host integration is kept at an application boundary rather than scattered throughout model/orchestration code. | GitHub and GitLab.com adapters support numeric repository identity, separate issue/MR namespaces and durable triggers; see [setup and boundaries](gitlab.md). Self-managed hosts remain outside this version. |
-| Execution-state adapter | Prepared plans/patches, cursors, issue claims and recovery | The application can reconcile retries using recorded progress, with state operations behind a port. | Legacy Python workflows use shared SQLite and file locks on one host. The dynamic project runtime uses project-scoped encrypted state and canonical claims in PostgreSQL; its coordinator adapter is qualified with mixed builtin/container graphs on real Hatchet and shared workers, using Docker or native Kubernetes, and the executable catalog composes existing application operations per pinned context. Project-scoped APIs and assignment-authenticated transports activate the runtime through a fixed control service; see the [runtime API guide](project-runtime-api.md). |
+| Execution-state adapter | Prepared plans/patches, cursors, issue claims and recovery | The application can reconcile retries using recorded progress, with state operations behind a port. | The project runtime uses project-scoped encrypted state and canonical claims in PostgreSQL; its coordinator adapter is qualified with mixed builtin/container graphs on real Hatchet and shared workers, using Docker or native Kubernetes, and the executable catalog composes existing application operations per pinned context. Project-scoped APIs and assignment-authenticated transports activate the runtime through a fixed control service; see the [runtime API guide](project-runtime-api.md). |
 | Observation adapters | Operation/model context, logs, retained events and optional OTLP export | Instrumentation can change without rewriting development operations; execution policy stays separate from the monitoring vendor. | Use structured logging alone, managed Control Plane reporting, or optional SigNoz telemetry. Captured call content depends on policy; CLI accounting is not a complete internal transcript. |
-| Composition root + validated configuration | Constructing dependencies, selecting trusted implementations and resolving settings | Wiring stays explicit, and configuration changes can tune established behavior without editing the application service. | Change a task model/prompt through a saved profile, or load an approved installed factory. Configuration cannot create a new Python stage or make an unimplemented runtime available. |
+| Composition root + validated configuration | Constructing dependencies, selecting trusted implementations and resolving settings | Wiring stays explicit, and configuration changes can tune established behavior without editing the application service. | Change a model/prompt through project, workflow or stage configuration, or load an approved installed factory. Configuration cannot create a new Python stage or make an unimplemented runtime available. |
 
 The corresponding contracts are in
 [worker application ports](../worker/factory/application/ports.py),

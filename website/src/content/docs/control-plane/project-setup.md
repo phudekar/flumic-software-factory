@@ -14,16 +14,15 @@ is generated from its name and can be adjusted under Advanced before creation.
 
 ![Project list with an explicit Add project action and no always-open creation form](/flumic-software-factory/images/control-plane-projects-guided.png)
 
-Selecting a different project changes the scope of its views and forms. Global
-Workers and Runtime targets describe shared infrastructure, while legacy views
-retain the static factory's configuration/history.
+Selecting a different project changes the scope of its views and forms. Workspace **Shared workers** and **Runtime targets** describe shared
+infrastructure. The legacy global project views have been removed.
 
 ## Work inside a project workspace
 
 The sidebar switches to this project's **Overview**, **Workflows**, **Workflow
 runs**, **Model history**, **Usage & cost** and setup pages. Duplicate horizontal
 tabs are removed. **All projects** returns to workspace navigation, where global
-infrastructure and legacy views remain available. Refresh in a project refreshes
+shared infrastructure remains available. Refresh in a project refreshes
 its scoped data.
 
 ![Selected project workspace with its own overview, execution, accounting and setup navigation](/flumic-software-factory/images/control-plane-project-overview-guided.png)

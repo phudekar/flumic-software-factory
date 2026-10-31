@@ -1,29 +1,32 @@
 ---
-title: "Profiles, prompts and factory settings"
+title: "Configure project behavior"
 ---
 
-## Saved profiles
+## Models, limits and prompts
 
-**Configuration → Worker profiles** lists each profile at its latest revision. Edit a profile, validate, and **Save revision** to append an immutable version. **Version history** opens read-only historical versions; return to latest to edit or clone the historical version.
+Choose a project and open **Configuration**. Use the grouped editor for models,
+prompts and execution limits, or advanced document editing for supported fields.
+Save deliberately: the server creates a revision and detects stale-parent conflicts.
 
-**Clone as new profile** creates another identity. Several workers can share a profile; saving affects the settings they load on their next start/restart. It does not hot-reload their running process. Concurrent stale edits return a conflict so another revision is not overwritten.
+![Project model configuration](/flumic-software-factory/images/project-configuration-models.png)
 
-![Saved profile selector, history and worker behavior YAML](/flumic-software-factory/images/control-plane-configuration.png)
+Repository overrides, workflow settings and stage overrides refine project defaults.
+New run admissions pin their effective settings. Existing runs retain their original
+configuration; restarting a worker does not change a run's models or prompts.
 
-## Factory settings
+## Bootstrap defaults and installed code
 
-Shared settings own repository/policy, execution state, labels, routing, scan cron, workflow concurrency and engine retry/timeout definitions. Profiles pin a factory revision. To adopt a new shared revision, choose it in each participating profile, save, then restart the relevant workers with consistent definitions. Automated coordinated rollout/drain is not implemented.
+Repository YAML supplies initial defaults. Editing bootstrap files does not
+replace existing database-owned project configuration. Credentials belong in
+project credential versions, never prompt/configuration text.
 
-## Bootstrap versus managed configuration
+Shared pools control worker role, actions and capacity. Build images to change
+installed code, tools or dependencies, then replace affected runtimes through
+lifecycle controls. Project configuration is not an image installation mechanism.
 
-On a fresh profile store, repository YAML seeds the initial profiles. Later edits to bootstrap YAML do not overwrite database-owned profiles. UI edits create database revisions and do not change Git files. Standalone Compose workers continue reading the mounted manifest and files.
+The old per-worker profile selector, cloning UI and **Worker prompts** screen are
+retired. Some backend profile/build records remain during staged cleanup; use
+project configuration for supported current usage.
 
-## YAML and Markdown editors
-
-![Worker prompt editor with profile revision, workflow task and Markdown guidance](/flumic-software-factory/images/control-plane-prompts.png)
-
-The selected profile's planning guidance is shown in Write mode. Selecting a task or previewing Markdown does not save a revision.
-
-Validate checks syntax and complete server-side rules without creating a revision. Invalid YAML disables Save/Clone. Format adjusts the current draft; comments survive draft formatting but not parsed-value storage. Image build and worker behavior have separate YAML mappings. Worker prompts provide a Markdown Write/Preview interface and character limit.
-
-[Bootstrap profile format](/flumic-software-factory/handbook/bootstrap-profiles/) · [Prompt customization](/flumic-software-factory/workflows/models-prompts/)
+[Full settings reference](/flumic-software-factory/handbook/configuration-workers/) ·
+[Prompt customization](/flumic-software-factory/workflows/models-prompts/)

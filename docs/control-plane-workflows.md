@@ -1,5 +1,8 @@
 # Workflow controls
 
+> **Current status:** The global `/workflows` screen described below has been retired. Current usage is the selected project's **Workflows** and **Workflow runs** pages. This document records retained backend compatibility contracts; use the [project workflow guide](project-runtime-api.md) for supported project execution.
+
+
 The legacy Workflows page at `/workflows` lists only factory-owned workflow definitions through the
 workflow-engine adapter. Trigger creates a run; Pause and Resume affect a
 workflow definition across its workers, not individual active tasks or Docker

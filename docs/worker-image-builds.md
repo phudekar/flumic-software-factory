@@ -1,5 +1,8 @@
 # Profile-driven worker image builds
 
+> **Current status:** This guide describes retained backend image/profile compatibility contracts. The current UI provisions shared workers from pools; it no longer exposes saved-profile image editing. For supported image updates, run `just images-build` and replace affected runtimes through shared-worker lifecycle controls. See [current worker setup](control-plane.md#worker-lifecycle-and-configuration).
+
+
 ## Purpose and boundaries
 
 Operators choose a base OS image in a saved worker profile. Creating or restarting

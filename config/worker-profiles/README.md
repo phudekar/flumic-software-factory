@@ -1,5 +1,8 @@
 # Bootstrap worker profiles
 
+> **Current status:** These files supply bootstrap defaults for project configuration. Static standalone startup is retired. Editing these files does not overwrite existing database revisions; use the project Configuration page. References below to saved-profile identities describe retained compatibility/compiler behavior, not a current worker-provisioning UI.
+
+
 These commented files are shared by standalone workers and control-plane bootstrap:
 
 - [`default.yaml`](default.yaml): `simple` worker type, with API-based planning,

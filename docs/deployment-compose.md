@@ -44,6 +44,9 @@ ensures `worker-network` exists and starts the selected control services. It doe
 **not** build worker images. `--build` still builds the Control Pane image.
 
 For upgrades, back up the database and `.env.control-plane` encryption key first.
+Keep the deployment canonical host root stable: saved Docker target pins include
+`FACTORY_HOST_ROOT`. Running the launcher from a different worktree changes the
+root it exports and can make existing worker target pins unavailable.
 The one-time `migrate` service runs `alembic upgrade head` using the application
 image. Local PostgreSQL must be healthy before migrations run; API, reconciler and
 dynamic runtime wait for successful migration completion. API startup itself runs

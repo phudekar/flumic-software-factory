@@ -4,31 +4,34 @@ This reference covers every field of [`Settings`](../worker/factory/settings.py)
 
 ## Where values live and when they apply
 
-Standalone startup calls `Settings.load()`: `WORKER_CONFIG_FILE` defaults to `worker-config.yaml`, and `WORKER_PROFILE` defaults to `simple`. YAML `defaults` and the selected `workers.<profile>` accept Settings field names. Profile values override defaults; `extends` resolves parent profiles first. For example:
+For an existing installation, open a project and edit **Configuration**. Repository
+overrides, workflow settings and stage settings refine those defaults. New runs
+pin effective settings and credentials; edits and worker restarts do not rewrite
+an admitted execution. Shared workers fetch their pool identity at startup and
+receive behavior through authenticated, assignment-scoped action contexts.
 
-```yaml
-version: 1
-defaults:
-  repository: example/project
-  openai_model: gpt-5-nano
-workers:
-  simple:
-    worker_type: simple
-    max_patch_iterations: 4
-```
+The YAML manifest and role templates supply bootstrap defaults. Editing repository
+files does not overwrite saved configuration. Settings inheritance and validation
+remain useful to the configuration compiler; they no longer launch standalone
+workers. `WORKER_CONFIG_FILE` and `WORKER_PROFILE` are compatibility loader selectors,
+not supported shared-worker startup controls.
 
-Includes merge mappings recursively, in order, followed by inline values. Worker inheritance itself is a shallow mapping override. Unknown settings fail validation. Profile template files use `document.settings` for local settings and a separate `worker` block for registration/path policy; [`profile_fragment`](../worker/factory/configuration.py) compiles those templates into standalone worker entries.
+The field annotations below retain their schema categories: **Factory** describes
+shared defaults, **Profile** describes role-specific behavior, **Build** describes
+image-related compatibility fields, and **Runtime metadata** describes injected
+identity. These labels do not refer to removed per-worker profile forms.
 
-Managed workers fetch a resolved saved snapshot from the control plane at **every process start**, including Docker restart. They fail startup if fetching that snapshot fails. The control plane separates settings using [`LOCAL_FIELDS` and `BUILD_FIELDS`](../control-plane/backend/app/services.py):
+Model/prompt/limit changes apply to newly admitted project runs. Pool role, slots,
+installed actions and runtime target govern infrastructure. Image/dependency
+changes require building images and replacing affected runtimes. Startup is
+`shared-v1` only; static orchestration, global SQLite state and standalone launch
+examples are retired. Old `orchestrator`, `state_path` and `state_factory` fields
+can remain inert in saved documents for compatibility and must not be used to
+configure the shared execution-state backend.
 
-- **Factory** means shared configuration, tied to the worker's selected factory revision. It cannot be supplied as a worker profile's local setting.
-- **Profile** means a worker-local override in `document.settings`. Omitted fields inherit resolved factory/profile defaults.
-- **Build** means a profile setting used in managed image construction as well as the resolved snapshot.
-- **Runtime metadata** means a value supplied by the control plane, rather than a normal profile override.
-
-All ordinary runtime fields are read into an immutable settings object at startup; saving YAML or a managed profile does not update a running Python process. Restart affected workers to load changes. Shared workflow registration settings should be consistent across workers registering the same workflow definitions. Build settings additionally require managed image preparation/container replacement to change installed software. Standalone YAML does not build or modify its container image: install dependencies in that image yourself.
-
-Managed profile reference YAML files bootstrap an empty profile store; editing them does not overwrite saved profiles. Edit saved profiles through the control plane. `Settings.from_env()` is a legacy partial constructor, not the normal worker entry point: arbitrary uppercase versions of the fields below do **not** override YAML. Credentials belong in environment injection, not these non-secret documents. See the [loader](../worker/factory/configuration.py), [entry point](../worker/worker.py), and [composition root](../worker/factory/bootstrap.py).
+Credentials belong in project credential versions, never non-secret documents.
+See the [Control Pane guide](control-plane.md), [project context compiler](../control-plane/backend/app/project_context.py),
+and [action composition root](../worker/factory/bootstrap.py).
 
 ## Repository, execution and registration
 
