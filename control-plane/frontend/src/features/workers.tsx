@@ -1,10 +1,8 @@
 import { useQueryClient } from "@tanstack/react-query";
 import {
   Box,
-  FileSliders,
   RefreshCw,
   Play,
-  Plus,
   Search,
   ShieldCheck,
   Square,
@@ -13,11 +11,11 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import type { FactoryEvent, WorkerConfig, WorkerBuild } from "../api";
+import type { FactoryEvent, WorkerBuild } from "../api";
 import { ScopedUsage } from "./runs";
 import { RuntimeLogView } from "../components/logs";
 import { date } from "../components/ui";
-import type { Operation, Worker, Workers } from "../api";
+import type { Workers } from "../api";
 import { api } from "../api";
 import { Empty, Failure, PageTitle, Section, Status } from "../components/ui";
 import { useData } from "../hooks";
@@ -26,18 +24,7 @@ import { SharedWorkerForm } from "./runtime-targets";
 
 export function WorkersPage() {
   const data = useData<Workers>("workers", "/workers");
-  const configurations = useData<WorkerConfig[]>(
-    "worker-configs",
-    "/worker-profiles",
-  );
-  const profiles =
-    configurations.data?.filter(
-      (c, i, items) =>
-        items.findIndex((other) => other.family_id === c.family_id) === i,
-    ) ?? [];
-  const [configId, setConfigId] = useState("");
   const [sharedCreating, setSharedCreating] = useState(false);
-  const [creating, setCreating] = useState(false);
   const [showRemoved, setShowRemoved] = useState(false);
   const [showExited, setShowExited] = useState(false);
   const visibleDiscovered =
@@ -48,15 +35,10 @@ export function WorkersPage() {
     data.data?.managed.filter(
       (worker) => showRemoved || worker.desired_state !== "removed",
     ) ?? [];
-  const [name, setName] = useState("");
-  const selectedConfig =
-    profiles.find((c) => c.family_id === configId) ?? profiles[0];
   const [search, setSearch] = useState("");
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
   const [logs, setLogs] = useState<string | null>(null);
-  const [configWorker, setConfigWorker] = useState<Worker | null>(null);
-  const [applyRevision, setApplyRevision] = useState("");
   const client = useQueryClient();
   async function action(id: string, verb: string) {
     if (
@@ -93,18 +75,13 @@ export function WorkersPage() {
             <button onClick={() => setSharedCreating(true)}>
               Add shared worker
             </button>
-            <button className="primary" onClick={() => setCreating(true)}>
-              <Plus size={15} />
-              Create worker
-            </button>
           </div>
         }
       />
       <p>
         Worker instances are deployment infrastructure.{" "}
         <Link to="/projects">Choose a project</Link> to inspect shared pool
-        membership and loaded action versions; legacy worker profiles remain
-        available here.
+        membership and loaded action versions.
       </p>
       <Failure error={error || data.error} />
       {data.data?.warnings.map((x) => (
@@ -125,7 +102,7 @@ export function WorkersPage() {
         <label className="search">
           <Search size={15} />
           <input
-            placeholder="Filter by name or profile…"
+            placeholder="Filter by name or role…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
@@ -159,14 +136,14 @@ export function WorkersPage() {
         {!visibleWorkers.length ? (
           <Empty
             title="Your fleet starts here"
-            detail="Create a worker from a configuration revision. Workers are created stopped and join Hatchet only when you start them."
+            detail="Add a shared worker to a pool, then start it explicitly when ready."
           />
         ) : (
           <div className="table-scroll">
             <table>
               <thead>
                 <tr>
-                  <th>Worker / profile</th>
+                  <th>Worker / role</th>
                   <th>Runtime</th>
                   <th>Hatchet</th>
                   <th>Config revision</th>
@@ -183,12 +160,7 @@ export function WorkersPage() {
                         <Link className="text-link" to={"/workers/" + w.id}>
                           {w.name}
                         </Link>
-                        <small>
-                          {w.worker_profile_name ?? w.profile}
-                          {w.profile_update_pending
-                            ? " · update on restart"
-                            : ""}
-                        </small>
+                        <small>{w.profile}</small>
                       </td>
                       <td>
                         <Status
@@ -262,30 +234,10 @@ export function WorkersPage() {
                                 ["pending", "running"].includes(o.status),
                               )
                             }
-                            title="Restart with latest worker profile"
+                            title="Restart shared worker"
                             onClick={() => action(w.id, "restart")}
                           >
                             <RefreshCw size={13} />
-                          </button>
-                          <button
-                            disabled={
-                              pending ||
-                              w.desired_state === "removed" ||
-                              w.runtime?.status === "running"
-                            }
-                            title="Change profile for stopped worker"
-                            onClick={() => {
-                              setConfigWorker(w);
-                              setApplyRevision(
-                                w.config_id ??
-                                  configurations.data?.find(
-                                    (c) => c.profile === w.profile,
-                                  )?.id ??
-                                  "",
-                              );
-                            }}
-                          >
-                            <FileSliders size={13} />
                           </button>
                           <Link
                             className="text-link"
@@ -393,153 +345,6 @@ export function WorkersPage() {
         Graceful drain is unavailable until Hatchet pause and assignment-race
         behavior is verified. Stop can interrupt active work.
       </div>
-      {creating && (
-        <div className="modal-backdrop">
-          <form
-            className="modal"
-            onSubmit={async (e) => {
-              e.preventDefault();
-              setPending(true);
-              try {
-                if (!selectedConfig)
-                  throw new Error("Save a worker profile first.");
-                await api<Operation>("/workers", {
-                  name,
-                  worker_profile_id: selectedConfig.family_id,
-                  target_id: "local-docker",
-                });
-                setCreating(false);
-                setName("");
-                await client.invalidateQueries({ queryKey: ["workers"] });
-              } catch (e) {
-                setError((e as Error).message);
-              } finally {
-                setPending(false);
-              }
-            }}
-          >
-            <div className="panel-heading">
-              <h2>Create worker</h2>
-              <button
-                type="button"
-                className="icon-button"
-                onClick={() => setCreating(false)}
-                aria-label="Close"
-              >
-                <X size={18} />
-              </button>
-            </div>
-            <p>
-              Legacy workers use Docker. A new instance uses an immutable
-              configuration snapshot and is created stopped. Profiles with a
-              base OS image build or reuse a cached worker image first; build
-              progress appears on the worker page.
-            </p>
-            <label>
-              Instance name
-              <input
-                required
-                pattern={"[a-z][a-z0-9\\-]{2,59}"}
-                aria-describedby="worker-name-help"
-                title="Use 3–60 lowercase letters, digits, or hyphens, starting with a letter (for example: dev-1)."
-                placeholder="factory-simple-02"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-              />
-            </label>
-            <p id="worker-name-help" className="muted">
-              Use 3–60 characters: lowercase letters, digits, and hyphens,
-              starting with a letter. For example: dev-1. Spaces and uppercase
-              letters are not allowed.
-            </p>
-            <label>
-              Saved worker profile
-              <select
-                required
-                value={selectedConfig?.family_id ?? ""}
-                onChange={(e) => setConfigId(e.target.value)}
-              >
-                {profiles.map((c) => (
-                  <option key={c.family_id} value={c.family_id}>
-                    {c.name} · {c.profile}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <Link className="text-link" to="/config">
-              Define or clone a worker profile →
-            </Link>
-            <p>
-              Workers follow their saved profile. Edits take effect on the next
-              start or restart.
-            </p>
-            <Failure error={error} />
-            <button className="primary" disabled={pending || !selectedConfig}>
-              Create stopped worker
-            </button>
-          </form>
-        </div>
-      )}
-      {configWorker && (
-        <div className="modal-backdrop">
-          <form
-            className="modal"
-            onSubmit={async (event) => {
-              event.preventDefault();
-              setPending(true);
-              setError("");
-              try {
-                await api("/workers/" + configWorker.id + "/actions", {
-                  action: "configure",
-                  config_id: applyRevision,
-                });
-                setConfigWorker(null);
-                await client.invalidateQueries({ queryKey: ["workers"] });
-              } catch (error) {
-                setError((error as Error).message);
-              } finally {
-                setPending(false);
-              }
-            }}
-          >
-            <div className="panel-heading">
-              <h2>Apply configuration</h2>
-              <button
-                type="button"
-                className="icon-button"
-                onClick={() => setConfigWorker(null)}
-                aria-label="Close"
-              >
-                <X size={18} />
-              </button>
-            </div>
-            <p>
-              Replace the stopped runtime for {configWorker.name} with the
-              selected snapshot. It stays stopped until explicitly started.
-              Choosing an older revision restores that configuration.
-            </p>
-            <label>
-              Saved worker profile
-              <select
-                value={applyRevision}
-                onChange={(event) => setApplyRevision(event.target.value)}
-              >
-                {profiles
-                  .filter((c) => c.profile === configWorker.profile)
-                  .map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name} · {c.id.slice(0, 8)}
-                    </option>
-                  ))}
-              </select>
-            </label>
-            <Failure error={error} />
-            <button className="primary" disabled={pending}>
-              Apply to stopped worker
-            </button>
-          </form>
-        </div>
-      )}
       {logs !== null && (
         <div className="modal-backdrop">
           <div className="modal wide">
@@ -591,14 +396,6 @@ export function WorkerPage() {
         description="Navigate from this worker to its workflow stages, retries and model usage."
       />
       <Failure error={events.error || workers.error} />
-      {worker?.config_id && (
-        <Link
-          className="text-link"
-          to={"/config?profile=" + worker.worker_profile_id}
-        >
-          View worker profile →
-        </Link>
-      )}
       {worker && (
         <Section title="Runtime observation">
           <div className="editor-body">

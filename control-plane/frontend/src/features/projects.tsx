@@ -227,9 +227,6 @@ export function ProjectsPage() {
           </form>
         </Section>
       )}
-      <p>
-        <Link to="/config">Default legacy profiles and saved history</Link>
-      </p>
     </div>
   );
 }
