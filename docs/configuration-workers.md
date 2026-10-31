@@ -46,7 +46,7 @@ Managed profile reference YAML files bootstrap an empty profile store; editing t
 
 ### `orchestrator`
 
-**Factory; code/shipped default:** `hatchet`. Allowed: `hatchet`, `local`. `hatchet` builds the engine client and starts the long-running worker. `local` executes one issue synchronously using the positional issue number, e.g. `python worker.py 42` with `orchestrator: local`; it can create issues and PRs. Local dispatch reports pending follow-up requests instead of maintaining durable timers. Hatchet cron, routing, deduplication and engine concurrency/retry controls do not govern this local runner. Startup scripts still run before either branch. See [local runner](../worker/factory/adapters/orchestration/local.py).
+**Compatibility field; code/shipped default:** `hatchet`. Saved documents may retain `hatchet` or `local`, but this field no longer selects a worker startup mode. The worker entry point supports only `shared-v1`; launch work through project workflows and authorized pools. The synchronous runner is now a [test-only harness](../tests/factory_fixtures.py), not a supported deployment command.
 
 ### `worker_name`
 
