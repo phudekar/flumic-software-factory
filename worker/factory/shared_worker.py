@@ -363,7 +363,7 @@ def start_shared(env=None):
             "Could not load shared infrastructure profile; retry startup"
         ) from None
     from factory.adapters.telemetry import configure_logging
-    from factory.adapters.orchestration.hatchet import create_client
+    from factory.adapters.hatchet_client import create_client
 
     configure_logging(settings)
     control = SharedControl(settings, env)

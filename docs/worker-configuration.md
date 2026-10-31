@@ -1,5 +1,11 @@
 # Worker configuration
 
+Current execution uses project-owned configuration and shared worker pools. The
+manifest below supplies bootstrap defaults; it is not a standalone worker launcher.
+Edit existing project settings in the Control Pane. See the
+[Control Pane guide](control-plane.md) for the current screens.
+
+
 For field-by-field defaults, execution effects and example values, read the
 [worker setting guide](configuration-workers.md),
 [workflow/task/label guide](configuration-workflows.md) and
@@ -153,12 +159,10 @@ exports do not persist into the Python worker process. See the
 [control-plane guide](control-plane.md#startup-scripts) for logging and failure
 behavior.
 
-The control plane separates shared factory revisions from saved worker profiles.
-A saved profile contains worker-local settings, per-task model/prompt overrides
-and startup hooks; workers created from it follow the latest profile revision on
-restart. Factory routing, engine retries/timeouts/concurrency, repository and
-state settings remain separate and pinned by factory revision.
-
+The Control Pane stores immutable project configuration revisions. Models, prompts
+and limits are resolved from project defaults and repository/workflow/stage
+overrides. New run admissions pin the result. Pool configuration controls worker
+role and capacity; restarting workers does not adopt new behavior for existing runs.
 
 `max_file_bytes` defaults to **65,536 bytes (64 KiB)** and can be set per worker
 profile. It must be a positive integer. The CLI prompt/collector, API coding
@@ -169,11 +173,11 @@ that are rejected; file contents are not included in these messages.
 
 ## Container assembly
 
-Managed profiles may select a `base_image`, additional `system_packages` and an
-`image_setup_script`. The control plane uses `worker/image/Dockerfile.template`
-to install the runtime into that image; standalone Compose builds keep their
-existing Dockerfile behavior. Build fields have no effect on an already running
-standalone container. See [worker image builds](worker-image-builds.md).
+The current UI provisions shared workers from pools and operator-configured
+runtime targets. Build the installed worker code and dependencies with
+`just images-build`, then replace affected runtimes. The older `base_image`,
+`system_packages` and `image_setup_script` APIs remain compatibility behavior;
+there is no saved-profile image editor in the current UI. See [worker image builds](worker-image-builds.md).
 
 
 ### CLI workspace ignore rules

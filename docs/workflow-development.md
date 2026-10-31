@@ -299,7 +299,7 @@ coordinator schedules admitted executions.
 | Operation observation, task context, repository guard, state claims | [application/operations.py](../worker/factory/application/operations.py) |
 | Application dispatch contract | [application/ports.py](../worker/factory/application/ports.py) |
 | Hatchet graph, routing, triggers, registration, dispatch | [orchestration/hatchet.py](../worker/factory/adapters/orchestration/hatchet.py) |
-| Synchronous graph and captured dispatch requests | [orchestration/local.py](../worker/factory/adapters/orchestration/local.py) |
+| Test-only sequential graph and captured dispatch requests | [factory_fixtures.py](../tests/factory_fixtures.py) |
 | Recognized task keys and compatibility defaults | [task_defaults.py](../worker/factory/task_defaults.py) |
 | Configuration validation and merge rules | [configuration.py](../worker/factory/configuration.py) |
 | Deployed task policy | [config/workflow.yaml](../config/workflow.yaml) |

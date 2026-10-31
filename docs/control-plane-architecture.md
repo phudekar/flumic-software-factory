@@ -53,7 +53,7 @@ The factory already provides useful integration seams:
 - `worker/factory/adapters/otel.py`: model and stage traces, logs, and usage.
 - `worker-config.yaml` and `config/`: shared settings, worker profiles, task
   templates, prompts, and runtime/model limits.
-- `compose.yaml`: Docker worker definitions; optional SigNoz overlay and stack.
+- Shared workers: provisioned through worker pools on Docker or Kubernetes; monitoring has its own Compose stack.
 
 Important limits of the current implementation:
 

@@ -10,13 +10,11 @@ title: "Set up SigNoz and resource monitoring"
 
 Open `http://localhost:3301`, then **Dashboards → Software Factory**. This installation keeps the existing dashboard title **Software Factory — Workers and AI Usage** and telemetry service identifiers after the Flumic AI rename. Bootstrap provisions the checked-in dashboard and reuses its stable name. Existing accounts need private SigNoz credentials in `.env.observability`. A fresh bootstrap can generate an account, saving credentials under `data/observability-bootstrap/login.json` without printing them.
 
-This starts monitoring only, without issue processing or model calls. UI and ingestion ports are loopback-bound. For worker telemetry, run:
-
-```sh
-./scripts/start-observed-workers.sh -d
-```
-
-This starts real workers and enables scanning, provider requests and GitHub operations. The overlay selects the OpenTelemetry observer and sends OTLP/HTTP to the ingester. Avoid accidentally running duplicate fleets.
+This starts monitoring only. Configure `FACTORY_SHARED_TELEMETRY_ENDPOINT` in the
+Control Pane environment for shared-worker infrastructure metrics and the OTEL
+observer in project configuration for action telemetry. Provision workers from
+pools; no additional static worker fleet is required. See the
+[full monitoring reference](/flumic-software-factory/handbook/observability/).
 
 ## Worker and stage dashboard
 

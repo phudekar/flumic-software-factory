@@ -1,52 +1,18 @@
-"""Worker entry point. Importing this module creates no clients or workflows."""
-
-from factory.settings import Settings
+"""Shared worker entry point; importing creates no clients or registrations."""
 
 
 def main():
-    from factory.adapters.telemetry import configure_logging
-
     import os
 
-    protocol = os.environ.get("FACTORY_WORKER_PROTOCOL", "legacy")
-    if protocol not in {"legacy", "shared-v1"}:
-        raise ValueError("Unsupported worker protocol; refusing legacy fallback")
-    if protocol == "shared-v1":
-        from factory.shared_worker import start_shared
+    protocol = os.environ.get("FACTORY_WORKER_PROTOCOL", "shared-v1")
+    if protocol != "shared-v1":
+        raise ValueError(
+            "Static worker execution is retired. Provision a shared-v1 worker "
+            "through a Control Pane worker pool."
+        )
+    from factory.shared_worker import start_shared
 
-        return start_shared()
-    from factory.configuration import load_managed_settings
-
-    settings = (
-        load_managed_settings(os.environ)
-        if os.environ.get("FACTORY_CONTROL_ENDPOINT")
-        else Settings.load()
-    )
-    configure_logging(settings)
-    from factory.startup import run_startup_script
-
-    run_startup_script(settings)
-    if settings.orchestrator == "local":
-        from factory.adapters.orchestration.local import main as local_main
-
-        return local_main(settings)
-
-    from factory.adapters.orchestration.hatchet import (
-        HatchetDispatch,
-        build_worker,
-        create_client,
-    )
-
-    from factory.bootstrap import build_service
-
-    dispatch = HatchetDispatch()
-    service = build_service(settings, dispatch)
-    try:
-        build_worker(create_client(settings), service, settings, dispatch).start()
-    finally:
-        shutdown = getattr(service.observer, "shutdown", None)
-        if shutdown:
-            shutdown()
+    return start_shared()
 
 
 if __name__ == "__main__":

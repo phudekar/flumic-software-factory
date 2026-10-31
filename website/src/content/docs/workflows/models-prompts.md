@@ -15,7 +15,7 @@ Choose IDs supported by your provider account. A blank Claude model allows the C
 
 ## Prompts for each model stage
 
-Open **Worker prompts**, select a profile, then the stage. Edit Markdown in **Write** and inspect **Preview**. Saving creates a profile revision; restart linked workers to apply it. History is read-only, and cloning creates a separate profile for experiments.
+Choose a project and open **Configuration** to edit role/task model and prompt defaults. Use workflow and stage overrides for more specific behavior. Saving creates a revision used by new admissions; existing runs keep their pinned prompts. Worker restart is not required to adopt behavior for a newly admitted run.
 
 Stage guidance supplements built-in instructions and output schemas. It does not disable guardrails. Deterministic stages have no model call; putting text in their prompt field does not change their Python behavior.
 
@@ -29,7 +29,10 @@ Ask a question only when the answer blocks safe implementation.
 
 ## Validate before adopting
 
-Use **Validate** for complete profile validation without publication and **Format YAML** for indentation. Formatting preserves draft comments, but saved profiles store parsed values rather than original YAML formatting. Use a clone to evaluate new models/prompts without changing every worker attached to the existing family.
+Review the guided fields or advanced configuration document before saving. Resolve
+stale-revision conflicts explicitly. Evaluate changes with a separate workflow or
+stage revision and compare artifacts from newly admitted runs; do not assume an
+old run will adopt edited prompts. Keep secrets out of instructions.
 
 [Settings and precedence](/flumic-software-factory/handbook/worker-configuration/) · [Profile revisions](/flumic-software-factory/control-plane/profiles/)
 

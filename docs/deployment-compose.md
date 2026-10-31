@@ -13,11 +13,9 @@ managed through the Control Pane; they are not another static Compose fleet.
 | Optional gateway | `compose.litellm.yaml` | LiteLLM and its own PostgreSQL | `.env.litellm`; models and provider credentials in LiteLLM's UI/database |
 | Monitoring | `observability/pours/deployment/compose.yaml` | SigNoz, its PostgreSQL, ClickHouse/Keeper, ingestion, storage migration jobs, optional dashboard provisioning | `.env.observability`, optionally `.env` |
 | Host metrics | `compose.resource-metrics.yaml` | Resource collector with Docker socket and host data access | `observability/resource-metrics.yaml` |
-| Legacy worker fleet | `compose.yaml` | Static profile-based simple/developer workers | `.env`, Hatchet development profile, bootstrap YAML |
 
-`compose.workers-observability.yaml` adds telemetry configuration to the legacy
-fleet. It is an **overlay**, not a monitoring server. The old
-`compose.observability.yaml` remains an equivalent compatibility alias.
+Shared workers are provisioned through Control Pane worker pools. The retired
+static Compose fleet and telemetry overlays have been removed.
 
 API, reconciler and dynamic runtime share database contracts and release versions,
 so they stay in the core project. SigNoz stays with its storage dependencies.
@@ -46,6 +44,9 @@ ensures `worker-network` exists and starts the selected control services. It doe
 **not** build worker images. `--build` still builds the Control Pane image.
 
 For upgrades, back up the database and `.env.control-plane` encryption key first.
+Keep the deployment canonical host root stable: saved Docker target pins include
+`FACTORY_HOST_ROOT`. Running the launcher from a different worktree changes the
+root it exports and can make existing worker target pins unavailable.
 The one-time `migrate` service runs `alembic upgrade head` using the application
 image. Local PostgreSQL must be healthy before migrations run; API, reconciler and
 dynamic runtime wait for successful migration completion. API startup itself runs

@@ -783,8 +783,8 @@ collector can include unrelated host containers; do not interpret its disk metri
 as storage uniquely owned by each worker. See [monitoring setup](observability.md)
 for collector access and [accounting coverage](project-observability.md).
 
-Do not run `start-observed-workers.sh` alongside this shared fleet merely to get
-charts: it starts additional workers and can duplicate processing.
+Configure telemetry on the existing shared fleet. Static worker launch scripts
+are retired; monitoring does not require another worker fleet.
 
 ## 19. Change configuration, recover safely and finish
 

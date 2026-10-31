@@ -18,7 +18,7 @@ from hatchet_sdk.connection import new_conn
 def check_hatchet(timeout: float) -> bool:
     try:
         from factory.settings import Settings
-        from factory.adapters.orchestration.hatchet import create_client
+        from factory.adapters.hatchet_client import create_client
 
         client = create_client(Settings.load())
     except (ValueError, OSError) as error:

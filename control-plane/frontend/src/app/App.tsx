@@ -2,22 +2,23 @@ import { ProjectNavigation } from "../components/project-navigation";
 import flumicIcon from "../assets/flumic.svg";
 import { useQueryClient } from "@tanstack/react-query";
 import {
-  Activity,
   Box,
   ChevronRight,
-  Code2,
-  FileSliders,
   GitBranch,
-  Layers3,
   LoaderCircle,
   LogOut,
-  MessageSquareText,
   RefreshCw,
   Server,
-  Workflow,
 } from "lucide-react";
 import { useEffect, useState } from "react";
-import { Link, NavLink, Route, Routes, useLocation } from "react-router-dom";
+import {
+  Link,
+  NavLink,
+  Navigate,
+  Route,
+  Routes,
+  useLocation,
+} from "react-router-dom";
 import { api, setCsrf } from "../api";
 import {
   ProjectPages,
@@ -26,12 +27,6 @@ import {
 } from "../features/projects";
 import { Empty } from "../components/ui";
 import { Login } from "../features/auth";
-import { Configuration } from "../features/configuration";
-import { History } from "../features/history";
-import { Overview } from "../features/overview";
-import { RunPage, RunsPage } from "../features/runs";
-import { UsagePage } from "../features/usage";
-import { WorkflowsPage } from "../features/workflows";
 import { WorkerPage, WorkersPage } from "../features/workers";
 
 import { RuntimeTargetsPage } from "../features/runtime-targets";
@@ -108,20 +103,13 @@ export function App() {
                 Projects
               </NavLink>
             </nav>
-            <span className="nav-label">LEGACY VIEWS & INFRASTRUCTURE</span>
-            <nav aria-label="Default legacy project">
+            <span className="nav-label">INFRASTRUCTURE</span>
+            <nav aria-label="Infrastructure">
               {[
-                ["/", "Overview", Activity],
-                ["/workers", "Workers", Server],
+                ["/workers", "Shared workers", Server],
                 ["/runtime-targets", "Runtime targets", Box],
-                ["/workflows", "Workflows", Workflow],
-                ["/runs", "Workflow runs", Workflow],
-                ["/history", "Model history", MessageSquareText],
-                ["/usage", "Usage & cost", Layers3],
-                ["/config", "Configuration", FileSliders],
-                ["/prompts", "Worker prompts", Code2],
               ].map(([path, label, Icon]) => {
-                const Glyph = Icon as typeof Activity;
+                const Glyph = Icon as typeof Box;
                 return (
                   <NavLink
                     key={String(path)}
@@ -203,17 +191,33 @@ export function App() {
           <Routes>
             <Route path="/projects" element={<ProjectsPage />} />
             <Route path="/projects/:projectId/*" element={<ProjectPages />} />
-            <Route path="/" element={<Overview />} />
+            <Route path="/" element={<Navigate to="/projects" replace />} />
             <Route path="/runtime-targets" element={<RuntimeTargetsPage />} />
             <Route path="/workers" element={<WorkersPage />} />
             <Route path="/workers/:id" element={<WorkerPage />} />
-            <Route path="/workflows" element={<WorkflowsPage />} />
-            <Route path="/runs" element={<RunsPage />} />
-            <Route path="/runs/:id" element={<RunPage />} />
-            <Route path="/history" element={<History />} />
-            <Route path="/usage" element={<UsagePage />} />
-            <Route path="/config" element={<Configuration />} />
-            <Route path="/prompts" element={<Configuration prompts />} />
+            {[
+              "/workflows",
+              "/runs",
+              "/runs/:id",
+              "/history",
+              "/usage",
+              "/config",
+              "/prompts",
+            ].map((path) => (
+              <Route
+                key={path}
+                path={path}
+                element={
+                  <>
+                    <Empty
+                      title="Choose a project"
+                      detail="Workflows, runs, model history and configuration now belong to a project. Select your project to continue."
+                    />
+                    <Link to="/projects">Open projects</Link>
+                  </>
+                }
+              />
+            ))}
             <Route
               path="*"
               element={

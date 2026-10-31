@@ -429,12 +429,10 @@ subdirectory; arguments are forwarded to the underlying commands.
 | `just control-logs` / `just control-down` | Inspect / stop the core stack; default down retains volumes |
 | `just gateway-up` / `just gateway-logs` / `just gateway-down` | Optional standalone LiteLLM gateway; does not change Flumic model routing |
 | `just control-up api reconciler dynamic-runtime` | Start the selected control services for project workflows |
-| `just workers-up` | `./scripts/start-workers.sh -d` — legacy Compose fleet; may make paid calls and repository writes |
 | `just observability-up` / `just observability-logs` / `just observability-down` | Independent SigNoz stack |
 | `just dashboards-provision` | Explicitly reconcile the checked-in dashboard; first setup also attempts this |
 | `just metrics-up` / `just metrics-logs` / `just metrics-down` | Independent host resource collector |
 | `just hatchet-check` | `./scripts/check-hatchet-connectivity.sh` |
-| `just issue-send 123` | Explicit legacy issue event; may make paid calls and repository writes |
 | `just install-ui` / `just install-docs` | Install locked npm dependencies for the selected component |
 | `just ui-dev` / `just ui-build` | Develop / type-check and bundle the Control Pane |
 | `just docs-dev` / `just docs-preview` | Develop / preview built documentation |
@@ -468,69 +466,42 @@ Field-by-field guides explain execution effects, valid values and examples:
 | `.env` | `GITHUB_TOKEN`, `OPENAI_API_KEY`, optional `DEVELOPER_OPENAI_API_KEY` and `ANTHROPIC_API_KEY` |
 | Hatchet `development` CLI profile | Engine endpoint, token, and TLS settings loaded by launchers |
 | `.env.control-plane` | Generated administrator password, database password, and encryption key |
-| `data/` | Shared factory SQLite state, locks, snapshots, and build logs |
+| `data/control-plane/` | Shared-worker history spools, Job snapshots and runtime artifacts; optional host-backed PostgreSQL |
 
 Back up the control database and encryption key together. PostgreSQL uses a named
 volume by default; see [host database storage](docs/control-plane.md#host-database-storage)
-for an optional host directory. Legacy static workers must share the factory SQLite
-state and locks on one host. Project workflows store scoped execution state and
+for an optional host directory. Project workflows store scoped execution state and
 claims in PostgreSQL; Docker actions use the trusted broker host.
 
-### Repository configuration
+### Project configuration and worker capacity
 
-`worker-config.yaml` includes the following files in order. Later values override
-earlier ones; mappings merge recursively and lists/scalars replace earlier values.
+Open **Projects → Default project → Repositories** to update the target repository.
+Open **Configuration** inside the project to choose models, coding tools, limits
+and prompts. Repository, workflow and stage overrides refine project defaults.
+Saving creates a revision for new runs; admitted runs retain their pinned settings.
 
-| File | Configure |
-| --- | --- |
-| `config/runtime.yaml` | Target repository, adapters, logging, state, telemetry |
-| `config/models.yaml` | Models, context/completion budgets, provider retries and timeouts |
-| `config/workflow.yaml` | Scan cron, concurrency, labels, task routing, retries, timeouts, prompts |
-| `config/worker-profiles/default.yaml` | Bootstrap simple-worker settings and prompts |
-| `config/worker-profiles/developer.yaml` | Bootstrap coding tool, image build, limits, and prompts |
+![Project landing page and current navigation](docs/images/control-plane-projects.png)
 
-For example, change these existing entries in `config/runtime.yaml`:
+Repository YAML files such as `worker-config.yaml`, `config/models.yaml` and
+`config/worker-profiles/*.yaml` supply bootstrap defaults. Editing them does not
+replace saved database configuration. Use project forms for an existing installation.
+Keep credentials in project credential versions; do not paste secrets into YAML.
 
-```yaml
-defaults:
-  repository: YOUR_ORG/YOUR_REPO
-  log_level: INFO
-```
+Open **Shared workers → Add shared worker** to select a pool, runtime target and
+unique worker name. Pools define role, installed actions and execution capacity.
+Authorize a pool from the project's **Shared worker pools** page. Adding workers
+changes capacity; it does not change a project's models or prompts.
 
-Change scheduling in `config/workflow.yaml`:
+![Shared-worker controls after legacy profile forms were removed](docs/images/control-plane-shared-workers.png)
 
-```yaml
-defaults:
-  scan_cron: '*/10 * * * *'
-  workflow_concurrency: 3
-```
+For code/dependency changes, run `just images-build`, then use the worker lifecycle
+controls to replace affected runtimes with the new images. Restart can interrupt
+active tasks. Settings changes alone do not rebuild images. Static Compose worker
+launch scripts and the standalone local runner are retired.
 
-These snippets show entries to edit, not replacements for the complete files.
-Cron uses UTC. Restart standalone workers after editing configuration; rebuild
-images when changing Python code or dependencies. Credentials belong outside YAML.
-
-### Saved worker profiles in the UI
-
-Open **Configuration → Worker profiles** to select models, choose `codex`,
-`claude`, or `api` as the coding backend, set limits, and configure worker images.
-Use **Worker prompts** for Markdown instructions. Validate YAML before saving.
-
-![Configuration page showing saved profile selection, revision history, and the worker behavior YAML editor](docs/images/control-plane-configuration.png)
-
-Saving appends an immutable revision. Linked workers load the latest profile on
-their next start/restart; running processes retain their loaded settings.
-**Clone as new profile** creates a separate identity. Bootstrap YAML seeds profiles
-only when the store is empty; editing those files does not overwrite saved profiles.
-Shared orchestration is edited separately under **Factory settings**.
-
-For CLI coding, use `codex_model` or `claude_model`; direct API requests use
-`openai_model`. Task model overrides take precedence. The developer-specific
-OpenAI key can separate coding access from planning/review access.
-
-See the [configuration reference](docs/worker-configuration.md),
-[bootstrap profile guide](config/worker-profiles/README.md), and
-[control-plane guide](docs/control-plane.md) for precedence, image builds,
-startup scripts, and revision behavior.
+See the [Control Pane guide](docs/control-plane.md),
+[configuration reference](docs/configuration-workers.md), and
+[retirement and upgrade notes](docs/maintenance/legacy-retirement.md).
 
 ## Developer workflow
 
@@ -588,8 +559,9 @@ startup, and registration status before increasing concurrency.
 
 ### Why did a saved configuration change not affect my worker?
 
-Managed workers load saved profile revisions on start/restart. Bootstrap files do
-not overwrite existing profiles. Compose workers read the mounted YAML on startup.
+New project runs pin saved configuration revisions. Existing runs retain their
+original settings; restarting a worker does not change those pins. Bootstrap files
+do not overwrite saved project configuration.
 Image changes require runtime replacement; a plain Docker restart cannot change
 an image. See [worker image builds](docs/worker-image-builds.md).
 
@@ -627,7 +599,7 @@ healthcheck also makes a small billable completion request.
 
 ### Can I run this across hosts or expose the UI to a team?
 
-The Control Pane supports Docker and an operator-configured Kubernetes target for a trusted administrator. Docker management requires socket access; Kubernetes uses explicit, scoped controller credentials. Project workflows use PostgreSQL state and claims across shared workers, including workers on different Kubernetes nodes. Legacy static workers retain their shared-host SQLite/file locks. Multi-user roles remain future work; see [Kubernetes setup and limits](docs/kubernetes.md) and [runtime rollout](docs/project-runtime-operations.md).
+The Control Pane supports Docker and an operator-configured Kubernetes target for a trusted administrator. Docker management requires socket access; Kubernetes uses explicit, scoped controller credentials. Project workflows use PostgreSQL state and claims across shared workers, including workers on different Kubernetes nodes. Static worker startup and its SQLite runtime are retired. Multi-user roles remain future work; see [Kubernetes setup and limits](docs/kubernetes.md) and [runtime rollout](docs/project-runtime-operations.md).
 
 ### What data reaches model providers?
 

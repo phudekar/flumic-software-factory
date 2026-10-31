@@ -1,29 +1,47 @@
 ---
-title: "Manage workers and images"
+title: "Manage shared workers and images"
 ---
 
-## Create and start
+## Provision capacity
 
-Choose **Workers → Create worker**, enter a unique name, and choose a saved simple or developer profile. Creation queues an operation and leaves the runtime stopped. Start separately once the image is ready. Watch both runtime state and Hatchet registration; a running container alone does not prove it can execute tasks.
+Open **Shared workers → Add shared worker**. Choose a pool, an available runtime
+target and a unique worker name. Start the provisioned worker explicitly. Authorize
+the pool from the project's **Shared worker pools** page before assigning work.
 
-![Managed workers with runtime, Hatchet registration and configuration revision](/flumic-software-factory/images/control-plane-workers.png)
+![Current shared worker controls](/flumic-software-factory/images/control-plane-shared-workers.png)
+
+Pools define role, installed actions and slots. Project configuration defines
+models, prompts and behavior. Adding a worker increases capacity without creating
+another copy of a project's configuration.
 
 ## Lifecycle actions
 
-| Action | Behavior |
+| Action | Effect |
 | --- | --- |
-| Start | Prepares the latest linked profile and starts a stopped instance |
-| Restart | Stops/recreates with the latest applicable profile/image and starts it |
-| Stop | Stops after the grace period; active work may be interrupted and retried |
-| Change profile | Requires a stopped worker; replacement profile must have the same worker type |
-| Remove stopped runtime | Preserves history, hides the removed instance, and cannot restart it later |
+| Start | Starts the provisioned stopped runtime |
+| Restart | Stops, recreates with the selected pool image and starts the runtime |
+| Stop | Can interrupt active work; graceful drain is not claimed |
+| Remove stopped runtime | Removes the stopped runtime while retaining history |
 
-Only managed instances expose these controls. Discovered Compose workers are read-only; use the original Compose deployment. Use **Show removed workers** and **Show exited discovered workers** for historical/stopped entries. Removal can be retried if a container is already absent.
+Check operation status, runtime state and Hatchet registration separately. An
+accepted request is not a completed operation. Older failed operations remain in
+audit history even if a later retry succeeds. Read-only discovered containers may
+still appear; they are not a way to provision the retired static fleet.
 
-## Build and startup troubleshooting
+## Update installed code
 
-Worker names open details containing stage-attempt history and usage. **Build logs** tracks assembly, including builds that failed before container creation. **Startup logs** contains runtime output, including failures before task registration. Filtered stage logs cannot reconstruct failures that occurred before ingestion.
+```sh
+just images-build
+```
 
-Image build settings select an approved Debian/Ubuntu/Alpine base, system packages, pinned CLI versions and a build script. Build scripts execute during assembly and must not contain secrets. Startup scripts run on every process start, are timeout bounded, and should be idempotent. Changing an image requires runtime replacement; a direct Docker restart keeps the installed image.
+Build before restarting affected workers. A plain Docker restart cannot change
+an image. Keep runtime target identity and the canonical host root stable during
+local rebuilds; changing a checkout path can invalidate saved target pins.
 
-[Image build architecture and caching](/flumic-software-factory/handbook/worker-image-builds/) · [Scaling workers](/flumic-software-factory/operations/scaling/)
+The old **Create worker**, **Change profile** and image/profile editing forms have
+been removed. Use project configuration for behavior and explicit image builds
+for installed dependencies. Inspect runtime startup logs when a worker fails to
+register; project stage logs only cover recorded executions.
+
+[Runtime targets](/flumic-software-factory/operations/kubernetes/) ·
+[Upgrade and retirement notes](/flumic-software-factory/handbook/legacy-retirement/)

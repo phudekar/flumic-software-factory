@@ -165,7 +165,7 @@ describe("runtime targets", () => {
       target_id: "k3d-test",
     });
   });
-  it("blocks unavailable shared targets and keeps legacy creation Docker-only", async () => {
+  it("blocks unavailable shared targets without offering retired worker creation", async () => {
     mount("/workers", [
       docker,
       {
@@ -187,10 +187,8 @@ describe("runtime targets", () => {
     fireEvent.click(
       screen.getByRole("button", { name: "Close shared worker form" }),
     );
-    fireEvent.click(screen.getByRole("button", { name: "Create worker" }));
-    expect(screen.getByText(/legacy.*docker/i)).toBeInTheDocument();
     expect(
-      screen.queryByLabelText("Deployment target"),
+      screen.queryByRole("button", { name: "Create worker" }),
     ).not.toBeInTheDocument();
   });
 });

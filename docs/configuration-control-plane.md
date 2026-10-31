@@ -95,7 +95,7 @@ The browser always calls relative `/api/v1` with same-origin credentials; there 
 | `.env.control-plane` existence | Script creates it only if missing, mode `0600`. | Generates only admin password, DB password and encryption key. An existing partial file is not repaired or rotated. Back it up securely; rerunning the script preserves its values. `.env.example` documents GitHub/model credentials for `.env`, not these generated server secrets. |
 | Script `"$@"` arguments | Example `./scripts/start-control-plane.sh --force-recreate`. | Passed to the control Compose `up --build -d` invocation. Worker builds are separate through `just images-build`. Service selection and Compose options apply there. This script does not restart the existing standalone worker services. |
 | Hatchet development profile | Fixed name `development`; used only if `hatchet` is on `PATH`. | Script evaluates `hatchet profile env --name development`; failure aborts. Without CLI, supply the token through the environment/files. Control Compose allows an empty token, so API startup can succeed while engine actions or managed-worker creation fail. |
-| Host root and network | Script exports `$PWD`; creates `worker-network` if missing. | Connects managed workers, API and reconciler on a shared Docker network. Fixed API container name `factory-control-api` supplies the internal DNS name. Existing standalone `compose.yaml` uses the same worker network. |
+| Host root and network | Script exports `$PWD`; creates `worker-network` if missing. | Connects managed workers, API and reconciler on a shared Docker network. Fixed API container name `factory-control-api` supplies the internal DNS name. Shared workers join the operator-configured worker network. |
 | Exposed port | Fixed `127.0.0.1:3400:8000`. | Browser access is host-local at `http://localhost:3400`. Changing `CONTROL_PUBLIC_ORIGIN` does not publish a new port or expose it remotely; edit/override the port and configure a proxy for other access. The startup message is also fixed to localhost. |
 | Server image and storage mounts | `software-factory-control:local`; repository read-only at `/factory`, `./data/control-plane` writable there; Docker socket mounted. | The one-time `migrate` service runs Alembic before application startup; API startup runs only Uvicorn; reconciler waits for API health. Both need shared snapshots/build progress. Docker socket access enables worker lifecycle/image operations on the daemon. File permissions and Docker daemon host paths must match this topology. |
 
@@ -121,33 +121,49 @@ These are real runtime inputs, separate from YAML `Settings`. Credentials are no
 | Variable | Default / example | Consumer and effect |
 | --- | --- | --- |
 | `HATCHET_CLIENT_TOKEN` | No usable credential default; `<hatchet-tenant-token>`. | Hatchet SDK authenticates to the configured engine. Standalone Compose requires a nonempty value. Control Compose accepts empty but managed runtime creation requires it, alongside GitHub. Server engine adapter uses it too. TLS strategy is set in YAML; engine endpoint discovery is delegated to the Hatchet SDK/token configuration. The control-plane container does not automatically forward arbitrary Hatchet endpoint environment variables. |
-| `GITHUB_TOKEN` | No usable default; `<fine-grained-github-token>`. | GitHub API/repository access; required by standalone Compose and managed runtime creation. Must authorize the configured repository and requested operations. Changing repository YAML does not change token permissions. |
+| `GITHUB_TOKEN` | No usable default; `<fine-grained-github-token>`. | GitHub API/repository access; used by bootstrap/compatibility integrations; current project actions receive pinned project credential grants. Must authorize the configured repository and requested operations. Changing repository YAML does not change token permissions. |
 | `OPENAI_API_KEY` | Empty in Compose if absent; `<openai-api-key>`. | Default OpenAI credentials for built-in API planner/reviewer/coder and Codex paths that use OpenAI. Validation occurs in the selected adapter; custom adapters need not require this credential. Managed creation itself does not require an OpenAI key. |
 | `DEVELOPER_OPENAI_API_KEY` | Empty; `<separate-developer-openai-key>`. | Deployment-only override: developer-role managed containers receive it as `OPENAI_API_KEY` when nonempty. Standalone developer Compose uses the same fallback to `OPENAI_API_KEY`. The worker does not receive a separate key under this name; simple workers retain the main key. |
-| `ANTHROPIC_API_KEY` | Empty; `<anthropic-api-key>`. | Required by built-in Claude coding when selected; passed to all managed roles if present, and to the standalone developer service. Does not switch the selected coding adapter. |
-| `WORKER_CONFIG_FILE` | `worker-config.yaml` for standalone loader; `/config/worker-config.yaml` in standalone Compose, `/config/snapshot.yaml` in managed containers. | Selects standalone YAML file. Managed bootstrap retrieves current saved configuration from the API instead; the mounted immutable snapshot is not an outage fallback. Example local run: `/srv/factory/worker-config.yaml`. |
-| `WORKER_PROFILE` | `simple` in loader; standalone developer service uses `developer`; managed value is its selected profile. | Selects the named entry in `workers` when resolving standalone YAML or downloaded managed configuration. Example: `developer`. Unknown/invalid names fail configuration validation. Container recreation is needed to change its environment selector. |
-| `FACTORY_CONTROL_ENDPOINT` | Absent for standalone; injected from server `worker_endpoint` for managed workers. | A nonempty value switches startup to authenticated remote bootstrap and wraps the configured observer with control-plane event reporting. Example `http://factory-control-api:8000`. An unavailable API makes managed startup fail; restart policy can retry later rather than running stale configuration. |
-| `FACTORY_CONTROL_TOKEN` | Empty fallback in HTTP clients; generated/injected for managed workers. | Bearer authentication for `/api/v1/worker-bootstrap` and `/api/v1/ingest`. Derived from server encryption key plus worker ID; DB stores its digest. Example `<server-issued-worker-token>`. Do not manually copy an administrator password here. Missing/wrong token prevents bootstrap/ingestion. |
-| `FACTORY_CONTROL_WORKER_ID` | Empty fallback; injected worker UUID. | `X-Worker-Id` identifies the managed worker for bootstrap/ingestion and scopes bearer validation. Example `11111111-2222-4333-8444-555555555555`. It must match the server-issued token and existing worker record. |
+| `ANTHROPIC_API_KEY` | Empty; `<anthropic-api-key>`. | Required by built-in Claude coding when selected; passed to all managed roles if present, for compatibility integrations; shared actions receive scoped project credentials. Does not switch the selected coding adapter. |
+| `WORKER_CONFIG_FILE` | Compatibility loader selector only. | Does not select shared-worker execution settings. Change behavior in project configuration; new runs pin those revisions. |
+| `WORKER_PROFILE` | Compatibility loader selector only. | Shared workers obtain role and pool identity from server-issued bootstrap data. Use project configuration for role-specific model/prompt behavior. |
+| `FACTORY_CONTROL_ENDPOINT` | Injected server worker endpoint, e.g. `http://factory-control-api:8000`. | Shared worker bootstrap, registration and assignment transport. An unavailable API prevents trusted bootstrap/claim; never substitutes repository environment credentials. |
+| `FACTORY_CONTROL_TOKEN` | Server-issued bearer credential. | Authenticates the worker identity for bootstrap and shared-worker APIs. Assignment operations additionally require the scoped lease proof. Do not use the administrator password. |
+| `FACTORY_CONTROL_WORKER_ID` | Server-issued worker UUID. | Must match the stored shared-worker identity and bearer credential. Preserved across image replacement for the same worker. |
 | `FACTORY_TELEMETRY_PROCESS_ROLE` | `worker`; Codex healthcheck sets `healthcheck`. | Internal telemetry classification and suppression of worker-only runtime metrics in healthcheck processes. This is process metadata, not a YAML override or control-plane setting; normal deployments leave it unset. |
 | `FACTORY_SHARED_HISTORY_ROOT` | Shared startup defaults to `/data/control-spool`. | Dedicated private history spool root; appends the registered worker UUID. Managed workers receive a per-worker host mount. Requires writable private storage; restart/recreate the worker to change its environment/mount. Contains redacted events and scoped assignment proofs, not a replacement for canonical run state. See [project delivery](project-observability.md#durable-bounded-worker-delivery). |
 | `FACTORY_SHARED_TELEMETRY_ENDPOINT` | Empty; examples use `http://factory-signoz-ingester:4318`. | Selects worker-lifetime OTEL infrastructure gauges. Empty activates lazily at the first OTEL action's collector, then retains that target. Explicit configuration enables infrastructure metrics at worker startup. Forwarded by the base manifest; recreate the reconciler/API environment and worker runtime to change it. Action exporters remain pinned per invocation. |
 | `FACTORY_SHARED_DEPLOYMENT_ENVIRONMENT` | `development`; e.g. `production`. | Infrastructure metric resource label for the shared physical worker, independent of project deployment labels. Forwarded to newly created workers; requires runtime recreation to change. |
 
-`./scripts/start-workers.sh` and `./scripts/start-observed-workers.sh` always require the Hatchet CLI development profile and a nonempty exported token, unlike the control-plane script's optional CLI lookup. They pass arguments to Compose `up --build`; the observed variant also includes `compose.workers-observability.yaml`. See the worker and observability references for those settings.
 
 ## Dynamic control workflow namespace
 
 `runtime_namespace` is configured by `CONTROL_RUNTIME_NAMESPACE` (default `flumic-dynamic-v1`). It is a lowercase slug of 1–80 characters beginning with a letter. For example, `flumic-staging-v1` isolates control handler names in a shared Hatchet tenant. The API outbox and `dynamic-runtime` service must use the same value; recreate both after changing it. This does not select a project, repository, worker pool or business configuration. Existing queued engine workflow names are not migrated automatically. See [runtime activation](project-runtime-api.md).
 
-## Saved profile metadata and runtime consequences
+## Project settings and runtime consequences
 
-The control plane bootstraps factory configuration and named profiles from repository files when the corresponding database records are absent; editing those files is not a replacement for editing existing saved database profiles. A saved worker profile record has `name` (1–100 characters; display name), `profile` (1–100 characters; existing factory worker profile), `factory_revision_id` (the shared factory revision to combine with it), and `document` (validated worker-local settings and task model/prompt overrides). `parent_id` links a new version and `cloned_from` records cloning provenance; neither is a runtime tuning value. Unknown top-level API fields are rejected. See [worker configuration](configuration-workers.md) for the local/shared split and each YAML value.
+Project configuration revisions supply behavior defaults. Repositories, workflows
+and stages can override permitted values. New runs pin immutable effective
+configuration; existing runs retain their original models, prompts and limits.
+Shared pools supply role, action capabilities and execution slots independently.
+Provision workers with **Shared workers → Add shared worker**; the retired saved
+worker-profile forms are no longer available.
 
-When compiling a worker snapshot, the server fixes `worker_name` to the managed worker's name and `control_revision` to its snapshot revision ID. These are derived identity/correlation metadata, not separate environment knobs. The snapshot contains a single selected worker profile with resolved defaults and tasks. Managed Docker creation uses a read-only snapshot mount, shared writable `/data`, read-only model-pricing file, fixed `worker-network`, 2 GiB memory, two CPUs and `unless-stopped`; none is an `AppSettings` environment override. It optionally joins `factory-signoz-network` if that network exists. Default images are `hatchet-test-worker:latest` or `hatchet-test-developer-worker:latest`; a configured `base_image` triggers the custom image builder. Images must advertise control protocol `3` before creation.
+Built-in Docker pool images are `hatchet-test-worker:latest` and
+`hatchet-test-developer-worker:latest`. Use `just images-build` after code or
+installed dependency changes, then replace affected runtimes through lifecycle
+controls. A plain Docker restart cannot select a different image. Current history
+spools are private per-worker mounts; project business state lives in PostgreSQL.
 
-Stopping and starting a managed process fetches its linked saved profile again, including after Docker restarts. Applying changes that require a new container/image follows the control-plane configuration/reconciliation path; reconfiguration rejects a running worker until it is stopped. Image dependencies, installed coding tools and container credentials cannot be refreshed merely by changing the profile payload read into an already-running process.
+Older saved-profile/build APIs remain backend compatibility interfaces during
+staged retirement. Their records are not the supported shared-pool configuration
+path. Do not delete factory revisions or immutable run pins because their
+serialized documents retain older fields.
+
+The Docker target pin includes a digest derived from the Compose project identity
+and `FACTORY_HOST_ROOT`. Keep the canonical host root stable across local rebuilds.
+Changing to a worktree path can make existing pins unavailable; use the original
+host root instead of silently repinning a worker to different authority.
 
 ## Durable data, keys and recovery
 
@@ -208,9 +224,9 @@ is preserved and saving against the earlier parent produces a conflict. Use
 **Discard edits and load latest** deliberately to replace the draft. New runs pin
 the configuration revision; edits
 do not rewrite an active run. These project defaults are independent of worker
-pool images and slots. The **Legacy profiles** link and existing unscoped sidebar
-screens continue to refer to the default legacy project and its saved profile
-history, regardless of the project selector.
+pool images and slots. The legacy profile link and unscoped project sidebar
+screens have been removed. Choose a project to access its own configuration and
+history. Infrastructure navigation contains shared workers and runtime targets.
 
 **Shared worker pools** lists deployment-wide pools and this project's membership.
 Authorize a pool to make it available to this project, or remove membership to

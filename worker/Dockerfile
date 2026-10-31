@@ -15,7 +15,7 @@ COPY worker/bootstrap.sh worker/worker.py worker/guardrails.py worker/model_clie
 COPY worker/factory ./factory
 COPY worker-config.yaml /worker/worker-config.yaml
 COPY config /worker/config
-COPY worker/check_hatchet_connectivity.py scripts/push_sample_event.py ./
+COPY worker/check_hatchet_connectivity.py ./
 RUN chmod +x /worker/bootstrap.sh
 
 ENTRYPOINT ["/worker/bootstrap.sh"]

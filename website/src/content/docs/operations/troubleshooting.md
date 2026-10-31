@@ -4,7 +4,7 @@ title: "Troubleshooting and FAQ"
 
 ## Issue is not picked up
 
-Verify the repository in factory settings, fine-grained token permissions, registered workers for both roles, scan interval and issue labels. Respond to clarification in GitHub and add `ready-for-agent`. Use `./scripts/push-sample-event.sh ISSUE_NUMBER` to submit a specific issue without waiting for the next scan. Check runs before repeated submissions.
+Verify the repository in factory settings, fine-grained token permissions, registered workers for both roles, scan interval and issue labels. Respond to clarification in GitHub and add `ready-for-agent`. Use the project workflow launch form to submit a specific issue. Check runs before repeated submissions.
 
 ## Container is running but coding is queued
 

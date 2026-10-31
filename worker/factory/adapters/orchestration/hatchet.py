@@ -70,15 +70,7 @@ PR_FEEDBACK_EVENTS = [
 ]
 
 
-def create_client(settings):
-    from hatchet_sdk import Hatchet
-    from hatchet_sdk.config import ClientConfig, ClientTLSConfig
-
-    return Hatchet(
-        config=ClientConfig(
-            tls_config=ClientTLSConfig(strategy=settings.hatchet_tls_strategy)
-        )
-    )
+from factory.adapters.hatchet_client import create_client
 
 
 class HatchetDispatch:

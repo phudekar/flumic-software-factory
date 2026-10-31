@@ -33,8 +33,8 @@ bridge support cannot block a capable native worker by claiming native-only work
 
 1. **Save and pin behavior.** A project owns repository connections, immutable
    workflow revisions, configuration and grants. New runs pin their inputs and
-   context; later edits do not rewrite admitted work. Legacy profile-based
-   workers adopt saved bootstrap settings at startup rather than through hot reload.
+   context; later edits do not rewrite admitted work. Shared workers receive
+   action settings through assignment-authenticated context transport.
 2. **Request infrastructure changes.** The authenticated API writes a durable
    lifecycle operation. The reconciler applies it through the runtime router:
    Docker containers or native one-replica worker Deployments with private PVCs.
@@ -74,9 +74,8 @@ remain implementation history rather than architectural decisions.
 
 ## Guarantees and operational limits
 
-PostgreSQL is required for the default native Kubernetes composition. Legacy
-static workflows retain shared-host SQLite and file locks; that path does not
-become multi-node safe by moving its files onto network storage. The dynamic
+PostgreSQL stores project execution state and is required for the default native
+Kubernetes composition. Static startup and its SQLite/file-lock runtime are retired. The dynamic
 project coordinator, shared-worker transport and Docker/native action runtime
 are implemented; see [runtime rollout and qualification](project-runtime-operations.md).
 
@@ -95,18 +94,18 @@ roles and verified graceful drain are not supplied by these adapters.
 | --- | --- | --- | --- |
 | React Control UI | Operator navigation, forms and execution views | Presentation is separate from workflow execution and vendor SDKs; backend contracts can serve another operator client. | An API client can inspect a run or save a profile without automating the browser. Same-origin authentication/CSRF rules still apply. |
 | FastAPI Control API | Authentication, validated commands, versioned settings and bounded query responses | Browser code does not need Docker, Hatchet or model credentials; adapters normalize external responses. | Workflow examples and repository validation read the latest saved factory revision; worker adoption still follows the profile/restart path. |
-| Control Plane PostgreSQL | Saved profiles/revisions, sessions, events, audits and operation receipts | Desired configuration and command state survive API process restarts and remain distinct from a particular container. | Several worker instances can follow one profile family; an accepted lifecycle command remains inspectable if a request ends. PostgreSQL also stores project-qualified dynamic run state and claims; legacy workers retain their separate SQLite/file-lock adapter. |
+| Control Plane PostgreSQL | Saved profiles/revisions, sessions, events, audits and operation receipts | Desired configuration and command state survive API process restarts and remain distinct from a particular container. | Shared workers serve authorized projects through pools; an accepted lifecycle command remains inspectable if a request ends. PostgreSQL also stores project-qualified dynamic run state and claims; the static SQLite runtime is retired. |
 | Background reconciler | Applying durable worker lifecycle requests outside HTTP handlers | Long builds/restarts and interrupted operations can be handled through one execution path rather than embedded in UI requests. | The reconciler can reclaim an expired operation lease. This does not make every external side effect exactly once or provide zero-downtime rollout. |
 | Runtime adapter | Container creation, configuration, lifecycle and logs | Docker operations and native Kubernetes Deployment/Job operations sit behind the same backend boundary rather than inside application stages. | Kubernetes targets pin operator-approved images, namespace UIDs and controller authority. Private worker PVCs, immutable payloads, database claims and UID-bound cleanup preserve ownership across nodes. Networking and PID enforcement require operator qualification. |
 | Hatchet orchestration adapter | Workflow/task registration, dependency graph, scheduling, routing, retry and wait semantics | Task operations are separate from the scheduler, so orchestration policy can be tuned without embedding engine calls in use-case logic. | Route coding to `developer` workers and adjust task timeouts/concurrency. Another production engine needs explicit adapter/bootstrap integration, not a configuration string alone. |
 | Worker roles and instances | Executing registered tasks with role-specific profiles | Capacity and tool choices can vary by workload while operations share the same application/domain code. | Add developer workers for coding capacity independently of simple workers. Task/workflow concurrency, provider quotas and shared-state constraints still apply. |
-| Application service and ports | Planning, triage, implementation, review, feedback and merge-verification operations | Business operations depend on interfaces and typed requests/results instead of Hatchet/OpenAI clients; fakes can exercise behavior without a live engine or paid model call. | The same operations support the Hatchet adapter and one-shot local runner. There is one cohesive service, not a microservice per stage. |
+| Application service and ports | Planning, triage, implementation, review, feedback and merge-verification operations | Business operations depend on interfaces and typed requests/results instead of Hatchet/OpenAI clients; fakes can exercise behavior without a live engine or paid model call. | The same operations support project action execution and an in-memory domain-test harness. There is one cohesive service, not a microservice per stage. |
 | Domain models and patch policy | Change contracts, path/file limits, completeness and content validation | Shared checks remain consistent as coding backends change; model choice does not redefine what the application can publish. | API coding and CLI coding return the same completed-patch contract. Publication policy is not an OS/network sandbox, and trusted adapters must protect extra data they load. |
 | Agent adapters | Planner/reviewer/coder implementations and context capabilities | Planning, review and coding can be chosen independently; model and prompt overrides can vary by task. | Use direct API planning/review with Codex or Claude coding, or implement a trusted coding port for a remote service. Custom managed factories require registry approval and installed code. |
 | Repository adapter | Issues, source snapshots, commits, PRs, review/merge state | Source-host integration is kept at an application boundary rather than scattered throughout model/orchestration code. | GitHub and GitLab.com adapters support numeric repository identity, separate issue/MR namespaces and durable triggers; see [setup and boundaries](gitlab.md). Self-managed hosts remain outside this version. |
-| Execution-state adapter | Prepared plans/patches, cursors, issue claims and recovery | The application can reconcile retries using recorded progress, with state operations behind a port. | Legacy Python workflows use shared SQLite and file locks on one host. The dynamic project runtime uses project-scoped encrypted state and canonical claims in PostgreSQL; its coordinator adapter is qualified with mixed builtin/container graphs on real Hatchet and shared workers, using Docker or native Kubernetes, and the executable catalog composes existing application operations per pinned context. Project-scoped APIs and assignment-authenticated transports activate the runtime through a fixed control service; see the [runtime API guide](project-runtime-api.md). |
+| Execution-state adapter | Prepared plans/patches, cursors, issue claims and recovery | The application can reconcile retries using recorded progress, with state operations behind a port. | The project runtime uses project-scoped encrypted state and canonical claims in PostgreSQL; its coordinator adapter is qualified with mixed builtin/container graphs on real Hatchet and shared workers, using Docker or native Kubernetes, and the executable catalog composes existing application operations per pinned context. Project-scoped APIs and assignment-authenticated transports activate the runtime through a fixed control service; see the [runtime API guide](project-runtime-api.md). |
 | Observation adapters | Operation/model context, logs, retained events and optional OTLP export | Instrumentation can change without rewriting development operations; execution policy stays separate from the monitoring vendor. | Use structured logging alone, managed Control Plane reporting, or optional SigNoz telemetry. Captured call content depends on policy; CLI accounting is not a complete internal transcript. |
-| Composition root + validated configuration | Constructing dependencies, selecting trusted implementations and resolving settings | Wiring stays explicit, and configuration changes can tune established behavior without editing the application service. | Change a task model/prompt through a saved profile, or load an approved installed factory. Configuration cannot create a new Python stage or make an unimplemented runtime available. |
+| Composition root + validated configuration | Constructing dependencies, selecting trusted implementations and resolving settings | Wiring stays explicit, and configuration changes can tune established behavior without editing the application service. | Change a model/prompt through project, workflow or stage configuration, or load an approved installed factory. Configuration cannot create a new Python stage or make an unimplemented runtime available. |
 
 The corresponding contracts are in
 [worker application ports](../worker/factory/application/ports.py),
@@ -129,7 +128,7 @@ points listed below, not every integration.
   validation also enforces the approved factory registry.
 - **Different production scheduler:** implement dispatch and task registration
   around existing operations, including retries, cancellation, routing and
-  durable waits. The local runner demonstrates separation; it does not provide
+  durable waits. The test-only sequential harness demonstrates separation; it does not provide
   production scheduling or universal workflow-engine parity.
 - **Different source host or worker runtime:** GitLab.com has a dedicated adapter; self-managed GitLab remains planned; native Kubernetes runtime adapters share the existing worker/action contracts. Their boundaries reduce the amount
   of application code that needs to change, but host-specific collaboration,
@@ -151,7 +150,7 @@ points listed below, not every integration.
 | `worker/factory/application/service.py` | Issue intake, planning, triage, implementation, review, feedback, and merge verification operations |
 | `worker/factory/application/operations.py` | Repository validation, operation observation, exclusive claims, and progress recording |
 | `worker/factory/adapters/orchestration/hatchet.py` | DAG, task affinity, retries, schedule, durable polling, dispatch |
-| `worker/factory/adapters/orchestration/local.py` | One-shot synchronous execution of the same operations |
+| `tests/factory_fixtures.py` | Test-only sequential use-case harness and captured dispatch requests |
 | `worker/factory/adapters/agents.py` | API and CLI coding adapters and default role factories |
 | `worker/factory/adapters/github_events.py` | GitHub payload normalization into versioned factory events |
 | `worker/factory/adapters/state.py` | SQLite/file-lock production adapter and in-memory test adapter |
@@ -320,21 +319,9 @@ application operations into its task model, and add a bootstrap selection. The
 adapter owns durability, retries, routing, scheduling, timeout, and cancellation
 semantics. The internal data-defined workflow schema targets the implemented Hatchet runtime; it does not promise equivalent semantics on arbitrary workflow engines.
 
-A local adapter proves the application can execute without Hatchet. In a copy
-of `worker-config.yaml`, set `defaults.orchestrator: local` and
-`defaults.state_path: ./data/factory.sqlite3` before running:
-
-```sh
-WORKER_CONFIG_FILE=worker-config.local.yaml WORKER_PROFILE=simple \
-  .venv/bin/python worker/worker.py 123
-```
-
-Export the integration credentials/settings first. This command performs real
-GitHub operations and agent calls. It prints the result and pending dispatch
-requests; it does not schedule scans, run child issue requests, wait durably, or
-resume human review automatically. Embedded callers can invoke `LocalRunner`
-and the application's reconciliation operations directly. It is a development
-runner, not a production scheduler.
+The test-only harness in `tests/factory_fixtures.py` exercises application use
+cases without a live engine. It is not installed as a production runner. Worker
+startup is shared-only, and project workflows own dispatch and durable waits.
 
 ## Logging and monitoring
 
