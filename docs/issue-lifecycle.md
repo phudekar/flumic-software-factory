@@ -109,16 +109,10 @@ hatchet cron list --profile development --output json
 Upcoming executions are visible in the Hatchet dashboard under **Triggers →
 Cron Jobs**.
 
-To trigger one sample issue event:
-
-```sh
-./scripts/push-sample-event.sh 123
-```
-
-The helper pushes the `issue-agent:issue` event; it uses the same
-`development` profile already loaded into the running worker container.
-Replace `123` with an existing issue number.
-
+To process a specific issue, open the project's **Workflows** page, choose the
+intended workflow and use its launch form with the repository and issue number.
+Inspect existing project runs before submitting again. Static `issue-agent:issue`
+event launch helpers are retired.
 
 ## Security boundary and limitations
 

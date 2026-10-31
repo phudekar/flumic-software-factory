@@ -103,6 +103,21 @@ class SharedWorkerTests(unittest.TestCase):
             worker.main()
         start.assert_called_once()
 
+    def test_missing_protocol_starts_only_shared_runtime(self):
+        import worker
+        from factory import shared_worker
+        with patch.dict("os.environ", {}, clear=True), patch.object(shared_worker, "start_shared") as start:
+            worker.main()
+        start.assert_called_once()
+
+    def test_explicit_legacy_protocol_is_rejected_before_start(self):
+        import worker
+        from factory import shared_worker
+        with patch.dict("os.environ", {"FACTORY_WORKER_PROTOCOL": "legacy"}), patch.object(shared_worker, "start_shared") as start:
+            with self.assertRaisesRegex(ValueError, "retired"):
+                worker.main()
+        start.assert_not_called()
+
     def test_active_assignment_renews_and_lost_lease_prevents_success(self):
         import threading
         from factory import shared_worker

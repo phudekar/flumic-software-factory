@@ -8,7 +8,7 @@ from app.settings import AppSettings
 from app.services import Configurations
 from app.workflow_runs import DynamicRuntime
 from app.adapters.hatchet import HatchetEngine
-from factory.adapters.orchestration.hatchet import create_client
+from factory.adapters.hatchet_client import create_client
 from factory.adapters.orchestration.dynamic import (
     register_coordinator,
     register_project_waits,

@@ -110,11 +110,6 @@ class ComposeRenderingTests(unittest.TestCase):
             self.assertEqual(Path(model['services']['api']['environment']['FACTORY_HOST_ROOT']).resolve(),
                              target.resolve())
 
-    def test_renamed_worker_overlay_is_compatible(self):
-        env = {'HATCHET_CLIENT_TOKEN': 'fixture', 'GITHUB_TOKEN': 'fixture'}
-        old = self.render('compose.yaml', 'compose.observability.yaml', extra=env)
-        new = self.render('compose.yaml', 'compose.workers-observability.yaml', extra=env)
-        self.assertEqual(old, new)
 
 
 class ShellLifecycleTests(unittest.TestCase):

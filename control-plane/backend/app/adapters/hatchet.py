@@ -2,7 +2,7 @@
 
 from app.security import redact
 from factory.settings import Settings
-from factory.adapters.orchestration.hatchet import create_client
+from factory.adapters.hatchet_client import create_client
 
 
 def plain(value):

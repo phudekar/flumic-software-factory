@@ -29,3 +29,24 @@ comparison and explicit transactional apply support, which are not implemented y
 
 Current project settings, credentials, definitions, project runs and shared worker
 history remain intact. Hatchet/SigNoz historical data follows their own retention.
+
+## Local rollout record
+
+The local installation's four retired worker identities, 56,007 events, two
+conversations and 35 lifecycle records were removed after a quiesced database
+backup was restored successfully into an isolated temporary database. Retained
+logical row fingerprints matched across 36 tables. The Default project, four
+completed project runs, seven factory revisions and 99 shared-worker events were
+preserved. Both shared workers resumed with recent heartbeats.
+
+The four retired worker snapshot trees, four legacy spool trees, SQLite database
+and SQLite lock directory were separately archived, archive contents verified,
+and removed using exact identity/path and current mount checks. PostgreSQL,
+shared-history spools, Job snapshots, private credentials and shared monitoring
+storage remain. Backups are private, outside the repository.
+
+Code retirement is staged on the implementation branch. The primary worker entry
+point is shared-only; static Compose launch files and helpers are removed. Static
+workflow registrations, compatibility API/UI paths and schema retirement still
+require follow-up work. Do not interpret this record as completion of the entire
+retirement design.

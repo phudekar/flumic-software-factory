@@ -376,19 +376,3 @@ class WorkerConfigTests(unittest.TestCase):
         self.assertEqual(
             engine.worker.call_args.kwargs["labels"], {"role": "developer"}
         )
-
-    def test_compose_passes_only_credentials_and_selectors(self):
-        config = yaml.safe_load((ROOT / "compose.yaml").read_text())
-        allowed = {
-            "WORKER_PROFILE",
-            "WORKER_CONFIG_FILE",
-            "HATCHET_CLIENT_TOKEN",
-            "GITHUB_TOKEN",
-            "OPENAI_API_KEY",
-            "ANTHROPIC_API_KEY",
-        }
-        for service in config["services"].values():
-            self.assertFalse(set(service["environment"]) - allowed)
-            self.assertIn(
-                "./worker-config.yaml:/config/worker-config.yaml:ro", service["volumes"]
-            )

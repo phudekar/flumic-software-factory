@@ -1,6 +1,8 @@
 # Retire the legacy runtime and its data
 
-Status: proposed for approval. No runtime or persistent data has been removed.
+Status: approved by the user; implementation in progress. Retired worker database
+history and positively identified local filesystem data have been archived and
+removed. Remaining code/schema retirement is still in progress.
 
 Builder check: an independent reviewer read this design on October 30, 2026 and
 reported no important unanswered questions before implementation planning.

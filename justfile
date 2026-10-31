@@ -33,10 +33,6 @@ gateway-down *args:
 gateway-logs *args:
     ./scripts/gateway-compose.sh logs -f "$@"
 
-# Start the legacy Compose worker fleet; may call models and write repositories.
-workers-up *args:
-    ./scripts/start-workers.sh -d "$@"
-
 # Start SigNoz dashboards and resource metrics.
 observability-up *args:
     ./scripts/start-observability.sh "$@"
@@ -63,10 +59,6 @@ metrics-logs *args:
 # Check connectivity to the Hatchet development profile through Docker.
 hatchet-check *args:
     ./scripts/check-hatchet-connectivity.sh "$@"
-
-# Explicitly send an issue event to the legacy worker (may incur costs/writes).
-issue-send issue:
-    ./scripts/push-sample-event.sh {{ quote(issue) }}
 
 # Install frontend and website dependencies using locked versions.
 install-ui:

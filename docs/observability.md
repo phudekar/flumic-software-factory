@@ -78,29 +78,22 @@ stopped workers. A flat or absent series alone does not establish worker health.
 
 ## Enable telemetry on factory workers
 
-After the monitoring stack is running:
+Start monitoring with `just observability-up`, then provision shared workers from
+Control Pane worker pools. For worker infrastructure telemetry, configure
+`FACTORY_SHARED_TELEMETRY_ENDPOINT=http://factory-signoz-ingester:4318` in the
+Control Pane environment before creating workers. Recreate existing worker
+containers through the supported lifecycle process to adopt environment changes.
 
-```sh
-./scripts/start-observed-workers.sh -d
-```
+For action telemetry, select `factory.adapters.otel:otel_observer` and the endpoint
+in project configuration. New executions pin these values; active executions keep
+their original configuration. Keep the pricing file mounted read-only for cost
+estimates. See [project observability](project-observability.md) and the
+[Control Pane configuration reference](configuration-control-plane.md).
 
-This loads the existing Hatchet `development` profile, rebuilds the worker
-images, and uses `compose.yaml` plus `compose.workers-observability.yaml`. **Starting
-these workers enables normal issue scans and real GitHub/agent operations.**
-Both roles join the monitoring network and send to
-`http://factory-signoz-ingester:4318`. The overlay selects
-`factory.adapters.otel:otel_observer` and mounts the price file read-only.
-The overlay selects the observed profiles from `worker-config.yaml`; they inherit
-the base worker profiles. Model settings and task prompts come from that file.
-
-The default `start-workers.sh` remains the logging-only path. Outside Compose,
-select an observed profile with `WORKER_PROFILE` and set its YAML endpoint,
-environment, and pricing path for your host. The adapter uses Python OTLP/HTTP
-exporters with explicit endpoints from YAML. Standard exporter authentication
-headers remain available through credential environment variables. Export
-failures are diagnostic failures; batch export does not synchronously call
+Export failures are diagnostic failures. Batch export does not synchronously call
 SigNoz as part of each business operation. The SDK retries/drops telemetry on
-outages; this is not a durable billing ledger.
+outages; this is not a durable billing ledger. Static worker launch scripts and
+Compose telemetry overlays are retired.
 
 ## Model and token reporting
 

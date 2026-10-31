@@ -429,12 +429,10 @@ subdirectory; arguments are forwarded to the underlying commands.
 | `just control-logs` / `just control-down` | Inspect / stop the core stack; default down retains volumes |
 | `just gateway-up` / `just gateway-logs` / `just gateway-down` | Optional standalone LiteLLM gateway; does not change Flumic model routing |
 | `just control-up api reconciler dynamic-runtime` | Start the selected control services for project workflows |
-| `just workers-up` | `./scripts/start-workers.sh -d` — legacy Compose fleet; may make paid calls and repository writes |
 | `just observability-up` / `just observability-logs` / `just observability-down` | Independent SigNoz stack |
 | `just dashboards-provision` | Explicitly reconcile the checked-in dashboard; first setup also attempts this |
 | `just metrics-up` / `just metrics-logs` / `just metrics-down` | Independent host resource collector |
 | `just hatchet-check` | `./scripts/check-hatchet-connectivity.sh` |
-| `just issue-send 123` | Explicit legacy issue event; may make paid calls and repository writes |
 | `just install-ui` / `just install-docs` | Install locked npm dependencies for the selected component |
 | `just ui-dev` / `just ui-build` | Develop / type-check and bundle the Control Pane |
 | `just docs-dev` / `just docs-preview` | Develop / preview built documentation |

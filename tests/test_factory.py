@@ -32,7 +32,7 @@ from factory.settings import Settings
 from factory.adapters.agents import APICodingAgent, CLICodingAgent
 from factory.adapters.state import MemoryStateStore, OperationBusy, SQLiteStateStore
 from factory.adapters.telemetry import JsonFormatter, LoggingObserver
-from factory.adapters.orchestration.local import LocalDispatch, LocalRunner
+from factory_fixtures import LocalDispatch, LocalRunner
 from factory.adapters.github_events import GitHubWebhook, normalize_webhook
 
 
@@ -442,34 +442,27 @@ class AdapterTests(unittest.TestCase):
             Settings.from_env({"MAX_PATCH_ITERATIONS": "21"})
 
     def test_custom_role_factories_are_independent_and_lazy(self):
-        from factory.bootstrap import build_service
+        from factory.bootstrap import action_service
+        from types import SimpleNamespace
 
         planner, reviewer, coder = Mock(), Mock(), Mock()
         factories = {
             "test:planner": Mock(return_value=planner),
             "test:reviewer": Mock(return_value=reviewer),
             "test:coder": Mock(return_value=coder),
-            "test:state": Mock(return_value=MemoryStateStore()),
-            "test:observer": Mock(return_value=QuietObserver()),
         }
-        with patch(
-            "factory.bootstrap.load_factory", side_effect=lambda path: factories[path]
-        ):
-            service = build_service(
-                Settings(
-                    repository="owner/repo",
-                    planner_factory="test:planner",
-                    reviewer_factory="test:reviewer",
-                    coding_factory="test:coder",
-                    state_factory="test:state",
-                    observer_factory="test:observer",
-                ),
-                LocalDispatch(),
-            )
-        factories["test:planner"].assert_not_called()
-        self.assertIs(service.planner(), planner)
-        self.assertIs(service.reviewer(), reviewer)
-        self.assertIs(service.coding_agent(), coder)
+        context = SimpleNamespace(
+            settings=Settings(repository="owner/repo", planner_factory="test:planner",
+                              reviewer_factory="test:reviewer", coding_factory="test:coder"),
+            credentials={},
+        )
+        with patch("factory.bootstrap.load_factory", side_effect=lambda path: factories[path]):
+            with action_service(context, dispatch=LocalDispatch(), state=MemoryStateStore(),
+                                observer=QuietObserver()) as service:
+                factories["test:planner"].assert_not_called()
+                self.assertIs(service.planner(), planner)
+                self.assertIs(service.reviewer(), reviewer)
+                self.assertIs(service.coding_agent(), coder)
 
     def test_clean_imports_do_not_initialize_integrations_or_read_credentials(self):
         source = """
