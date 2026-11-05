@@ -8,6 +8,7 @@ are trusted: all are recovered from the owned immutable launch and assignment.
 import hashlib
 from pathlib import Path
 import time
+from app.credential_store import read_credential
 from app.ports import managed_runtime
 from fastapi import HTTPException
 from sqlalchemy import select
@@ -318,18 +319,27 @@ class JobBroker:
                 # Commit launch intent before calling Docker; retries inspect first.
                 row.launch_started = True
             credentials = {}
+            capture_available = True
             if not terminal:
-                for purpose, version in document["grants"].items():
-                    secret = require_owned(
+                secrets = {
+                    purpose: require_owned(
                         db, ProjectScope(row.project_id), SecretVersion, version
                     )
-                    credentials[purpose] = decrypt(secret.ciphertext, self.settings)
-                revoked = any(
-                    db.get(SecretVersion, version).revoked_at is not None
-                    for version in document["grants"].values()
-                )
-                if revoked:
+                    for purpose, version in document["grants"].items()
+                }
+                if any(secret.revoked_at is not None for secret in secrets.values()):
                     stop, stop_state = True, "failed"
+                try:
+                    credentials = {
+                        purpose: read_credential(secret, self.settings)
+                        for purpose, secret in secrets.items()
+                    }
+                except HTTPException as error:
+                    if not stop or error.status_code != 503:
+                        raise
+                    # Termination must work during a secret-store outage. Without
+                    # all redaction values, discard the stopped job's capture.
+                    capture_available = False
         if callable(getattr(type(runtime), "for_job", None)):
             runtime = runtime.for_job(ref, claim=claim)
         with managed_runtime(runtime):
@@ -373,7 +383,7 @@ class JobBroker:
                         return
                     result = (
                         sanitize_capture(runtime.collect(ref), credentials.values())[0]
-                        if state.state in {"exited", "dead"}
+                        if capture_available and state.state in {"exited", "dead"}
                         else {}
                     )
                     result, final = (

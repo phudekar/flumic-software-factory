@@ -305,3 +305,56 @@ class ProjectSecretTests(unittest.TestCase):
         )
         self.assertEqual(wrong.status_code, 404)
         self.assertNotIn("do-not-echo", wrong.text)
+
+    def test_openbao_save_persists_only_reference_and_reuses_request_identity(self):
+        from unittest.mock import patch
+
+        object.__setattr__(self.settings, "openbao_address", "https://bao.example")
+        project = self.client.post(
+            "/api/v1/projects", json={"slug": "bao", "name": "Bao"}
+        ).json()["id"]
+        path = f"/api/v1/projects/{project}/secrets"
+        body = {"name": "repo", "purpose": "github", "value": "fixture-provider-token"}
+        headers = {"Idempotency-Key": "create-credential-fixture"}
+        with patch("app.credential_store.openbao_client") as client:
+            client.return_value.create.return_value = 1
+            client.return_value.read.return_value = body["value"]
+            first = self.client.post(path, json=body, headers=headers)
+            self.assertEqual(first.status_code, 201)
+            second = self.client.post(path, json=body, headers=headers)
+            self.assertEqual(second.status_code, 201)
+            client.return_value.create.assert_called_once()
+        self.assertEqual(first.json()["id"], second.json()["id"])
+        self.assertNotIn(body["value"], second.text)
+        with self.sessions() as db:
+            record = db.get(models.SecretVersion, first.json()["id"])
+            self.assertIsNone(record.ciphertext)
+            self.assertEqual(record.openbao_version, 1)
+
+    def test_openbao_copy_and_clear_preserve_credential_identity(self):
+        from unittest.mock import patch
+        from app.credential_migration import migrate_credentials
+
+        project = self.client.post(
+            "/api/v1/projects", json={"slug": "copy-bao", "name": "Copy Bao"}
+        ).json()["id"]
+        response = self.client.post(
+            f"/api/v1/projects/{project}/secrets",
+            json={"name": "repo", "purpose": "github", "value": "fixture-token"},
+        )
+        self.assertEqual(response.status_code, 201)
+        identifier = response.json()["id"]
+        with patch("app.credential_store.openbao_client") as client:
+            client.return_value.create.return_value = 1
+            client.return_value.read.return_value = "fixture-token"
+            with self.sessions.begin() as db:
+                migrate_credentials(db, self.settings, expected_count=1)
+                row = db.get(models.SecretVersion, identifier)
+                self.assertIsNotNone(row.ciphertext)
+                self.assertEqual(row.openbao_version, 1)
+            with self.sessions.begin() as db:
+                migrate_credentials(db, self.settings, expected_count=1, clear=True)
+                row = db.get(models.SecretVersion, identifier)
+                self.assertIsNone(row.ciphertext)
+                self.assertEqual(row.project_id, project)
+                self.assertEqual(row.openbao_version, 1)

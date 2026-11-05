@@ -5,12 +5,15 @@ belong to the assignment service; it must authorize before calling these helpers
 """
 
 import json
+from hmac import compare_digest
 import time
+from uuid import NAMESPACE_URL, uuid5
 from cryptography.fernet import Fernet, InvalidToken
 from fastapi import Request, HTTPException, Depends
 from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel, ConfigDict, Field, SecretStr
 from sqlalchemy import select, desc
+from app.credential_store import read_credential, store_credential
 from app.database import (
     SecretVersion,
     ActionContextSnapshot,
@@ -57,6 +60,8 @@ def require_secret(db, scope, identity, purpose, repository_id=None):
     secret = require_owned(db, scope, SecretVersion, identity)
     if secret.repository_id is not None and secret.repository_id != repository_id:
         raise HTTPException(404, "Resource not found")
+    if secret.openbao_version == 0:
+        raise HTTPException(409, "Credential storage is pending")
     if secret.purpose != purpose or secret.revoked_at is not None:
         raise HTTPException(
             409, "Pinned credential is revoked or has the wrong purpose"
@@ -66,7 +71,7 @@ def require_secret(db, scope, identity, purpose, repository_id=None):
 
 def resolve_secret(db, scope, identity, purpose, settings, repository_id=None):
     secret = require_secret(db, scope, identity, purpose, repository_id)
-    return decrypt(secret.ciphertext, settings)
+    return read_credential(secret, settings)
 
 
 def pin_context(
@@ -183,19 +188,22 @@ def pin_context(
     return item
 
 
-def resolve_pinned_context(db, scope, identity, settings, *, assignment_id):
+def resolve_pinned_context(db, scope, identity, settings, *, assignment_id, deliver=None):
     """Internal only: caller must first authenticate an active eligible assignment."""
     item = require_owned(db, scope, ActionContextSnapshot, identity)
     document = decrypt(item.ciphertext, settings)
     context = ActionContext.model_validate_json(json.dumps(document["context"]))
     if context.assignment_id != assignment_id:
         raise HTTPException(404, "Resource not found")
-    credentials = {
-        purpose: resolve_secret(
-            db, scope, version, purpose, settings, context.repository_id
-        )
-        for purpose, version in document["grants"].items()
-    }
+    credentials = {}
+    for purpose, version in document["grants"].items():
+        secret = require_secret(db, scope, version, purpose, context.repository_id)
+        if deliver is None:
+            value = read_credential(secret, settings)
+        else:
+            value = deliver(purpose, secret)
+        if value is not None:
+            credentials[purpose] = value
     return context.with_credentials(credentials)
 
 
@@ -226,7 +234,10 @@ def install(app, sessions, settings):
                 public(s)
                 for s in db.scalars(
                     select(SecretVersion)
-                    .where(SecretVersion.project_id == scope.project_id)
+                    .where(
+                        SecretVersion.project_id == scope.project_id,
+                        (SecretVersion.openbao_version.is_(None) | (SecretVersion.openbao_version > 0)),
+                    )
                     .order_by(desc(SecretVersion.created_at))
                 )
             ]
@@ -237,6 +248,10 @@ def install(app, sessions, settings):
         dependencies=[Depends(project_parameter)],
     )
     def save(body: SecretEdit, request: Request):
+        from app.workflow_state import transition_lock
+
+        use_openbao = bool(settings.openbao_address)
+        value = body.value.get_secret_value()
         with sessions.begin() as db:
             scope = request_scope(request, db)
             if body.repository_id:
@@ -244,23 +259,59 @@ def install(app, sessions, settings):
             if body.parent_id:
                 parent = require_owned(db, scope, SecretVersion, body.parent_id)
                 if (parent.name, parent.purpose, parent.repository_id) != (
-                    body.name,
-                    body.purpose,
-                    body.repository_id,
+                    body.name, body.purpose, body.repository_id
                 ):
                     raise HTTPException(
                         422, "Rotation must retain name, purpose and repository scope"
                     )
-            item = SecretVersion(
-                project_id=scope.project_id,
-                name=body.name,
-                purpose=body.purpose,
-                repository_id=body.repository_id,
-                parent_id=body.parent_id,
-                ciphertext=encrypt(body.value.get_secret_value(), settings),
-            )
-            db.add(item)
-            db.flush()
+            metadata = body.model_dump(exclude={"value"})
+            if not use_openbao:
+                if db.scalar(select(SecretVersion.id).where(
+                    SecretVersion.openbao_version.is_not(None)
+                ).limit(1)):
+                    raise HTTPException(503, "OpenBao is required for this credential store")
+                item = SecretVersion(
+                    project_id=scope.project_id, ciphertext=encrypt(value, settings),
+                    **metadata,
+                )
+                db.add(item)
+                db.flush()
+                return public(item)
+
+            key = request.headers.get("Idempotency-Key", "")
+            if not 8 <= len(key) <= 120:
+                raise HTTPException(422, "A bounded Idempotency-Key is required")
+            project_id = scope.project_id
+            identifier = str(uuid5(NAMESPACE_URL, f"flumic/credential/{project_id}/{key}"))
+            transition_lock(db)
+            item = db.get(SecretVersion, identifier)
+            existing_version = item.openbao_version if item is not None else None
+            if item is None:
+                db.add(SecretVersion(
+                    id=identifier, project_id=project_id, openbao_version=0, **metadata,
+                ))
+            elif (
+                item.project_id != project_id or item.openbao_version is None
+                or item.revoked_at is not None
+                or any(getattr(item, name) != expected for name, expected in metadata.items())
+            ):
+                raise HTTPException(409, "Credential request conflicts with an existing version")
+
+        # A durable pending row owns the path even if the response is lost.
+        if existing_version:
+            with sessions() as db:
+                item = db.get(SecretVersion, identifier)
+                existing = read_credential(item, settings)
+            if not compare_digest(existing.encode(), value.encode()):
+                raise HTTPException(409, "Credential request conflicts with an existing version")
+            version = existing_version
+        else:
+            version = store_credential(project_id, identifier, value, settings)
+        with sessions.begin() as db:
+            item = db.get(SecretVersion, identifier, with_for_update=True)
+            if item is None or item.revoked_at is not None:
+                raise HTTPException(409, "Credential version is unavailable")
+            item.openbao_version = version
             return public(item)
 
     @app.post(
@@ -268,7 +319,10 @@ def install(app, sessions, settings):
         dependencies=[Depends(project_parameter)],
     )
     def revoke(identifier: str, request: Request):
+        from app.workflow_state import transition_lock
+
         with sessions.begin() as db:
+            transition_lock(db)
             item = require_owned(
                 db, request_scope(request, db), SecretVersion, identifier
             )

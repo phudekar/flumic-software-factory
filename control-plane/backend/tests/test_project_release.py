@@ -224,3 +224,124 @@ class ProjectReleaseTests(unittest.TestCase):
             2,
         )
         self.assertNotIn("release-alpha-github-v1", str(f.detail(runs[0])))
+
+    def configure_openbao_fixture(self):
+        from unittest.mock import Mock
+        from uuid import uuid4
+        from sqlalchemy import select
+        from app.database import SecretVersion
+        from app.project_context import decrypt
+        from factory.adapters.openbao import credential_path
+
+        f = self.fixture
+        values = {}
+        tokens = {}
+        with f.sessions.begin() as db:
+            for row in db.scalars(select(SecretVersion)):
+                path = credential_path("flumic", row.project_id, row.id)
+                values[path] = decrypt(row.ciphertext, f.settings)
+                row.openbao_version = 1
+                row.ciphertext = None
+
+        def wrap(path, version, ttl):
+            self.assertEqual(version, 1)
+            self.assertLessEqual(ttl, 30)
+            token = str(uuid4())
+            tokens[token] = path
+            return token
+
+        def unwrap(path, version, token):
+            self.assertEqual(tokens.pop(token), path)
+            self.assertEqual(version, 1)
+            return values[path]
+
+        store = Mock()
+        store.wrap.side_effect = wrap
+        store.read.side_effect = lambda path, version: values[path]
+        for control in f.controls.values():
+            control.openbao = Mock()
+            control.openbao.unwrap.side_effect = unwrap
+        return store
+
+    def test_openbao_only_run_completes_and_records_redacted_history(self):
+        from unittest.mock import patch
+
+        f = self.fixture
+        store = self.configure_openbao_fixture()
+        run = f.launch("release-alpha")
+        with patch("app.credential_store.openbao_client", return_value=store):
+            states, _ = f.finish([run])
+            self.assertEqual(states, ["completed"])
+            events = f.call(f"/api/v1/projects/{run.project_id}/events?kind=model.completed")
+        self.assertTrue(events)
+        self.assertNotIn("release-alpha-github-v1", str(events))
+        store.wrap.assert_called()
+        store.read.assert_called()
+
+    def test_openbao_delivery_failure_finishes_before_provider_start(self):
+        from unittest.mock import patch
+        from sqlalchemy import select
+        from app.database import Assignment
+        from factory.adapters.openbao import OpenBaoError
+
+        f = self.fixture
+        store = self.configure_openbao_fixture()
+        store.wrap.side_effect = OpenBaoError("Fixture store unavailable")
+        run = f.launch("release-alpha")
+        frontier = f.runtime.advance(run)
+        invocation = frontier.ready[0]
+        with patch("app.credential_store.openbao_client", return_value=store):
+            receipt = f.execute(invocation, frontier.routes[invocation.execution_id].role)
+        self.assertEqual(receipt.state, "failed")
+        self.assertEqual(store.wrap.call_count, 2)
+        with f.sessions() as db:
+            assignment = db.scalar(select(Assignment).where(
+                Assignment.execution_id == invocation.execution_id
+            ))
+            self.assertIsNone(assignment.started_at)
+
+    def test_openbao_outage_after_provider_action_withholds_output_without_retry(self):
+        from unittest.mock import patch
+        from factory.adapters.openbao import OpenBaoError
+
+        f = self.fixture
+        store = self.configure_openbao_fixture()
+        store.read.side_effect = OpenBaoError("Fixture redaction lookup unavailable")
+        run = f.launch("release-alpha")
+        frontier = f.runtime.advance(run)
+        invocation = frontier.ready[0]
+        with patch("app.credential_store.openbao_client", return_value=store):
+            receipt = f.execute(invocation, frontier.routes[invocation.execution_id].role)
+        self.assertEqual(receipt.state, "cancelled")
+        self.assertEqual(len(f.claims), 1)
+        result = f.results(run)["load"]["output"]
+        self.assertEqual(result, {"error": "Output withheld because credential redaction is unavailable"})
+
+    def test_openbao_lost_start_response_retries_acknowledgement(self):
+        from unittest.mock import patch
+        from factory.shared_worker import SharedRequestError
+
+        f = self.fixture
+        store = self.configure_openbao_fixture()
+        run = f.launch("release-alpha")
+        frontier = f.runtime.advance(run)
+        invocation = frontier.ready[0]
+        role = frontier.routes[invocation.execution_id].role
+        original = f.controls[role].request
+        start_calls = 0
+
+        def lose_first_start_reply(path, body=None):
+            nonlocal start_calls
+            result = original(path, body)
+            if path.endswith("/start"):
+                start_calls += 1
+                if start_calls == 1:
+                    raise SharedRequestError()
+            return result
+
+        f.controls[role].request = lose_first_start_reply
+        with patch("app.credential_store.openbao_client", return_value=store):
+            receipt = f.execute(invocation, role)
+        self.assertEqual(receipt.state, "completed")
+        self.assertEqual(start_calls, 2)
+        self.assertEqual(len(f.claims), 1)

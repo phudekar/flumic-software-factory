@@ -59,6 +59,14 @@ class SharedControl:
             endpoint=env.get("FACTORY_SHARED_TELEMETRY_ENDPOINT", ""),
             environment=env.get("FACTORY_SHARED_DEPLOYMENT_ENVIRONMENT", "development"),
         )
+        self.openbao = None
+        if env.get("FACTORY_OPENBAO_ADDR"):
+            from factory.adapters.openbao import OpenBao
+
+            self.openbao = OpenBao(
+                env["FACTORY_OPENBAO_ADDR"],
+                ca_file=env.get("FACTORY_OPENBAO_CA_FILE") or None,
+            )
         self.history = None
         if env.get("FACTORY_SHARED_HISTORY_ROOT"):
             from pathlib import Path
@@ -218,33 +226,40 @@ class SharedControl:
             if claim["action"] == "core.echo@1":
                 result = ActionResult(output=claim["input"])
             else:
-                from factory.workflows.contracts import ActionContext
+                from factory.adapters.openbao import OpenBaoError
                 from factory.workflows.bindings import ResolvedInputs, BindingOrigin
                 from factory.bootstrap import run_builtin
 
-                delivered = self.request(
-                    "/api/v1/shared-worker/assignments/" + identifier + "/context",
-                    {"lease_token": proof},
-                )
-                context = ActionContext.model_validate_json(
-                    json.dumps(delivered["context"])
-                ).with_credentials(delivered["credentials"])
-                if (
-                    context.project_id,
-                    context.run_id,
-                    context.execution_id,
-                    context.assignment_id,
-                    context.settings.worker_type,
-                ) != (
-                    invocation.project_id,
-                    invocation.run_id,
-                    invocation.execution_id,
-                    identifier,
-                    self.settings.role,
-                ):
-                    raise ValueError("Delivered context does not match invocation")
-                if context.worker_id and context.worker_id != self.settings.worker_id:
-                    raise ValueError("Delivered context does not match assigned worker")
+                try:
+                    for delivery_attempt in range(2):
+                        try:
+                            context, delivered = self.action_context(identifier, proof, invocation)
+                            break
+                        except (OpenBaoError, SharedRequestError) as error:
+                            if self.openbao is None or (
+                                isinstance(error, SharedRequestError)
+                                and error.status not in (None, 503)
+                            ):
+                                raise
+                            if delivery_attempt:
+                                raise
+                except (OpenBaoError, SharedRequestError) as error:
+                    if self.openbao is None or (
+                        isinstance(error, SharedRequestError) and error.status not in (None, 503)
+                    ):
+                        raise
+                    return self.credential_failure(identifier, proof)
+                if delivered.get("start_required"):
+                    transport = BoundTransport(self, identifier, proof)
+                    for start_attempt in range(2):
+                        try:
+                            transport.call("start")
+                            break
+                        except SharedRequestError as error:
+                            if error.status == 409:
+                                return self.credential_failure(identifier, proof)
+                            if start_attempt or error.status not in (None, 503):
+                                raise
                 origins = tuple(
                     BindingOrigin(**{**value, "path": tuple(value["path"])})
                     for value in delivered["origins"]
@@ -275,6 +290,53 @@ class SharedControl:
                 },
             )
             return StageReceipt.model_validate(receipt)
+
+    def credential_failure(self, identifier, proof):
+        receipt = BoundTransport(self, identifier, proof).call(
+            "complete",
+            result=ActionResult(output={}).model_dump(mode="json"),
+            failed=True,
+            credential_failure=True,
+        )
+        return StageReceipt.model_validate(receipt)
+
+    def action_context(self, identifier, proof, invocation):
+        from factory.workflows.contracts import ActionContext
+
+        delivered = self.request(
+            "/api/v1/shared-worker/assignments/" + identifier + "/context"
+            + ("?credential_delivery=openbao-wrap-v1" if self.openbao else ""),
+            {"lease_token": proof},
+        )
+        context = ActionContext.model_validate_json(
+            json.dumps(delivered["context"])
+        )
+        if (
+            context.project_id,
+            context.run_id,
+            context.execution_id,
+            context.assignment_id,
+            context.settings.worker_type,
+        ) != (
+            invocation.project_id,
+            invocation.run_id,
+            invocation.execution_id,
+            identifier,
+            self.settings.role,
+        ):
+            raise ValueError("Delivered context does not match invocation")
+        if context.worker_id and context.worker_id != self.settings.worker_id:
+            raise ValueError("Delivered context does not match assigned worker")
+        credentials = dict(delivered["credentials"])
+        wrapped = delivered.get("wrapped_credentials", {})
+        if wrapped and (self.openbao is None or credentials.keys() & wrapped.keys()):
+            raise ValueError("Invalid OpenBao credential delivery")
+        for purpose, grant in wrapped.items():
+            credentials[purpose] = self.openbao.unwrap(
+                grant["path"], grant["version"], grant["token"]
+            )
+        context = context.with_credentials(credentials)
+        return context, delivered
 
 
 class BoundTransport:

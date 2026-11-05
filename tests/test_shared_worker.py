@@ -185,7 +185,14 @@ class SharedWorkerTests(unittest.TestCase):
         self.assertNotIn("on_crons", text)
 
     def test_catalog_runner_fetches_pinned_context_and_stored_origins(self):
+        self._assert_catalog_runner(wrapped=False)
+
+    def test_catalog_runner_unwraps_openbao_credentials_before_action(self):
+        self._assert_catalog_runner(wrapped=True)
+
+    def _assert_catalog_runner(self, *, wrapped):
         import json
+        from unittest.mock import Mock
         from factory.shared_worker import SharedControl
         from factory.workflows.contracts import (
             ActionContext,
@@ -215,6 +222,10 @@ class SharedWorkerTests(unittest.TestCase):
             },
         )
 
+        if wrapped:
+            client.openbao = Mock()
+            client.openbao.unwrap.return_value = "scoped-token"
+
         def request(path, body=None):
             if path.endswith("/claim"):
                 return {
@@ -225,13 +236,17 @@ class SharedWorkerTests(unittest.TestCase):
                     "input": {"command": {"issue_number": 2}},
                     "reused": False,
                 }
-            if path.endswith("/context"):
+            if path.split("?")[0].endswith("/context"):
+                self.assertEqual(path.endswith("?credential_delivery=openbao-wrap-v1"), wrapped)
                 return {
                     "context": {
                         **context.model_dump(mode="json"),
                         "settings_json": context.settings_json,
                     },
-                    "credentials": {"github": "scoped-token"},
+                    "credentials": {} if wrapped else {"github": "scoped-token"},
+                    **({"wrapped_credentials": {
+                        "github": {"path": "flumic/data/pinned", "version": 1, "token": "wrap"}
+                    }} if wrapped else {}),
                     "origins": [
                         {
                             "path": ["state"],
@@ -254,6 +269,8 @@ class SharedWorkerTests(unittest.TestCase):
                 ActionInvocation(project_id="p", run_id="run", execution_id="e")
             )
         self.assertEqual(receipt.state, "completed")
+        if wrapped:
+            client.openbao.unwrap.assert_called_once_with("flumic/data/pinned", 1, "wrap")
         self.assertEqual(builtin.call_args.args[0], "issue.load@1")
         self.assertIsNotNone(builtin.call_args.kwargs.get("observer"))
         self.assertEqual(

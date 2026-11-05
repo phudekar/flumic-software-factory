@@ -7,6 +7,7 @@ import time
 from fastapi import HTTPException
 from sqlalchemy import select
 from factory.adapters.gitlab_events import GitLabEvent
+from app.credential_store import read_credential
 from app.database import identity
 
 from app.database import (
@@ -60,7 +61,7 @@ class TriggerRuntime:
             secret = require_secret(
                 db, scope, document.get("credential_id"), "gitlab", repo.id
             )
-            token = decrypt(secret.ciphertext, self.settings)
+            token = read_credential(secret, self.settings)
             settings, _, _ = effective_configuration(
                 db, scope, self.config, repo.alias, repository_revision_id=revision.id
             )

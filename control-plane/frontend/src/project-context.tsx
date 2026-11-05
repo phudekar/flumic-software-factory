@@ -53,8 +53,16 @@ export function useScopedWrite() {
   }, []);
   return {
     alive,
-    write: async <T,>(path: string, body: unknown, method?: "PUT") => {
-      const result = await api<T>(projectPath(id, path), body, { method });
+    write: async <T,>(
+      path: string,
+      body: unknown,
+      method?: "PUT",
+      idempotencyKey?: string,
+    ) => {
+      const result = await api<T>(projectPath(id, path), body, {
+        method,
+        idempotencyKey,
+      });
       await client.invalidateQueries({ queryKey: ["project", id] });
       return result;
     },

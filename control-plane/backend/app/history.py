@@ -230,17 +230,12 @@ def install(app, sessions, settings):
             for version in document["grants"].values():
                 from app.database import SecretVersion
 
-                secrets.append(
-                    decrypt(
-                        require_owned(
-                            db,
-                            ProjectScope(assignment.project_id),
-                            SecretVersion,
-                            version,
-                        ).ciphertext,
-                        settings,
-                    )
-                )
+                from app.credential_store import read_credential
+
+                secrets.append(read_credential(
+                    require_owned(db, ProjectScope(assignment.project_id), SecretVersion, version),
+                    settings,
+                ))
             budget = MAX_BATCH - len(
                 json_bytes({"lease_token": body.lease_token, "events": []})
             )

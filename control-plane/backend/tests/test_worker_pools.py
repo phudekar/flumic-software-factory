@@ -296,6 +296,25 @@ class WorkerPoolTests(unittest.TestCase):
         self.assertEqual(
             response.json()["credentials"], {"openai": "private-model-value"}
         )
+        from unittest.mock import patch
+
+        with self.sessions.begin() as db:
+            db.get(models.SecretVersion, key).openbao_version = 1
+        self.assertEqual(self.client.post(path, json=lease, headers=headers).status_code, 409)
+        wrapped_path = path + "?credential_delivery=openbao-wrap-v1"
+        with patch("app.credential_store.openbao_client") as bao:
+            bao.return_value.wrap.return_value = "single-use-token"
+            response = self.client.post(wrapped_path, json=lease, headers=headers)
+            self.assertEqual(response.status_code, 200, response.text)
+            self.assertEqual(response.json()["credentials"], {})
+            self.assertNotIn("private-model-value", response.text)
+            self.assertEqual(response.json()["wrapped_credentials"]["openai"]["version"], 1)
+            bao.return_value.read.assert_not_called()
+            self.client.post(f"/api/v1/projects/{project}/secrets/{key}/revoke")
+            self.assertEqual(
+                self.client.post(wrapped_path, json=lease, headers=headers).status_code, 409
+            )
+            bao.return_value.wrap.assert_called_once()
         _, other = self.worker(pool, "other-worker")
         self.assertEqual(
             self.client.post(path, json=lease, headers=other).status_code, 404

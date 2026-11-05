@@ -21,6 +21,7 @@ GUIDES = {
     'docs/user-walkthrough.md': 'User walkthrough: project to monitoring',
     'docs/prompt-quality.md': 'Stage prompts, artifacts and evaluation',
     'docs/control-plane.md': 'Control-plane handbook',
+    'docs/openbao.md': 'OpenBao credentials and migration',
     'docs/maintenance/legacy-retirement.md': 'Legacy retirement and upgrade notes',
     'docs/deployment-compose.md': 'Local stacks, gateway and lifecycle commands',
     'docs/worker-configuration.md': 'Worker configuration handbook',

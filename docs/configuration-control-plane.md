@@ -8,7 +8,10 @@ This reference covers the server, deployment environment, and worker credentials
 
 The server loads `AppSettings` at process startup. Apply server environment changes by recreating **both** `api` and `reconciler`; restarting an existing container preserves its original environment. The reconciler also creates managed worker containers from its environment. Changing its credentials does not update existing worker container environments: stop and reconfigure/recreate those runtimes to deliver new credentials. Merely starting an existing worker does refresh its linked saved profile through bootstrap, but does not refresh its environment.
 
-Standalone workers use `Settings.load`, which reads the selected YAML file/profile. Managed workers with a nonempty `FACTORY_CONTROL_ENDPOINT` instead fetch their saved profile on each process start. `Settings.from_env` is a compatibility constructor, not the production worker configuration path. Its legacy `GITHUB_REPOSITORY`, `WORKER_TYPE`, `ORCHESTRATOR`, `HATCHET_WORKER_NAME`, `SCAN_CRON`, `MAX_PATCH_ITERATIONS`, `PATCH_PATH_POLICY`, `FACTORY_STATE_PATH`, `LOG_LEVEL`, `LOG_FORMAT`, `PLANNER_FACTORY`, `REVIEWER_FACTORY`, `CODING_AGENT_FACTORY`, `OBSERVER_FACTORY`, `STATE_FACTORY`, and `DEVELOPER_AGENT` mappings do not make those variables live overrides of YAML. Direct helper fallbacks for `OPENAI_MODEL`, `CODEX_MODEL` and `DEVELOPER_AGENT` likewise do not replace the explicit settings passed by normal worker adapters.
+Shared workers fetch pool identity during bootstrap and receive pinned settings
+for each assignment. Legacy environment selectors remain compatibility inputs to
+the configuration loader. Use the project configuration and workflow revision
+for supported shared-worker behavior.
 
 ## Every AppSettings field
 
@@ -27,6 +30,10 @@ Standalone workers use `Settings.load`, which reads the selected YAML file/profi
 | `worker_endpoint` / `CONTROL_WORKER_ENDPOINT` | `http://factory-control-api:8000`; Compose fixes this same value. | Base URL injected as `FACTORY_CONTROL_ENDPOINT` into **new** managed containers. Used for saved-profile bootstrap and event ingestion. Example alternative network endpoint: `http://control-api:8000`. It must be reachable from worker containers, not just from the browser; a host localhost URL refers to the worker itself. Override Compose explicitly to change it. |
 | `compose_project_name` / no loader environment input | Dataclass default `hatchet-test`. | Discovers preexisting Compose containers whose project label matches and whose service is `worker` or `developer-worker`; also scopes access to their logs. Example programmatic override: `AppSettings(..., compose_project_name="my-factory")`. No `CONTROL_PROJECT` or `FACTORY_PROJECT` variable is read. Managed containers use separate factory labels. |
 | `cookie_secure` / `CONTROL_COOKIE_SECURE` | `False`; loader enables only exact lowercase string `true`. Compose does not forward it. | Sets the login cookie's Secure flag. Example direct-process value: `true` for an HTTPS deployment. Setting it in the host env file alone has no effect with the checked-in Compose manifest: add it to API environment via an override. `True`, `1` and `yes` remain false. |
+| `openbao_address` / `CONTROL_OPENBAO_ADDR` | Unset by default. | Enables new credential writes to a trusted HTTPS OpenBao origin such as `https://bao.example.com`. Shared workers need network reachability and certificate trust. |
+| `openbao_token_file` / `CONTROL_OPENBAO_TOKEN_FILE` | Unset by default. | Private token sink mounted only into trusted services, for example `/run/openbao/token`. File rotation takes effect on subsequent requests. |
+| `openbao_ca_file` / `CONTROL_OPENBAO_CA_FILE` | System CA trust by default. | Optional trusted-service CA bundle such as `/run/openbao/ca.pem`. Configure worker trust separately. |
+| `openbao_mount` / `CONTROL_OPENBAO_MOUNT` | `flumic`. | Dedicated KV v2 mount. Keep the mount and OpenBao deployment stable for saved references. |
 
 ### `CONTROL_JOB_BRIDGE`
 
@@ -164,6 +171,11 @@ The Docker target pin includes a digest derived from the Compose project identit
 and `FACTORY_HOST_ROOT`. Keep the canonical host root stable across local rebuilds.
 Changing to a worktree path can make existing pins unavailable; use the original
 host root instead of silently repinning a worker to different authority.
+
+## OpenBao project credentials
+
+For external credential storage, configure the trusted HTTPS endpoint, KV mount,
+and service token sink. See [OpenBao setup and migration](openbao.md).
 
 ## Durable data, keys and recovery
 

@@ -279,7 +279,8 @@ class SecretVersion(ProjectOwned, Base):
     name: Mapped[str] = mapped_column(String(100))
     purpose: Mapped[str] = mapped_column(String(20))
     parent_id: Mapped[str | None] = mapped_column(String(36))
-    ciphertext: Mapped[str] = mapped_column(Text)
+    ciphertext: Mapped[str | None] = mapped_column(Text)
+    openbao_version: Mapped[int | None] = mapped_column()
     revoked_at: Mapped[float | None] = mapped_column(Float)
     created_at: Mapped[float] = mapped_column(Float, default=time.time)
 

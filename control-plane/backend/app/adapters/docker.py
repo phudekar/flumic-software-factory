@@ -174,6 +174,8 @@ class DockerRuntime:
                 'FACTORY_CONTROL_ENDPOINT':self.settings.worker_endpoint,
                 'FACTORY_CONTROL_TOKEN':token,'FACTORY_CONTROL_WORKER_ID':worker.id,
                 'FACTORY_WORKER_PROTOCOL':'shared-v1','FACTORY_WORKER_POOL_ID':worker.pool_id,
+                **({'FACTORY_OPENBAO_ADDR': self.settings.openbao_address}
+                   if getattr(self.settings, 'openbao_address', None) else {}),
                 'FACTORY_SHARED_HISTORY_ROOT':'/data/control-spool',
                 'FACTORY_SHARED_TELEMETRY_ENDPOINT':os.environ.get('FACTORY_SHARED_TELEMETRY_ENDPOINT',''),
                 'FACTORY_SHARED_DEPLOYMENT_ENVIRONMENT':os.environ.get('FACTORY_SHARED_DEPLOYMENT_ENVIRONMENT','development')},

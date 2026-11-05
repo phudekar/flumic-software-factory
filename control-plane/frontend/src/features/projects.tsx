@@ -767,6 +767,10 @@ function Credentials() {
   const [formOpen, setFormOpen] = useState(false);
   const formRef = useSetupForm(formOpen);
   const [message, setMessage] = useState("");
+  const submissionKey = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    submissionKey.current = undefined;
+  }, [name, purpose, value, repository]);
   return (
     <>
       <PageTitle
@@ -861,12 +865,19 @@ function Credentials() {
               setPending(true);
               setError("");
               try {
-                await write("/secrets", {
-                  name,
-                  purpose,
-                  value,
-                  repository_id: repository || null,
-                });
+                submissionKey.current ??= crypto.randomUUID();
+                await write(
+                  "/secrets",
+                  {
+                    name,
+                    purpose,
+                    value,
+                    repository_id: repository || null,
+                  },
+                  undefined,
+                  submissionKey.current,
+                );
+                submissionKey.current = undefined;
                 if (alive.current) {
                   setValue("");
                   setName("");

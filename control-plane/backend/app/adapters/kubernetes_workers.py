@@ -186,6 +186,9 @@ class KubernetesWorkerRuntime:
                 "FACTORY_SHARED_HISTORY_ROOT": "/data/control-spool",
             }.items()
         ]
+        openbao_address = getattr(self.settings, "openbao_address", None)
+        if openbao_address:
+            env.append({"name": "FACTORY_OPENBAO_ADDR", "value": openbao_address})
         env += [
             {
                 "name": "FACTORY_CONTROL_TOKEN",
