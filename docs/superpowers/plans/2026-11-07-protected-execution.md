@@ -10,7 +10,7 @@
 
 **Spec:** [Approved design](../../roadmap/2026-11-07-protected-execution-design.md).
 
-Date: 2026-11-07. **Planning complete; implementation not started.** The user approved the design; review this task plan before implementation. Existing historical native-inline preference is the recommendation; no implementation agents have been dispatched.
+Date: 2026-11-07. **Implementation in progress.** The user approved the design and implementation plan. Native inline execution is underway. OpenBao prerequisite PR #68 precedes A1 (#58); gateway work reuses #39/#41–#45.
 
 ## Global Constraints
 
@@ -33,9 +33,9 @@ Fourteen reviewable tasks, one PR at a time. Avoid implementing B2 and a paralle
 
 ## Preparation and backlog
 
-- [ ] Reconcile the current branch, origin/main, open PRs and existing gateway issues #39/#41–#45. Existing design baseline references are historical, not an instruction to resurrect old branches.
+- [x] Reconcile the current branch, origin/main, open PRs and existing gateway issues #39/#41–#45. Existing design baseline references are historical, not an instruction to resurrect old branches.
 - [ ] Land/rebase the existing OpenBao implementation and local-bootstrap changes in separate reviewable PRs before depending on them. Verify schema, context protocol and direct regression baseline; do not silently mix unrelated uncommitted files into new PRs.
-- [ ] Create or update issues only after backlog reconciliation, using A1–D4 identifiers and their acceptance tests. Do not duplicate the existing gateway epic; link repository/sandbox security work as dependencies.
+- [x] Create or update issues only after backlog reconciliation, using A1–D4 identifiers and their acceptance tests. Do not duplicate the existing gateway epic; link repository/sandbox security work as dependencies.
 - [ ] Record current unittest/frontend results and changed-module coverage. Pin deterministic fixture dependencies and confirm isolated Docker/cluster ownership before starting any test workloads.
 
 ## Cross-plan contract and coverage map
@@ -72,4 +72,4 @@ Coverage reports must include changed security branches and an explicit uncovere
 - Ordinary policy tightening preserves admitted pins; emergency cancellation is separate. Follow-ups and replay attempts resolve current minimums before admission.
 - Gateway-dollar enforcement is not claimed; stage request/concurrency/token reservations are hard limits only on qualified protocols.
 - Chosen Docker implementation uses network-none plus private broker socket, avoiding an unproven bridge egress rule. Dependency-download/tool limitations remain explicit.
-- No task or test has been executed; no live service or credential changed by this plan.
+- A1 policy/guard tests and PostgreSQL migration/concurrency tests have run; later tasks remain unimplemented. No live service or credential changed by this plan.
