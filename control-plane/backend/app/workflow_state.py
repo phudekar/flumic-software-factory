@@ -257,6 +257,9 @@ class WorkflowState:
         return self._create_run(db, scope, pin, run_input, key, digest, cursor)
 
     def _create_run(self, db, scope, pin, run_input, key, digest, cursor):
+        from app.execution_policy import require_direct_admission
+
+        require_direct_admission(db, scope)
         try:
             RunMetadata.model_validate(
                 {

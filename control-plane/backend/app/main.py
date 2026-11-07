@@ -156,6 +156,9 @@ def create_app(settings=None, sessions=None, runtime=None, workflow=None):
     from app.projects import install as install_projects
 
     install_projects(app, sessions, config, row)
+    from app.execution_policy import install as install_execution_policy
+
+    install_execution_policy(app, sessions)
     from app.project_context import install as install_project_context
 
     install_project_context(app, sessions, settings)

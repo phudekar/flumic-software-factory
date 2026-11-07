@@ -274,3 +274,17 @@ The generated `.local/openbao/enabled` marker selects the token mount overlay.
 These are Compose/bootstrap settings, not application runtime settings.
 See the [scripted OpenBao quick start](openbao.md#local-quick-start-with-docker-compose-and-just)
 for lifecycle commands, worker CA trust and recovery.
+
+## Project execution mode policy
+
+Execution mode is runtime database configuration, not a new `.env` setting.
+The project execution-policy API versions `default_mode` and `minimum_mode`, each
+`direct` or `protected`. The minimum prevents a weaker default. Existing projects
+retain the immutable implicit `direct-v1` policy until an administrator changes it;
+configuration documents and admitted runs are not rewritten.
+
+At the policy-foundation delivery stage `protected_execution_available` is false.
+A protected default blocks new admissions until qualified execution support ships;
+it never enables a direct fallback. Policy edits do not terminate existing runs.
+See [project execution policy](project-runtime-api.md#project-execution-policy)
+for revision conflicts, authorization and response examples.

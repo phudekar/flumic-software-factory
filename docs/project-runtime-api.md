@@ -166,3 +166,40 @@ The stage execution timer starts after successful delivery. An empty
 Post-action redaction failure withholds output and settles the stage as cancelled
 without automatic effect replay. See [credential architecture](architecture.md#openbao-credential-authority-and-delivery)
 and [OpenBao operations](openbao.md).
+
+## Project execution policy
+
+Deployment administrators can read `GET /api/v1/projects/{project_id}/execution-policy`
+and update it with `PUT` using the normal administrator session, same-origin and
+CSRF protections. Worker bearer credentials cannot manage this policy.
+
+```json
+{
+  "expected_revision": "direct-v1",
+  "default_mode": "protected",
+  "minimum_mode": "protected"
+}
+```
+
+Use the revision returned by GET as `expected_revision`; `direct-v1` is the stable
+implicit direct policy for projects without explicit policy history. A successful
+change creates a project-owned revision and advances its head atomically. A stale
+or foreign revision returns 409; unknown modes and a direct default beneath a
+protected minimum return 422. Saving unchanged values preserves the revision.
+
+The response includes `revision_id`, `default_mode`, `minimum_mode`,
+`admitted_direct_runs` and `protected_execution_available`. At this delivery stage,
+protected execution is **not available**: setting a protected default/minimum
+blocks new workflow admissions rather than silently executing them directly.
+Existing admitted runs, including queued work, are retained, and repeated requests
+for the same accepted run remain acknowledgments of that run. A policy update does
+not cancel those runs; use the existing explicit cancellation operation if needed.
+
+The initial release preserves existing projects and workflows as direct execution.
+Qualified protected targets, brokered access and guided mode selection are later
+slices; a saved policy is not proof that any target provides those protections.
+
+Schema downgrade is deliberately conservative: any historical protected revision
+blocks removal of the policy tables, even when the current policy is direct.
+Changing the current policy does not erase that history. Use a verified backup and
+explicit rollback procedure rather than deleting policy records to force downgrade.

@@ -76,6 +76,31 @@ class ProjectOwned:
     )
 
 
+class ExecutionPolicyRevision(ProjectOwned, Base):
+    __tablename__ = 'execution_policy_revisions'
+    __table_args__ = (
+        UniqueConstraint('project_id', 'id', name='uq_execution_policy_owner'),
+        CheckConstraint("default_mode IN ('direct', 'protected')", name='ck_execution_policy_default'),
+        CheckConstraint("minimum_mode IN ('direct', 'protected')", name='ck_execution_policy_minimum'),
+        CheckConstraint("minimum_mode != 'protected' OR default_mode = 'protected'", name='ck_execution_policy_strength'),
+    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=identity)
+    default_mode: Mapped[str] = mapped_column(String(20), nullable=False)
+    minimum_mode: Mapped[str] = mapped_column(String(20), nullable=False)
+    created_at: Mapped[float] = mapped_column(Float, default=time.time)
+
+
+class ExecutionPolicyHead(Base):
+    __tablename__ = 'execution_policy_heads'
+    __table_args__ = (
+        ForeignKeyConstraint(['project_id', 'revision_id'],
+            ['execution_policy_revisions.project_id', 'execution_policy_revisions.id'],
+            name='fk_execution_policy_head_owner'),
+    )
+    project_id: Mapped[str] = mapped_column(ForeignKey('projects.id'), primary_key=True)
+    revision_id: Mapped[str] = mapped_column(String(36), nullable=False)
+
+
 class Revision(ProjectOwned, Base):
     __tablename__ = "config_revisions"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=identity)
