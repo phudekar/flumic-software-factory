@@ -53,6 +53,38 @@ class ExecutionPolicyTests(unittest.TestCase):
             audits = list(db.scalars(select(Audit).where(Audit.action == 'execution-policy.update')))
             self.assertEqual(len(audits), 2)
 
+    def test_unchanged_policy_save_does_not_create_history_or_audit(self):
+        from app.database import ExecutionPolicyRevision
+        first = self.policy()
+        unchanged = self.update(first)
+        self.assertEqual(unchanged.status_code, 200, unchanged.text)
+        self.assertEqual(unchanged.json()['revision_id'], first['revision_id'])
+        second = self.update(first, default_mode='protected').json()
+        unchanged = self.update(second)
+        self.assertEqual(unchanged.status_code, 200, unchanged.text)
+        self.assertEqual(unchanged.json()['revision_id'], second['revision_id'])
+        with self.sessions() as db:
+            self.assertEqual(len(list(db.scalars(select(ExecutionPolicyRevision)))), 1)
+            self.assertEqual(len(list(db.scalars(select(Audit).where(Audit.action == 'execution-policy.update')))), 1)
+
+    def test_invalid_mode_and_corrupt_policy_reference_fail_closed(self):
+        from types import SimpleNamespace
+        from unittest.mock import Mock
+        from fastapi import HTTPException
+        from factory.domain.execution import ExecutionPolicy, ExecutionPolicyError
+        from app.execution_policy import resolve_execution_pin, read_execution_policy
+        from app.projects import ProjectScope
+        policy = ExecutionPolicy(revision_id='direct-v1')
+        for requested, parent in (('unknown', None), (None, 'unknown')):
+            with self.assertRaises(ExecutionPolicyError):
+                resolve_execution_pin(policy, requested, parent)
+        for revision in (None, SimpleNamespace(project_id='other')):
+            db = Mock()
+            db.get.side_effect = [SimpleNamespace(revision_id='bad'), revision]
+            with self.assertRaises(HTTPException) as error:
+                read_execution_policy(db, ProjectScope(DEFAULT_PROJECT_ID))
+            self.assertEqual(error.exception.status_code, 503)
+
     def test_default_cannot_weaken_minimum_and_unknown_modes_rejected(self):
         policy = self.policy()
         for changes in ({'minimum_mode': 'protected'}, {'default_mode': 'proxy'}, {'minimum_mode': 'DIRECT'}):
