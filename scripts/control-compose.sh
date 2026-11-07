@@ -3,6 +3,9 @@
 set -eu
 cd "$(dirname "$0")/.."
 export FACTORY_HOST_ROOT="$PWD"
+if [ -f .local/openbao/enabled ]; then
+    set -- -f compose.control-openbao.yaml "$@"
+fi
 case "${CONTROL_DATABASE_MODE:-local}" in
     local) set -- -f compose.control-plane.yaml -f compose.control-db.yaml "$@" ;;
     external) set -- -f compose.control-plane.yaml "$@" ;;
@@ -11,6 +14,9 @@ esac
 if [ ! -f .env.control-plane ]; then
     echo 'Run scripts/start-control-plane.sh first to initialize private credentials.' >&2
     exit 1
+fi
+if [ -f .local/openbao/enabled ]; then
+    set -- --env-file .env.openbao "$@"
 fi
 set -- --env-file .env.control-plane "$@"
 if [ -f .env ]; then set -- --env-file .env "$@"; fi

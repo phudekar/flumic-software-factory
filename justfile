@@ -23,6 +23,25 @@ control-down *args:
 control-logs *args:
     ./scripts/control-compose.sh logs -f "$@"
 
+# Start, initialize and unseal the optional persistent local secrets service.
+openbao-up:
+    ./scripts/start-openbao.sh
+
+# Unseal after a restart and reapply the Control Pane connection settings.
+openbao-setup:
+    python3 scripts/local-openbao.py setup
+    ./scripts/openbao-compose.sh --profile renewal up -d renew
+
+openbao-status:
+    python3 scripts/local-openbao.py status
+
+openbao-logs *args:
+    ./scripts/openbao-compose.sh --profile renewal logs -f "$@"
+
+# Preserve secrets and recovery material; restart with openbao-up.
+openbao-down:
+    ./scripts/openbao-compose.sh --profile renewal down
+
 # Start the optional local gateway; does not change Flumic model routing.
 gateway-up *args:
     ./scripts/start-gateway.sh "$@"

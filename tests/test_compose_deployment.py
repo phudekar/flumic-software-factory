@@ -41,6 +41,25 @@ class ComposeRenderingTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         return json.loads(result.stdout)
 
+    def test_openbao_is_separate_tls_service_with_scoped_token_mounts(self):
+        extra = {'OPENBAO_LOCAL_DIR': '/private/fixture', 'OPENBAO_LOCAL_UID': '1000', 'OPENBAO_LOCAL_GID': '1000'}
+        model = self.render('compose.openbao.yaml', extra=extra, profiles=('renewal',))
+        self.assertEqual(model['name'], 'flumic-secrets')
+        server = model['services']['openbao']
+        self.assertEqual(server['image'], 'openbao/openbao:2.7.2')
+        self.assertEqual(server['ports'][0]['host_ip'], '127.0.0.1')
+        self.assertNotIn('-dev', str(server['command']))
+        self.assertEqual(server['user'], '1000:1000')
+        renewal = model['services']['renew']
+        self.assertFalse(any('bootstrap' in v['source'] or v['target'] == '/openbao/state' for v in renewal['volumes']))
+        control = self.render('compose.control-plane.yaml', 'compose.control-db.yaml', 'compose.control-openbao.yaml', extra=extra)
+        for name in ('api', 'reconciler', 'dynamic-runtime'):
+            volumes = control['services'][name]['volumes']
+            token = next(v for v in volumes if v['target'] == '/run/flumic-openbao')
+            self.assertTrue(token['read_only'])
+            self.assertEqual(token['source'], '/private/fixture/service')
+            self.assertFalse(any(v['source'] == '/private/fixture' for v in volumes))
+
     def test_local_database_keeps_existing_identity_and_gates_migrations(self):
         model = self.render('compose.control-plane.yaml', 'compose.control-db.yaml')
         self.assertEqual(model['name'], 'factory-control')
@@ -163,6 +182,22 @@ with open(os.environ['FIXTURE_LOG'], 'a') as out:
         up = next(cmd for cmd in commands if 'up' in cmd)
         self.assertIn('compose.control-db.yaml', up)
         self.assertEqual(up[-1], 'api')
+
+    def test_local_openbao_marker_selects_overlay_for_all_control_commands(self):
+        marker = self.root / '.local/openbao/enabled'
+        marker.parent.mkdir(parents=True)
+        marker.write_text('enabled')
+        (self.root / '.env.openbao').write_text('OPENBAO_LOCAL_DIR=/private/fixture\n')
+        for mode in ('local', 'external'):
+            result = self.run_script('control-compose.sh', 'logs', '--tail', '5', 'api', extra={
+                'CONTROL_DATABASE_MODE': mode,
+                'FIXTURE_DATABASE_URL': 'postgresql+psycopg://fixture@db/control'})
+            self.assertEqual(result.returncode, 0, result.stderr)
+            command = self.commands()[-1]
+            self.assertIn('.env.openbao', command)
+            self.assertIn('compose.control-openbao.yaml', command)
+            self.assertGreater(command.index('compose.control-openbao.yaml'), command.index('compose.control-plane.yaml'))
+            self.assertEqual(command[-4:], ['logs', '--tail', '5', 'api'])
 
     def test_external_mode_rejects_missing_url_before_up(self):
         result = self.run_script('start-control-plane.sh', extra={'CONTROL_DATABASE_MODE': 'external'})

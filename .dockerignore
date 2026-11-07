@@ -15,3 +15,6 @@ control-plane/frontend/*.tsbuildinfo
 .superpowers/
 output/
 .playwright-cli/
+
+# Local OpenBao connection marker and public CA; private state lives outside the repo.
+.local/openbao/

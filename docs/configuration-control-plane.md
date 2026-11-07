@@ -264,3 +264,13 @@ Native Kubernetes worker Deployments and one-time Jobs are implemented and quali
 ### `CONTROL_RUNTIME_TARGETS_FILE`
 
 Configures `runtime_targets_file`, default `None`. Example `/run/flumic/runtime-targets.json` is a process-visible absolute path to the operator-owned JSON target registry. Mount it read-only and forward the environment variable to both API and reconciler; recreate both to reload it. It adds at most one Kubernetes target alongside Docker. Strict validation rejects duplicate keys, unknown fields and files larger than 1 MiB. Existing worker/Job pins do not silently change; revision drift fails closed. The public catalog excludes authentication references. See [the complete target key reference](kubernetes.md) before enabling native execution.
+
+## Optional local OpenBao stack
+
+Run `just openbao-up` before `just control-up` to configure persistent local TLS
+OpenBao. The ignored `.env.openbao` records `OPENBAO_LOCAL_DIR` (private host state),
+`OPENBAO_LOCAL_UID` and `OPENBAO_LOCAL_GID` (the host owner used by its containers).
+The generated `.local/openbao/enabled` marker selects the token mount overlay.
+These are Compose/bootstrap settings, not application runtime settings.
+See the [scripted OpenBao quick start](openbao.md#local-quick-start-with-docker-compose-and-just)
+for lifecycle commands, worker CA trust and recovery.

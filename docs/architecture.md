@@ -90,6 +90,17 @@ roles and verified graceful drain are not supplied by these adapters.
 
 ## OpenBao credential authority and delivery
 
+![Credential authority and compromised-worker boundaries](images/openbao-security-boundaries.svg)
+
+OpenBao separates secret storage and delivery from execution. Workers receive
+assignment-authorized, one-use wrappers rather than the controller's reusable
+OpenBao identity. This limits general secret-store access and database exposure.
+A compromised worker can still steal credentials after unwrapping and misuse its
+own worker identity; this boundary does not isolate mutually untrusted processes
+or projects sharing a worker. The [security boundaries guide](openbao.md#security-boundaries-and-compromised-workers)
+details the protections, residual risks and deployment controls.
+
+
 When configured, OpenBao KV v2 stores provider values. PostgreSQL stores the
 credential version identity, project/repository scope, purpose, revocation status
 and pinned KV version. Database-backed encrypted values support migration.

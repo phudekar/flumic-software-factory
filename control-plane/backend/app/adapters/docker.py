@@ -1,6 +1,7 @@
 """Docker-specific host paths, resource labels, and credential delivery."""
 
 import os
+from pathlib import Path
 import docker
 from docker.errors import NotFound
 
@@ -169,11 +170,24 @@ class DockerRuntime:
         directory = self.settings.snapshot_root.parent / "shared-history" / worker.id
         directory.mkdir(parents=True, exist_ok=True, mode=0o700)
         host = self.settings.host_root
+        ca_environment = {}
+        ca_volumes = {}
+        ca_file = getattr(self.settings, 'openbao_ca_file', None)
+        if getattr(self.settings, 'openbao_address', None) and ca_file:
+            # Translate a repository-relative public CA into the Docker host path.
+            # Never mount the controller token or the private OpenBao state.
+            try:
+                relative_ca = Path(ca_file).resolve().relative_to(self.settings.root.resolve())
+            except ValueError:
+                raise ValueError('Docker worker OpenBao CA must be inside FACTORY_ROOT') from None
+            ca_environment['FACTORY_OPENBAO_CA_FILE'] = '/run/flumic-openbao-ca.pem'
+            ca_volumes[str(host / relative_ca)] = {'bind': '/run/flumic-openbao-ca.pem', 'mode': 'ro'}
         container = self.client.containers.create(image, name=worker.name,
             environment={'HATCHET_CLIENT_TOKEN':engine_token,
                 'FACTORY_CONTROL_ENDPOINT':self.settings.worker_endpoint,
                 'FACTORY_CONTROL_TOKEN':token,'FACTORY_CONTROL_WORKER_ID':worker.id,
                 'FACTORY_WORKER_PROTOCOL':'shared-v1','FACTORY_WORKER_POOL_ID':worker.pool_id,
+                **ca_environment,
                 **({'FACTORY_OPENBAO_ADDR': self.settings.openbao_address}
                    if getattr(self.settings, 'openbao_address', None) else {}),
                 'FACTORY_SHARED_HISTORY_ROOT':'/data/control-spool',
@@ -183,6 +197,7 @@ class DockerRuntime:
                 'factory.revision':worker.revision_id,'factory.pool':worker.pool_id,
                 'software-factory.shared-protocol':'1'},
             volumes={
+                **ca_volumes,
                 str(host / "data/control-plane/shared-history" / worker.id): {
                     "bind": "/data/control-spool/" + worker.id, "mode": "rw"},
                 str(host / "observability/model-pricing.json"): {

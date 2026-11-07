@@ -1,6 +1,6 @@
 # Local deployment stacks and lifecycle commands
 
-Flumic keeps the application, optional LLM gateway, monitoring and host metrics in
+Flumic keeps the application, optional secrets service, LLM gateway, monitoring and host metrics in
 separate Compose projects. Start only what you need. Shared worker pools are
 managed through the Control Pane; they are not another static Compose fleet.
 
@@ -10,6 +10,7 @@ managed through the Control Pane; they are not another static Compose fleet.
 | --- | --- | --- | --- |
 | Control Pane | `compose.control-plane.yaml` | API and bundled UI, lifecycle reconciler, dynamic runtime, one-time migration job | `.env.control-plane`, optionally `.env`, exported shell values |
 | Default local database | `compose.control-db.yaml`, merged into the control stack | PostgreSQL; retains `factory-control_control-db` or your existing `CONTROL_DB_DATA_PATH` | `CONTROL_DB_PASSWORD` in `.env.control-plane` |
+| Optional secrets | `compose.openbao.yaml`; `compose.control-openbao.yaml` mounts the Control Pane token | Persistent TLS OpenBao and service-token renewal | `.env.openbao`, generated Control Pane settings |
 | Optional gateway | `compose.litellm.yaml` | LiteLLM and its own PostgreSQL | `.env.litellm`; models and provider credentials in LiteLLM's UI/database |
 | Monitoring | `observability/pours/deployment/compose.yaml` | SigNoz, its PostgreSQL, ClickHouse/Keeper, ingestion, storage migration jobs, optional dashboard provisioning | `.env.observability`, optionally `.env` |
 | Host metrics | `compose.resource-metrics.yaml` | Resource collector with Docker socket and host data access | `observability/resource-metrics.yaml` |
@@ -95,6 +96,23 @@ Prefer the lifecycle wrapper over invoking the core YAML alone: the wrapper
 selects the overlay, env files and host path consistently. The root `.env` is
 optional; `.env.control-plane` overrides it, and exported variables have Compose's
 normal precedence. Environment files are not evaluated as shell scripts.
+
+## Optional local OpenBao secrets service
+
+```sh
+just openbao-up
+just openbao-status
+just control-up
+```
+
+The first command initializes a separate persistent TLS service, a dedicated KV v2
+mount and a scoped service identity, then configures the Control Pane connection.
+`control-up` automatically selects its read-only token-mount overlay after setup.
+Use `just openbao-up` after a server restart to unseal it; `just openbao-down`
+retains all secrets and recovery material. See the [OpenBao quick start](openbao.md#local-quick-start-with-docker-compose-and-just)
+for prerequisites, worker image/recreation steps and private state locations,
+and [security boundaries](openbao.md#security-boundaries-and-compromised-workers)
+for the protections and worker-compromise limits.
 
 ## Optional local LiteLLM gateway
 
