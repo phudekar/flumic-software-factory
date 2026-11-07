@@ -473,6 +473,21 @@ volume by default; see [host database storage](docs/control-plane.md#host-databa
 for an optional host directory. Project workflows store scoped execution state and
 claims in PostgreSQL; Docker actions use the trusted broker host.
 
+### OpenBao provider credentials
+
+Configure OpenBao to store provider values in a dedicated KV v2 mount. PostgreSQL
+keeps project ownership, credential UUIDs, revocation and pinned version metadata.
+Shared workers obtain single-use wrapping tokens through assignment-authorized
+context delivery and unwrap values directly from OpenBao at action startup.
+
+Existing encrypted database credentials have an explicit copy, verify and clear
+migration. New OpenBao credentials are saved as references. Operators provide the
+HTTPS endpoint, service token sink, CA trust and worker network access, and back
+up OpenBao with compatible PostgreSQL references. See
+[setup and migration](docs/openbao.md),
+[credential architecture](docs/architecture.md#openbao-credential-authority-and-delivery)
+and [the ADR](docs/adr/0008-openbao-credential-authority.md).
+
 ### Project configuration and worker capacity
 
 Open **Projects → Default project → Repositories** to update the target repository.

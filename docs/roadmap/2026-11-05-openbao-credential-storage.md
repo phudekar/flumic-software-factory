@@ -1,9 +1,10 @@
 # OpenBao credential storage and worker delivery
 
-**Status:** Proposed for review. This plan supersedes the proposed salted database
+**Status:** Approved direction, implemented on `codex/openbao-credentials`.
+Operator setup, runtime qualification and live adoption are explicit deployment work. This plan supersedes the proposed salted database
 encryption for provider credentials once OpenBao migration is approved.
 
-## Current behavior and target
+## Starting behavior and target
 
 PostgreSQL stores encrypted provider values in `secret_versions.ciphertext`.
 The Control Pane checks project ownership, repository scope, purpose and revocation,
@@ -115,3 +116,12 @@ See [KV v2](https://openbao.org/docs/secrets/kv/kv-v2/).
 The first release covers project credential versions. Inventory webhook signing
 secrets, worker authentication and other encrypted payloads separately. Keep
 `CONTROL_ENCRYPTION_KEY` available for existing encrypted contexts and migration.
+
+## Implemented delivery boundary
+
+The implementation retrieves pinned grants at built-in action startup. It
+validates context, unwraps the grants and acknowledges a separate start operation
+before provider execution. Database-backed credentials support the migration
+window. The trusted Job broker retains the existing container credential transport.
+See [the implemented sequence](../architecture.md#openbao-credential-authority-and-delivery)
+and [operator adoption](../openbao.md) for the current protocol and limits.

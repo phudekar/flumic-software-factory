@@ -216,8 +216,8 @@ Create a repository connection by posting
 `{"alias":"backend","owner":"example","name":"payments-api","overrides":{"openai_model":"gpt-4.1-mini"}}`
 to `/api/v1/projects/PROJECT_UUID/repositories`. The API validates the fully resolved
 configuration before committing; invalid limits or identity overrides are rejected.
-Credential references remain unavailable until the project credential service is
-installed; do not put credential values in configuration documents.
+Use project credential references for provider access. Configure the value through
+the Credentials form and keep configuration documents limited to references.
 
 A POST to `/api/v1/projects/PROJECT_UUID/config/effective` accepts:
 
@@ -256,7 +256,7 @@ Project credentials are managed through authenticated operator routes:
 | Route | Purpose |
 | --- | --- |
 | `GET /api/v1/projects/{project_id}/secrets` | List version references, scope, purpose and revocation metadata. Values and ciphertext are never returned. |
-| `POST /api/v1/projects/{project_id}/secrets` | Create an encrypted version. Use `parent_id` to rotate an existing version without changing its scope or purpose. |
+| `POST /api/v1/projects/{project_id}/secrets` | Create a credential version using OpenBao when configured, or encrypted database storage during adoption. Use `parent_id` to rotate an existing version without changing its scope or purpose. |
 | `POST /api/v1/projects/{project_id}/secrets/{identifier}/revoke` | Revoke that exact version. Repeated requests retain the original revocation time. |
 
 Example request body for creating a project credential:
@@ -301,8 +301,26 @@ Only `ActionInvocation` identifiers belong in engine payloads; full contexts and
 credential-bearing objects must stay inside the authorized action process.
 
 The context service provides internal pinning/resolution and isolated service composition.
-Shared workers use the assignment-authorized context delivery described below. Existing
-legacy workers continue using their existing bootstrap path.
+Shared workers use the assignment-authorized context delivery described below.
+The static worker entry point is retired.
+
+### OpenBao storage and worker delivery
+
+With `CONTROL_OPENBAO_ADDR` configured, credential creation writes the provider
+value to OpenBao and stores its pinned KV version in PostgreSQL. Submit a stable
+`Idempotency-Key` for retries. Pending writes remain ineligible for grants until
+the reference is ready. Inspection exposes pending IDs for operator reconciliation.
+
+Shared workers request context with `credential_delivery=openbao-wrap-v1`, validate
+it and unwrap the issued tokens through OpenBao. `POST /shared-worker/assignments/{id}/start`
+rechecks the lease and credential status before beginning the stage timer.
+Pre-start delivery failures use a bounded retry and an empty failure receipt.
+After provider effects, a redaction-store outage withholds output and creates a
+cancelled terminal receipt. History batches retry after recovery.
+
+Server-side validation, triggers, follow-ups and Job brokerage use the same
+version-aware credential resolver. The existing encrypted database reader supports
+migration. See [OpenBao setup, retention and recovery](openbao.md).
 
 ### Shared worker pools and assignment authorization
 

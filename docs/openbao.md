@@ -89,3 +89,10 @@ after the store recovers.
 
 Qualify the OpenBao transport against a disposable TLS server with the optional
 `OPENBAO_TEST_BIN` test described by `tests/test_openbao_live.py`.
+
+## Architecture and decision record
+
+The [credential sequence](architecture.md#openbao-credential-authority-and-delivery)
+shows storage, authorization, worker unwrap and start acknowledgement.
+[ADR 0008](adr/0008-openbao-credential-authority.md) records the alternatives,
+operational costs and migration guarantees.

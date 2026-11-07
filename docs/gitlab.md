@@ -109,3 +109,11 @@ The issue #16 qualification completed using the same owned resources after an AP
 GitLab may refuse deletion of a merged test MR with HTTP 403 when the token lacks Owner/admin authority. Only an owned, verified merged MR may be retained as an explicit audit record; an open MR or any other cleanup failure still fails qualification. Deleting that audit record requires an appropriately authorized operator; do not broaden worker credentials for cleanup. See [GitLab MR management permissions](https://docs.gitlab.com/user/project/merge_requests/manage/).
 
 For a first-publication interruption, `FLUMIC_GITLAB_RESUME_INVENTORY` selects a bounded saved inventory. Resume validates the exact project, original default SHA, source head and owned resources before continuing; it never creates a second fixture. After restoration, set `FLUMIC_GITLAB_VERIFY_CLEANUP_INVENTORY` to the completed inventory and run only `integration.test_gitlab_contract.LiveGitLabCleanupVerification`. This gate reads the host without changing resources and emits allowlisted evidence with stage `qualified-cleanup-verified`. The original configuration pins and opt-in flags remain required. Never rerun the full live module merely to verify cleanup.
+
+## OpenBao-backed repository credentials
+
+GitLab repository validation, trigger polling and execution use the common
+credential resolver. With OpenBao configured, Flumic reads the exact version pinned
+by the repository or run. Rotate by creating a new credential version and updating
+future repository revisions. Existing pins retain their original version, and
+revocation blocks fresh delivery. See [OpenBao setup](openbao.md).

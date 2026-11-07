@@ -117,3 +117,11 @@ The Job detail page shows the selected target, namespace, Job and Pod UIDs, capt
 ## Architecture decisions
 
 See the [overall architecture](architecture.md) and [accepted ADRs](adr/index.md) for why native adapters, PostgreSQL authority, admission/resource fencing, guarded cleanup and private worker history are separate responsibilities.
+
+## OpenBao connectivity for shared workers
+
+When configured, the runtime adapter supplies the OpenBao origin to worker Pods.
+Qualify worker DNS, HTTPS egress and certificate trust in every target. Mount the
+service token sink only into trusted Control Pane services. Provider values are
+unwrapped by shared workers for authorized actions. One-time Jobs retain the
+existing broker credential transport and isolation policy. See [OpenBao setup](openbao.md).

@@ -13,7 +13,7 @@ Flumic AI separates operator control, workflow scheduling and development operat
 
 From top to bottom: developer experience → Control Plane → workflow orchestration → shared execution → runtime targets → integration adapters → persistence. The observability rail spans the layers for logs, metrics, traces and model accounting. The arrows show conceptual responsibilities and dependencies, not a synchronous sequence that every request follows.
 
-The application core is code shared by both worker roles; it is not an extra worker service. PostgreSQL stores Control Plane data, project-qualified dynamic execution state and claims. Legacy static workers retain SQLite and local locks. The detailed guide explains the actual command, bootstrap and execution paths.
+The application core is code shared by both worker roles; it is not an extra worker service. PostgreSQL stores Control Plane data, project-qualified dynamic execution state and claims. OpenBao KV v2 stores provider values when configured. PostgreSQL retains credential references and execution authority. The detailed guide explains the actual command, bootstrap and execution paths.
 
 ## Three architectural responsibilities
 
@@ -32,6 +32,17 @@ PostgreSQL claims/epochs and immutable execution pins govern reconciliation. Kub
 Native workers use distinct identities, one-replica Recreate Deployments and private retained history PVCs. Operation completion, Pod readiness, Hatchet registration and heartbeat are separate observations. Local-path storage is not node-loss HA; Kubernetes scratch is executable and action logs are combined. Unknown model usage remains unknown.
 
 Concrete adapters implement the ports: GitHub or GitLab.com, PostgreSQL and Docker or native Kubernetes Deployments/Jobs. Docker retains a trusted broker host; Kubernetes workers share PostgreSQL state across nodes and keep private history volumes. Targets require operator-pinned images, namespace UIDs and qualified isolation; see [deployment configuration](/flumic-software-factory/operations/kubernetes/).
+
+## Credential storage and delivery
+
+OpenBao holds provider values, while PostgreSQL pins credential references and
+project ownership. An assignment-authorized context request obtains short-lived
+wrapping tokens. Shared workers unwrap through the OpenBao API, then acknowledge
+action start. Trusted server integrations use the same store resolver. Operators
+configure TLS, service authentication, worker network access and paired backups.
+
+[Credential sequence and failure handling](/flumic-software-factory/handbook/architecture/#openbao-credential-authority-and-delivery) ·
+[OpenBao setup and migration](/flumic-software-factory/handbook/openbao/)
 
 ## Accepted decisions
 

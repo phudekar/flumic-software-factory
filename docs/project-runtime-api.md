@@ -6,7 +6,7 @@ The project runtime runs immutable workflow revisions on shared worker pools. A 
 
 Use PostgreSQL for the shared runtime. Apply database migrations through the one-time `migrate` service during normal control startup, then run the `dynamic-runtime` service from `compose.control-plane.yaml` alongside `api` and `reconciler`. It registers the fixed control coordinator and durable wait handlers in Hatchet. Its background pump repairs missing dispatch intents, retries engine submissions, resumes accepted follow-ups and settles broker-confirmed jobs even when the original worker or parent has disappeared.
 
-The control runtime receives database/encryption/Hatchet configuration and has no Docker socket. The reconciler owns Docker job execution. Shared workers receive scoped assignment credentials through the API. `CONTROL_RUNTIME_NAMESPACE` defaults to `flumic-dynamic-v1`; use the same value on the API and control runtime. It selects the registered control workflow names, not a project or repository. Restart the control runtime when changing saved default-factory Hatchet transport/TLS settings. Business settings always come from each run's database pin.
+The control runtime receives database/encryption/Hatchet configuration and has no Docker socket. The reconciler owns Docker job execution. Shared workers receive assignment-authorized context through the API. OpenBao-backed grants are delivered as single-use wrapping tokens and unwrapped by workers over TLS. `CONTROL_RUNTIME_NAMESPACE` defaults to `flumic-dynamic-v1`; use the same value on the API and control runtime. It selects the registered control workflow names, not a project or repository. Restart the control runtime when changing saved default-factory Hatchet transport/TLS settings. Business settings always come from each run's database pin.
 
 Existing shared pools keep their configured action allowlists. Reconfigure and recreate workers deliberately to advertise the installed builtin catalog or `docker.run@1`; starting the new service does not promote old workers. Configure project pool memberships and capabilities before launching. See [shared pools](control-plane.md#shared-worker-pools-and-assignment-authorization) and [workflow development](workflow-development.md).
 
@@ -151,3 +151,18 @@ Ready issues run once per observed not-ready → ready transition. Routine comme
 ## Kubernetes runtime configuration
 
 Native Kubernetes worker Deployments and one-time Jobs are implemented and qualified on a dedicated two-node k3d/K3s cluster. See the [operator configuration reference](kubernetes.md) for every target setting, explicit controller authentication, namespace fencing, storage, networking, PID limits and capture/cleanup behavior. Docker remains available alongside the operator-configured Kubernetes target.
+
+## OpenBao credential delivery
+
+For OpenBao-backed grants, workers negotiate `openbao-wrap-v1` when requesting
+assignment context. The response contains scoped wrapped descriptors in
+`wrapped_credentials`. Workers validate identity and wrapping origin, retrieve
+values from OpenBao and acknowledge `/shared-worker/assignments/{id}/start`
+before provider execution. The controller validates the current lease, run and
+revocation status again. Wrapping TTL is bounded by the assignment lease.
+
+The stage execution timer starts after successful delivery. An empty
+`credential_failure` completion is accepted only before the action starts.
+Post-action redaction failure withholds output and settles the stage as cancelled
+without automatic effect replay. See [credential architecture](architecture.md#openbao-credential-authority-and-delivery)
+and [OpenBao operations](openbao.md).
