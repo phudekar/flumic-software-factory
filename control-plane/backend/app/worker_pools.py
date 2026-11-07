@@ -80,6 +80,7 @@ class LeaseProof(BaseModel):
 class Completion(LeaseProof):
     result: ActionResult
     failed: bool = False
+    credential_failure: bool = False
 
 
 def pool_record(db, identity):
@@ -398,7 +399,7 @@ def renew_execution(db, worker, identifier, proof, settings, *, now=None):
 
 
 def resolve_context(
-    db, scope, execution_id, worker_id, settings, *, lease_proof, now=None
+    db, scope, execution_id, worker_id, settings, *, lease_proof, now=None, deliver=None
 ):
     row = db.scalar(
         select(Assignment).where(
@@ -415,7 +416,7 @@ def resolve_context(
     if not row.context_id:
         raise HTTPException(409, "Execution context is not pinned")
     context = resolve_pinned_context(
-        db, scope, row.context_id, settings, assignment_id=row.id
+        db, scope, row.context_id, settings, assignment_id=row.id, deliver=deliver
     )
     if (
         context.project_id,
@@ -668,7 +669,14 @@ def install(app, sessions, settings):
                 raise HTTPException(
                     409, "External jobs require a broker terminal receipt"
                 )
-            if body.failed:
+            if body.credential_failure and (
+                row.started_at is not None
+                or not body.failed
+                or body.result.output
+                or body.result.usage
+            ):
+                raise HTTPException(409, "Invalid pre-start credential failure")
+            if body.failed and not body.credential_failure:
                 from factory.workflows.action_schemas import READ_ONLY_FAILURE_ACTIONS
 
                 if row.action not in READ_ONLY_FAILURE_ACTIONS:
@@ -691,29 +699,35 @@ def install(app, sessions, settings):
                 )
                 from factory.workflows.redaction import secret_scope
 
+                from app.credential_store import read_credential
+
+                withheld = {"error": "Output withheld because credential redaction is unavailable"}
+                if (
+                    attempt.state == "cancelled"
+                    and attempt.result_ciphertext
+                    and decrypt(attempt.result_ciphertext, settings)["output"] == withheld
+                ):
+                    return {"execution_id": row.execution_id, "state": "cancelled"}
                 credentials = []
-                if row.context_id:
+                capture_unavailable = False
+                if row.context_id and not body.credential_failure:
                     pin = require_owned(
-                        db,
-                        ProjectScope(row.project_id),
-                        ActionContextSnapshot,
-                        row.context_id,
+                        db, ProjectScope(row.project_id), ActionContextSnapshot, row.context_id
                     )
-                    for version in decrypt(pin.ciphertext, settings)["grants"].values():
-                        credentials.append(
-                            decrypt(
-                                require_owned(
-                                    db,
-                                    ProjectScope(row.project_id),
-                                    SecretVersion,
-                                    version,
-                                ).ciphertext,
-                                settings,
+                    try:
+                        for version in decrypt(pin.ciphertext, settings)["grants"].values():
+                            secret = require_owned(
+                                db, ProjectScope(row.project_id), SecretVersion, version
                             )
-                        )
+                            credentials.append(read_credential(secret, settings))
+                    except HTTPException as error:
+                        if error.status_code != 503 or attempt.state in {"completed", "failed", "cancelled"}:
+                            raise
+                        capture_unavailable = True
                 with secret_scope(credentials):
-                    result = ActionResult(
-                        output=body.result.output, usage=body.result.usage
+                    result = (
+                        ActionResult(output=withheld) if capture_unavailable else
+                        ActionResult(output=body.result.output, usage=body.result.usage)
                     )
                 run = require_owned(
                     db, ProjectScope(row.project_id), WorkflowRun, row.run_id
@@ -728,7 +742,7 @@ def install(app, sessions, settings):
                         and time.time() >= deadline
                     )
                 )
-                cancelled = attempt.state == "cancelled" or run.state in {
+                cancelled = capture_unavailable or attempt.state == "cancelled" or run.state in {
                     "cancelling",
                     "cancelled",
                 }
@@ -760,39 +774,66 @@ def install(app, sessions, settings):
                 row.status = "completed"
             return {"execution_id": row.execution_id, "state": "completed"}
 
-    @app.post("/api/v1/shared-worker/assignments/{identifier}/context")
-    def context(identifier: str, body: LeaseProof, request: Request):
-        with sessions.begin() as db:
-            from app.workflow_state import transition_lock
-            from app.database import WorkflowRun
+    @app.post("/api/v1/shared-worker/assignments/{identifier}/start")
+    def start_action(identifier: str, body: LeaseProof, request: Request):
+        from app.database import ActionContextSnapshot
+        from app.project_context import require_secret
+        from app.workflow_state import transition_lock
 
+        with sessions.begin() as db:
+            transition_lock(db)
+            row = require_lease(db, authenticate(db, request), identifier, body.lease_token, settings)
+            if row.executor != "builtin@1" or not row.context_id:
+                raise HTTPException(409, "A pinned builtin action is required")
+            scope = ProjectScope(row.project_id)
+            pin = require_owned(db, scope, ActionContextSnapshot, row.context_id)
+            for purpose, version in decrypt(pin.ciphertext, settings)["grants"].items():
+                require_secret(db, scope, version, purpose, row.repository_id)
+            if row.started_at is None:
+                row.started_at = time.time()
+            return {"deadline": assignment_deadline(db, row, settings)}
+
+    @app.post("/api/v1/shared-worker/assignments/{identifier}/context")
+    def context(
+        identifier: str, body: LeaseProof, request: Request,
+        credential_delivery: str = "",
+    ):
+        from app.credential_store import read_credential, wrap_credential
+        from app.database import Audit
+        from app.project_context import require_secret
+        from app.workflow_state import transition_lock
+
+        checked = {}
+
+        def deliver(purpose, secret):
+            checked[purpose] = secret
+            if secret.openbao_version is None:
+                return read_credential(secret, settings)
+            if credential_delivery != "openbao-wrap-v1":
+                raise HTTPException(409, "Worker requires OpenBao credential delivery support")
+            return None
+
+        with sessions.begin() as db:
             transition_lock(db)
             worker = authenticate(db, request)
             row = require_lease(db, worker, identifier, body.lease_token, settings)
-            attempt = db.get(StageAttempt, row.execution_id)
-            if attempt is not None:
-                run = require_owned(
-                    db, ProjectScope(row.project_id), WorkflowRun, row.run_id
-                )
-                if run.state != "running":
-                    raise HTTPException(409, "Run is not accepting action starts")
+            scope = ProjectScope(row.project_id)
             value = resolve_context(
-                db,
-                ProjectScope(row.project_id),
-                row.execution_id,
-                worker.id,
-                settings,
-                lease_proof=body.lease_token,
+                db, scope, row.execution_id, worker.id, settings,
+                lease_proof=body.lease_token, deliver=deliver,
             )
-            if row.started_at is None:
+            deferred_start = credential_delivery == "openbao-wrap-v1"
+            if row.started_at is None and not deferred_start:
                 row.started_at = time.time()
-            # Deliberate authorized delivery only; never use generic row/query APIs.
+            deadline = assignment_deadline(db, row, settings)
+            expires = min(row.expires_at, deadline) if deadline is not None else row.expires_at
+            context_id = row.context_id
             attempt = db.get(StageAttempt, row.execution_id)
-            return {
-                "deadline": assignment_deadline(db, row, settings),
+            payload = {
+                "deadline": deadline,
+                **({"start_required": True} if deferred_start else {}),
                 "origins": decrypt(attempt.origins_ciphertext, settings)
-                if attempt and attempt.origins_ciphertext
-                else [],
+                if attempt and attempt.origins_ciphertext else [],
                 "context": {
                     **value.model_dump(mode="json"),
                     "settings_json": value.settings_json,
@@ -800,3 +841,27 @@ def install(app, sessions, settings):
                 },
                 "credentials": dict(value.credentials),
             }
+
+        # Avoid holding the global execution mutex across OpenBao I/O.
+        wraps = {
+            purpose: wrap_credential(
+                secret, settings, seconds_remaining=expires - time.time() - 5
+            )
+            for purpose, secret in checked.items()
+            if secret.openbao_version is not None
+        }
+        if wraps:
+            with sessions.begin() as db:
+                transition_lock(db)
+                worker = authenticate(db, request)
+                current = require_lease(db, worker, identifier, body.lease_token, settings)
+                if current.context_id != context_id:
+                    raise HTTPException(409, "Assignment context changed during delivery")
+                for purpose, secret in checked.items():
+                    verified = require_secret(db, scope, secret.id, purpose, value.repository_id)
+                    if verified.openbao_version != secret.openbao_version:
+                        raise HTTPException(409, "Credential storage changed during delivery")
+                    if purpose in wraps:
+                        db.add(Audit(action="credential.wrap", resource=f"{identifier}/{secret.id}"))
+            payload["wrapped_credentials"] = wraps
+        return payload

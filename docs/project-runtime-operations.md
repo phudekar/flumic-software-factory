@@ -194,3 +194,12 @@ or raw SDK logs. Local failed runs can retain bounded redacted diagnostic logs i
 a private evidence subdirectory. The fixture cleans only its own workers,
 containers and database schema; registered test workflow metadata can remain in
 the selected tenant for inspection.
+
+## Adopting OpenBao credentials
+
+Qualify the updated shared-worker protocol and each runtime target before
+copying credentials. Back up and restore-test PostgreSQL and OpenBao together,
+then follow the [copy, verify and clear runbook](openbao.md#migrate-an-existing-installation).
+Preserve credential UUIDs, references and revocation across the cutover. Keep the
+Control Pane encryption key for encrypted execution contexts. Upgrade adoption
+and live credential migration are explicit operator operations.

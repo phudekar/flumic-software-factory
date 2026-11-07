@@ -88,13 +88,75 @@ distribution. Namespace/cluster administrators are trusted. Exactly-once externa
 effects, instantaneous deadline termination, automatic scaling, multi-user
 roles and verified graceful drain are not supplied by these adapters.
 
+## OpenBao credential authority and delivery
+
+![Credential authority and compromised-worker boundaries](images/openbao-security-boundaries.svg)
+
+OpenBao separates secret storage and delivery from execution. Workers receive
+assignment-authorized, one-use wrappers rather than the controller's reusable
+OpenBao identity. This limits general secret-store access and database exposure.
+A compromised worker can still steal credentials after unwrapping and misuse its
+own worker identity; this boundary does not isolate mutually untrusted processes
+or projects sharing a worker. The [security boundaries guide](openbao.md#security-boundaries-and-compromised-workers)
+details the protections, residual risks and deployment controls.
+
+
+When configured, OpenBao KV v2 stores provider values. PostgreSQL stores the
+credential version identity, project/repository scope, purpose, revocation status
+and pinned KV version. Database-backed encrypted values support migration.
+Operator-managed token sinks authenticate trusted Control Pane services. Shared
+workers receive short-lived single-use wrapping tokens for their assigned grants.
+
+```mermaid
+sequenceDiagram
+    participant Worker as Shared worker
+    participant API as Control Pane API
+    participant DB as PostgreSQL
+    participant Bao as OpenBao KV v2
+    participant Provider as Repository or model provider
+    Worker->>API: Request context with assignment lease and wrapping capability
+    API->>DB: Validate worker, project, lease and pinned grants
+    API->>Bao: Read exact KV versions with response wrapping
+    Bao-->>API: Single-use wrapping tokens
+    API->>DB: Recheck lease and revocation
+    API-->>Worker: Context and wrapped grants
+    Worker->>Bao: Verify origin and unwrap over TLS
+    Bao-->>Worker: Provider values for this action
+    Worker->>API: Acknowledge action start
+    API->>DB: Recheck authority and start stage timer
+    Worker->>Provider: Execute with scoped credentials
+```
+
+The OpenBao request runs outside the global execution mutex during context
+delivery. A second authority check gates the response. The worker validates its
+context before unwrapping, then acknowledges start before provider work. Short
+stage timeouts therefore start after credential delivery. Retrieval and start
+acknowledgements have bounded retries. A pre-start delivery failure can follow
+the stage retry policy. After provider effects, unavailable redaction keys cause
+output to be withheld and the stage to receive a cancelled terminal receipt,
+which prevents automatic replay. History delivery can retry after recovery.
+
+Repository validation, triggers, follow-ups and the trusted Job broker use the
+same version-aware store resolver. Container actions retain their existing broker
+grant transport. OpenBao values fetched at action startup are held in the trusted
+process memory for that action. KV storage holds provider keys supplied by an
+operator, while rotation creates a new credential-version reference.
+
+An issued wrap can survive revocation until its TTL. A value already retrieved
+requires provider-side invalidation for immediate revocation. Backup and restore
+must pair PostgreSQL references with compatible OpenBao data. The Control Pane
+root encryption key remains required for existing encrypted execution contexts.
+
+See [OpenBao setup and migration](openbao.md) and
+[ADR 0008](adr/0008-openbao-credential-authority.md).
+
 ## Why each component makes the architecture adaptable
 
 | Component / boundary | What it owns | How that helps adaptation | Concrete example / current constraint |
 | --- | --- | --- | --- |
 | React Control UI | Operator navigation, forms and execution views | Presentation is separate from workflow execution and vendor SDKs; backend contracts can serve another operator client. | An API client can inspect a run or save a profile without automating the browser. Same-origin authentication/CSRF rules still apply. |
 | FastAPI Control API | Authentication, validated commands, versioned settings and bounded query responses | Browser code does not need Docker, Hatchet or model credentials; adapters normalize external responses. | Workflow examples and repository validation read the latest saved factory revision; worker adoption still follows the profile/restart path. |
-| Control Plane PostgreSQL | Saved profiles/revisions, sessions, events, audits and operation receipts | Desired configuration and command state survive API process restarts and remain distinct from a particular container. | Shared workers serve authorized projects through pools; an accepted lifecycle command remains inspectable if a request ends. PostgreSQL also stores project-qualified dynamic run state and claims; the static SQLite runtime is retired. |
+| Control Plane PostgreSQL | Configuration revisions, credential references, sessions, events, audits and operation receipts | Desired configuration and command state survive API process restarts and remain distinct from a particular container. | Shared workers serve authorized projects through pools; an accepted lifecycle command remains inspectable if a request ends. PostgreSQL also stores project-qualified dynamic run state and claims; the static SQLite runtime is retired. |
 | Background reconciler | Applying durable worker lifecycle requests outside HTTP handlers | Long builds/restarts and interrupted operations can be handled through one execution path rather than embedded in UI requests. | The reconciler can reclaim an expired operation lease. This does not make every external side effect exactly once or provide zero-downtime rollout. |
 | Runtime adapter | Container creation, configuration, lifecycle and logs | Docker operations and native Kubernetes Deployment/Job operations sit behind the same backend boundary rather than inside application stages. | Kubernetes targets pin operator-approved images, namespace UIDs and controller authority. Private worker PVCs, immutable payloads, database claims and UID-bound cleanup preserve ownership across nodes. Networking and PID enforcement require operator qualification. |
 | Hatchet orchestration adapter | Workflow/task registration, dependency graph, scheduling, routing, retry and wait semantics | Task operations are separate from the scheduler, so orchestration policy can be tuned without embedding engine calls in use-case logic. | Route coding to `developer` workers and adjust task timeouts/concurrency. Another production engine needs explicit adapter/bootstrap integration, not a configuration string alone. |
@@ -104,6 +166,7 @@ roles and verified graceful drain are not supplied by these adapters.
 | Agent adapters | Planner/reviewer/coder implementations and context capabilities | Planning, review and coding can be chosen independently; model and prompt overrides can vary by task. | Use direct API planning/review with Codex or Claude coding, or implement a trusted coding port for a remote service. Custom managed factories require registry approval and installed code. |
 | Repository adapter | Issues, source snapshots, commits, PRs, review/merge state | Source-host integration is kept at an application boundary rather than scattered throughout model/orchestration code. | GitHub and GitLab.com adapters support numeric repository identity, separate issue/MR namespaces and durable triggers; see [setup and boundaries](gitlab.md). Self-managed hosts remain outside this version. |
 | Execution-state adapter | Prepared plans/patches, cursors, issue claims and recovery | The application can reconcile retries using recorded progress, with state operations behind a port. | The project runtime uses project-scoped encrypted state and canonical claims in PostgreSQL; its coordinator adapter is qualified with mixed builtin/container graphs on real Hatchet and shared workers, using Docker or native Kubernetes, and the executable catalog composes existing application operations per pinned context. Project-scoped APIs and assignment-authenticated transports activate the runtime through a fixed control service; see the [runtime API guide](project-runtime-api.md). |
+| OpenBao credential store | Provider values, pinned KV versions and wrapped delivery | Credential storage and rotation evolve behind a shared store adapter, while project authority stays in the Control Pane. | Shared workers unwrap authorized values directly over TLS. Trusted server consumers read through the same resolver. Outages fail closed, and migration retains credential UUIDs. |
 | Observation adapters | Operation/model context, logs, retained events and optional OTLP export | Instrumentation can change without rewriting development operations; execution policy stays separate from the monitoring vendor. | Use structured logging alone, managed Control Plane reporting, or optional SigNoz telemetry. Captured call content depends on policy; CLI accounting is not a complete internal transcript. |
 | Composition root + validated configuration | Constructing dependencies, selecting trusted implementations and resolving settings | Wiring stays explicit, and configuration changes can tune established behavior without editing the application service. | Change a model/prompt through project, workflow or stage configuration, or load an approved installed factory. Configuration cannot create a new Python stage or make an unimplemented runtime available. |
 

@@ -141,3 +141,16 @@ Each `id` must be unique within the result and stable for the same actual call. 
 The broker-confirmed result is attributed and recorded in the same transaction as stage settlement. Reconciliation repeats cannot double count it. Empty/missing usage, CPU/memory measurements, stdout text or a zero exit code do not imply zero AI cost. The producer must explicitly report supported usage. The pinned model-history capture policy still applies; declared usage also remains part of the encrypted business result.
 
 See the [Docker action contract](docker-action-jobs.md) for lifecycle, result size, cancellation and sandbox limits, and the [SigNoz guide](observability.md) for collector setup and existing dashboard examples.
+
+## OpenBao redaction and audit dependencies
+
+Wrapping tokens and provider values are sensitive transport material. They belong
+outside engine payloads, spools, captured context and telemetry. OpenBao wrapping
+audit entries in the Control Pane record assignment/credential identities.
+
+History ingestion resolves pinned provider values through the credential store
+for redaction. An OpenBao outage can delay ingestion while the worker retains its
+bounded private spool. If a completion arrives while redaction values are
+unavailable, the controller withholds output and records a cancelled terminal
+receipt. This preserves a terminal acknowledgement without automatically
+repeating provider effects. See [OpenBao failure handling](openbao.md#failure-and-revocation).

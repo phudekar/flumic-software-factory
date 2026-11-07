@@ -1,0 +1,52 @@
+# Optional persistent local secrets service, separate from the Control Pane.
+name: flumic-secrets
+services:
+  openbao:
+    image: openbao/openbao:2.7.2
+    user: "${OPENBAO_LOCAL_UID}:${OPENBAO_LOCAL_GID}"
+    entrypoint: [bao]
+    command: [server, -config=/openbao/config/server.hcl]
+    environment:
+      HOME: /tmp
+    volumes:
+      - ${OPENBAO_LOCAL_DIR}/config:/openbao/config:ro
+      - ${OPENBAO_LOCAL_DIR}/tls:/openbao/tls:ro
+      - ${OPENBAO_LOCAL_DIR}/state:/openbao/state
+    ports:
+      - 127.0.0.1:8200:8200
+    networks:
+      workers:
+        aliases: [factory-openbao]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    restart: unless-stopped
+  renew:
+    image: openbao/openbao:2.7.2
+    profiles: [renewal]
+    user: "${OPENBAO_LOCAL_UID}:${OPENBAO_LOCAL_GID}"
+    entrypoint: [/bin/sh, -ec]
+    command:
+      - |
+        while true; do
+          export BAO_TOKEN="$$(cat /run/flumic-openbao/token)"
+          if ! bao token renew >/dev/null 2>&1; then
+            echo 'OpenBao service token renewal failed; run just openbao-setup.' >&2
+          fi
+          unset BAO_TOKEN
+          sleep 3600
+        done
+    environment:
+      BAO_ADDR: https://factory-openbao:8200
+      BAO_CACERT: /run/ca.pem
+    volumes:
+      - ${OPENBAO_LOCAL_DIR}/service:/run/flumic-openbao:ro
+      - ${OPENBAO_LOCAL_DIR}/tls/server.pem:/run/ca.pem:ro
+    networks: [workers]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    restart: unless-stopped
+
+networks:
+  workers:
+    external: true
+    name: worker-network

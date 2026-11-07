@@ -4,6 +4,15 @@ Date: 2026-10-30. Status: **proposed plan for review, not an implemented or acce
 
 Source baseline: `ee9b861` on `codex/user-walkthrough` (PR #53). This plan is on a separate branch; merge/rebase onto the reviewed UI baseline before implementation. Existing gateway epic [#39](https://github.com/phudekar/flumic-software-factory/issues/39) and issues #41–#45 remain the delivery backlog. Do not create duplicate issues or close them before their implementation PRs merge.
 
+## Related execution-security design
+
+The [direct/protected execution proposal](2026-11-07-protected-execution-design.md)
+extends this gateway plan. Direct execution remains available; protected execution
+requires qualified brokered access, scoped identities and isolated execution.
+Neither a running gateway nor routing through it alone establishes protected mode.
+The execution-security design was approved on 2026-11-07; its implementation plans
+do not change current runtime behavior.
+
 ## 1. Outcome and scope
 
 Allow an administrator to approve a model connection once, a project to select it with its own restricted credentials, and any compatible shared worker to execute pinned stages through that connection. Start with LiteLLM as an optional external gateway. Workflow definitions continue to describe work, prompts, models and dependencies without encoding the chosen gateway product.

@@ -17,6 +17,15 @@ This document is a design and delivery plan. The [operator guide](control-plane.
 records implemented functionality and remaining gaps. The existing factory continues to operate as it
 does today until an explicit deployment adopts the new components.
 
+## Current credential architecture
+
+The provider-credential design now uses optional OpenBao KV v2 storage with
+PostgreSQL reference metadata and assignment-authorized wrapped delivery. The
+current [architecture and sequence](architecture.md#openbao-credential-authority-and-delivery),
+[ADR 0008](adr/0008-openbao-credential-authority.md) and
+[operator guide](openbao.md) record the implementation. Older design sections
+below describe the initial Control Pane and retain historical delivery context.
+
 ## 1. Agreed requirements and decisions
 
 The control plane must let an operator:
@@ -155,7 +164,7 @@ carry `target_id`.
 A named execution environment, initially `local-docker`, containing:
 
 - ID, display name, runtime kind, and enabled/disabled status.
-- Connection and credential references; secret values are never returned by APIs.
+- Connection and credential references with metadata-only operator reads.
 - Approved worker image mappings and network/storage policies.
 - Workflow connection reference and capability flags.
 - Runtime health, last successful observation, and last safe error summary.

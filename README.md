@@ -427,6 +427,8 @@ subdirectory; arguments are forwarded to the underlying commands.
 | `just images-build` | Build managed worker images explicitly; does not start containers |
 | `just control-up` | Start core services, one-time migrations and the default local database; no worker image builds |
 | `just control-logs` / `just control-down` | Inspect / stop the core stack; default down retains volumes |
+| `just openbao-up` / `just openbao-status` / `just openbao-down` | Independent persistent OpenBao stack; automatic local Control Pane connection setup |
+| `just openbao-setup` / `just openbao-logs` | Unseal/reconfigure a running local OpenBao / inspect secrets-stack logs |
 | `just gateway-up` / `just gateway-logs` / `just gateway-down` | Optional standalone LiteLLM gateway; does not change Flumic model routing |
 | `just control-up api reconciler dynamic-runtime` | Start the selected control services for project workflows |
 | `just observability-up` / `just observability-logs` / `just observability-down` | Independent SigNoz stack |
@@ -472,6 +474,34 @@ Back up the control database and encryption key together. PostgreSQL uses a name
 volume by default; see [host database storage](docs/control-plane.md#host-database-storage)
 for an optional host directory. Project workflows store scoped execution state and
 claims in PostgreSQL; Docker actions use the trusted broker host.
+
+### OpenBao provider credentials
+
+For the optional local secrets service:
+
+```sh
+just openbao-up       # Start TLS OpenBao, initialize/unseal it, and configure Flumic.
+just openbao-status   # Expect initialized=True sealed=False.
+just images-build
+just control-up      # Apply the generated connection settings.
+```
+
+The [OpenBao quick start](docs/openbao.md#local-quick-start-with-docker-compose-and-just)
+covers prerequisites, worker recreation, restart recovery and private local state.
+
+
+Configure OpenBao to store provider values in a dedicated KV v2 mount. PostgreSQL
+keeps project ownership, credential UUIDs, revocation and pinned version metadata.
+Shared workers obtain single-use wrapping tokens through assignment-authorized
+context delivery and unwrap values directly from OpenBao at action startup.
+
+Existing encrypted database credentials have an explicit copy, verify and clear
+migration. New OpenBao credentials are saved as references. Operators provide the
+HTTPS endpoint, service token sink, CA trust and worker network access, and back
+up OpenBao with compatible PostgreSQL references. See
+[setup and migration](docs/openbao.md),
+[credential architecture](docs/architecture.md#openbao-credential-authority-and-delivery)
+and [the ADR](docs/adr/0008-openbao-credential-authority.md).
 
 ### Project configuration and worker capacity
 

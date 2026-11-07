@@ -43,3 +43,18 @@ website/public/examples/
 
 # Private local LLM gateway administration and encryption credentials.
 .env.litellm
+
+# Local OpenBao connection marker and public CA; private state lives outside the repo.
+.local/openbao/
+.env.openbao
+
+# Keep the reviewed protected-execution delivery plans; other working plans stay private.
+!docs/superpowers/
+docs/superpowers/*
+!docs/superpowers/plans/
+docs/superpowers/plans/*
+!docs/superpowers/plans/2026-11-07-protected-execution.md
+!docs/superpowers/plans/2026-11-07-execution-modes.md
+!docs/superpowers/plans/2026-11-07-model-broker.md
+!docs/superpowers/plans/2026-11-07-repository-broker.md
+!docs/superpowers/plans/2026-11-07-sandbox-mcp.md

@@ -22,6 +22,11 @@ class AppSettings:
     runtime_namespace: str = field(default="flumic-dynamic-v1", kw_only=True)
     runtime_targets_file: Path | None = field(default=None, kw_only=True)
 
+    openbao_address: str | None = field(default=None, kw_only=True)
+    openbao_token_file: Path | None = field(default=None, kw_only=True)
+    openbao_ca_file: Path | None = field(default=None, kw_only=True)
+    openbao_mount: str = field(default="flumic", kw_only=True)
+
     def __post_init__(self):
         import re
 
@@ -63,5 +68,15 @@ class AppSettings:
                 if os.environ.get("CONTROL_RUNTIME_TARGETS_FILE")
                 else None
             ),
+            openbao_address=os.environ.get("CONTROL_OPENBAO_ADDR") or None,
+            openbao_token_file=(
+                Path(os.environ["CONTROL_OPENBAO_TOKEN_FILE"])
+                if os.environ.get("CONTROL_OPENBAO_TOKEN_FILE") else None
+            ),
+            openbao_ca_file=(
+                Path(os.environ["CONTROL_OPENBAO_CA_FILE"])
+                if os.environ.get("CONTROL_OPENBAO_CA_FILE") else None
+            ),
+            openbao_mount=os.environ.get("CONTROL_OPENBAO_MOUNT", "flumic"),
             cookie_secure=os.environ.get("CONTROL_COOKIE_SECURE", "false") == "true",
         )

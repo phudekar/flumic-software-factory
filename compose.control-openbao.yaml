@@ -1,0 +1,11 @@
+# Selected by control-compose.sh after successful local OpenBao setup.
+services:
+  api:
+    volumes:
+      - ${OPENBAO_LOCAL_DIR}/service:/run/flumic-openbao:ro
+  reconciler:
+    volumes:
+      - ${OPENBAO_LOCAL_DIR}/service:/run/flumic-openbao:ro
+  dynamic-runtime:
+    volumes:
+      - ${OPENBAO_LOCAL_DIR}/service:/run/flumic-openbao:ro

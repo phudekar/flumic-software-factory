@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="720" viewBox="0 0 1120 720" role="img" aria-labelledby="title desc">
+<title id="title">OpenBao credential delivery and security boundaries</title>
+<desc id="desc">The Control Pane checks project grants and assignment leases, reads OpenBao with a scoped service token, and sends a short-lived one-use wrapper to a worker. Only OpenBao resolves the wrapper to a provider credential. PostgreSQL holds references. A compromised worker can steal its active credentials, but is not given the OpenBao service token or recovery keys.</desc>
+<defs>
+ <marker id="arrow" markerWidth="9" markerHeight="9" refX="8" refY="4" orient="auto"><path d="M0 0 8 4 0 8" fill="none" stroke="#607da6" stroke-width="1.5"/></marker>
+ <style>text{font-family:system-ui,sans-serif;fill:#e4edf9} .title{font-size:25px;font-weight:700}.heading{font-size:18px;font-weight:650}.body{font-size:15px}.small{font-size:13px;fill:#b9cbe3}.line{fill:none;stroke:#607da6;stroke-width:2;marker-end:url(#arrow)}</style>
+</defs>
+<rect width="1120" height="720" rx="20" fill="#0e182b"/>
+<text x="40" y="48" class="title">Credentials cross an explicit authority boundary</text>
+<text x="40" y="77" class="body">Scoped grants + verified TLS + one-use delivery reduce the blast radius of a compromised worker.</text>
+<rect x="30" y="105" width="650" height="455" rx="16" fill="#14243b" stroke="#456482"/>
+<text x="50" y="137" class="heading">Trusted control and secrets services</text>
+<rect x="55" y="160" width="245" height="110" rx="10" fill="#1b304b" stroke="#6085af"/>
+<text x="75" y="191" class="heading">Control Pane</text>
+<text x="75" y="217" class="body">Project grants + active lease</text>
+<text x="75" y="242" class="small">Scoped service token, private mount</text>
+<rect x="55" y="330" width="245" height="95" rx="10" fill="#1b304b" stroke="#6085af"/>
+<text x="75" y="361" class="heading">PostgreSQL</text>
+<text x="75" y="386" class="body">Credential IDs + pinned versions</text>
+<text x="75" y="409" class="small">No new provider values in these rows</text>
+<path d="M177 270 V327" class="line"/>
+<text x="189" y="305" class="small">Authority metadata</text>
+<rect x="365" y="330" width="285" height="160" rx="10" fill="#153d3b" stroke="#48b9a6"/>
+<text x="385" y="362" class="heading">OpenBao KV v2</text>
+<text x="385" y="389" class="body">Provider values, exact versions</text>
+<text x="385" y="415" class="small">Wrap TTL bounded by assignment lease</text>
+<text x="385" y="440" class="small">Replay and expired wrappers rejected</text>
+<text x="385" y="466" class="small">TLS certificate verification required</text>
+<path d="M300 240 H342 V352 H363" class="line"/>
+<text x="365" y="294" class="small">2. Request wrapped pinned value</text>
+<text x="50" y="537" class="small">Recovery keys stay with the operator, outside the repository and worker mounts.</text>
+<rect x="710" y="105" width="380" height="455" rx="16" fill="#25233b" stroke="#a88bd2" stroke-dasharray="7 5"/>
+<text x="730" y="137" class="heading">Worker execution boundary</text>
+<rect x="735" y="160" width="330" height="110" rx="10" fill="#302d4c" stroke="#a88bd2"/>
+<text x="755" y="191" class="heading">Shared worker</text>
+<text x="755" y="217" class="body">Assignment-scoped context request</text>
+<text x="755" y="242" class="small">Public CA, no OpenBao service token</text>
+<path d="M735 177 H302" class="line"/>
+<text x="360" y="166" class="small">1. Authenticate assignment and lease</text>
+<path d="M300 212 H733" class="line"/>
+<text x="373" y="235" class="small">3. Return short-lived one-use wrapper</text>
+<rect x="735" y="330" width="330" height="160" rx="10" fill="#302d4c" stroke="#a88bd2"/>
+<text x="755" y="362" class="heading">Running action → provider</text>
+<text x="755" y="390" class="body">Credential in worker memory</text>
+<text x="755" y="416" class="small">Available for this authorized action</text>
+<text x="755" y="443" class="small">No general KV read/list capability</text>
+<text x="755" y="468" class="small">No Python memory-zeroization guarantee</text>
+<path d="M900 270 V328" class="line"/>
+<path d="M735 384 H652" class="line"/>
+<path d="M650 436 H733" class="line"/>
+<text x="730" y="305" class="small">4. Verify origin and unwrap over TLS</text>
+<text x="730" y="537" class="small">A stolen wrapper can be consumed before the worker.</text>
+<rect x="30" y="585" width="1060" height="105" rx="12" fill="#392831" stroke="#d2948c"/>
+<text x="50" y="616" class="heading">Compromise limit: an authorized worker remains a trusted execution environment</text>
+<text x="50" y="644" class="body">A rogue process with memory, debug or same-user access may steal active credentials or the worker identity.</text>
+<text x="50" y="669" class="body">Use least-privilege provider tokens and separate worker pools/hosts for workloads that must not trust each other.</text>
+</svg>

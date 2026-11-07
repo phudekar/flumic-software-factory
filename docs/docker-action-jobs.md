@@ -106,3 +106,12 @@ python -m unittest discover -s tests/integration -p test_docker_job_contract.py 
 It launches a uniquely named deterministic JSON job, reconstructs the broker, verifies the container identity/result and cleans up only its own job. It performs no GitHub or model calls.
 
 Declared usage is attributed and deduplicated through [project accounting](project-observability.md#custom-docker-actions); container resources and missing reports do not imply zero AI spend.
+
+## OpenBao-backed grants
+
+The trusted Job broker resolves exact OpenBao versions through the shared
+credential store. Action containers retain their existing explicitly granted
+credential inputs and runtime isolation. Shared-worker direct unwrapping applies
+to built-in actions. A stop/cancel operation can terminate a Job during a
+credential-store outage, discarding capture whose redaction cannot be guaranteed.
+See [OpenBao operations](openbao.md).

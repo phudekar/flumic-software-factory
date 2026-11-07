@@ -14,6 +14,16 @@ Send the cookie on authenticated requests. Mutations require the returned token 
 
 `GET /worker-bootstrap` and `POST /ingest` use a worker-scoped `Authorization: Bearer ...` token with `X-Worker-Id`. Do not substitute administrator credentials. Bootstrap returns the applicable resolved snapshot; ingestion accepts bounded, validated events. The public health route is the other unauthenticated exception.
 
+## OpenBao delivery authentication
+
+Shared-worker context requests carry the worker identity and assignment lease.
+OpenBao-backed grants require `credential_delivery=openbao-wrap-v1`. The API
+returns short-lived wrapping tokens after validating project, purpose, repository
+and revocation authority. Workers unwrap through the trusted OpenBao origin and
+acknowledge action start. Trusted server services use a private OpenBao token sink.
+
+[Delivery protocol and migration](/flumic-software-factory/handbook/openbao/)
+
 ## Errors
 
 | Status | Meaning |

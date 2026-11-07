@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task after review. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Status:** proposed plan only. No encryption code, credentials, environment keys or live ciphertext have changed.
+**Status:** Superseded for provider credentials by the [OpenBao storage plan](../../roadmap/2026-11-05-openbao-credential-storage.md).
 
 **Goal:** Accept a deployment salt from Control Pane environment configuration and use a separate derived key for reversible credential encryption, with safe migration and recovery.
 

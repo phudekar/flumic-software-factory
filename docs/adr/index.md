@@ -1,6 +1,6 @@
 # Architecture decision records
 
-These accepted decisions explain the implemented project and Kubernetes architecture. They preserve the alternatives and operational costs that are easy to miss when reading code. They record existing decisions; they do not introduce a new runtime or deployment promise.
+These accepted decisions explain the implemented project, Kubernetes and credential architecture. They preserve the alternatives and operational costs that are easy to miss when reading code. They record existing decisions; they do not introduce a new runtime or deployment promise.
 
 | ADR | Decision |
 | --- | --- |
@@ -11,6 +11,7 @@ These accepted decisions explain the implemented project and Kubernetes architec
 | 0005 | [Separate action exit, canonical capture and guarded cleanup](0005-capture-before-cleanup.md) |
 | 0006 | [Keep worker identity and history private across restarts](0006-private-worker-history-volumes.md) |
 | 0007 | [Use bounded action transport and explicit isolation limits](0007-container-isolation-and-observation.md) |
+| 0008 | [Use OpenBao for provider values and assignment-authorized delivery](0008-openbao-credential-authority.md) |
 
 Read the [overall architecture and diagram](../architecture.md) first and the [Kubernetes operator guide](../kubernetes.md) before enabling a target. Shared worker pools do not erase project ownership, and shared contracts do not imply identical runtime isolation.
 

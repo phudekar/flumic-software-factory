@@ -329,6 +329,39 @@ class AdapterTests(unittest.TestCase):
         self.assertNotIn("project-model", str(args))
         self.assertNotIn("docker.sock", str(args))
 
+    def test_shared_worker_mounts_only_public_openbao_ca(self):
+        import os
+        import tempfile
+        from types import SimpleNamespace
+        from unittest.mock import patch
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            ca = root / '.local/openbao/ca.pem'
+            ca.parent.mkdir(parents=True)
+            ca.write_text('public CA fixture')
+            settings = SimpleNamespace(root=root, host_root=Path('/host'),
+                snapshot_root=root / 'data/control-plane/snapshots',
+                worker_endpoint='http://control', openbao_address='https://factory-openbao:8200',
+                openbao_ca_file=ca)
+            worker = SimpleNamespace(id='shared', name='shared', profile='simple',
+                revision_id='pool', protocol='shared-v1', pool_id='pool')
+            client = Mock()
+            client.containers.list.return_value = []
+            runtime = DockerRuntime(settings, Mock(), client)
+            with patch.dict(os.environ, {'HATCHET_CLIENT_TOKEN': 'infra-token'}):
+                runtime.create_shared(worker, {}, 'control-token', image='fixture')
+            args = client.containers.create.call_args.kwargs
+            self.assertEqual(args['environment']['FACTORY_OPENBAO_CA_FILE'], '/run/flumic-openbao-ca.pem')
+            self.assertEqual(args['volumes']['/host/.local/openbao/ca.pem'],
+                {'bind': '/run/flumic-openbao-ca.pem', 'mode': 'ro'})
+            self.assertNotIn('/run/flumic-openbao/token', str(args))
+            self.assertNotIn('bootstrap', str(args))
+            settings.openbao_ca_file = Path('/outside/ca.pem')
+            with patch.dict(os.environ, {'HATCHET_CLIENT_TOKEN': 'infra-token'}):
+                with self.assertRaisesRegex(ValueError, 'inside FACTORY_ROOT'):
+                    runtime.create_shared(worker, {}, 'control-token', image='fixture')
+
     def test_shared_reconfigure_checks_image_before_removing_old_runtime(self):
         from types import SimpleNamespace
 

@@ -9,6 +9,7 @@ from fastapi import Depends, HTTPException, Request as APIRequest
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 
+from app.credential_store import read_credential
 from app.database import RepositoryConnection, RepositoryRevision
 from app.projects import (
     request_scope,
@@ -16,7 +17,7 @@ from app.projects import (
     project_parameter,
     repository_public,
 )
-from app.project_context import require_secret, decrypt
+from app.project_context import require_secret
 from factory.domain.repositories import RepositoryLocation, RepositoryIdentity
 from factory.adapters.gitlab import NoGitLabRedirects
 from factory.domain.models import RepositoryError
@@ -86,7 +87,7 @@ def install(app, sessions, settings, row):
                     409, "Configure a GitLab credential before validation"
                 )
             secret = require_secret(db, scope, credential, "gitlab", item.id)
-            token = decrypt(secret.ciphertext, settings)
+            token = read_credential(secret, settings)
         try:
             identity = resolve_gitlab_project(
                 document["owner"], document["name"], token
