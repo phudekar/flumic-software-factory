@@ -211,9 +211,22 @@ class PolicyMigrationTests(unittest.TestCase):
                     before = set(inspect(engine).get_table_names())
                     with engine.begin() as db:
                         db.execute(text("UPDATE projects SET name='Legacy' WHERE id=:id"), {'id': DEFAULT_PROJECT_ID})
+                        for statement in (
+                            "INSERT INTO workflow_definitions (id,project_id,name,created_at) VALUES ('old-definition',:id,'Old workflow',1)",
+                            "INSERT INTO workflow_definition_revisions (id,project_id,definition_id,digest,graph_ciphertext,created_at) VALUES ('old-revision',:id,'old-definition','digest','opaque-graph',1)",
+                            "INSERT INTO workflow_launch_snapshots (id,project_id,workflow_revision_id,ciphertext,created_at) VALUES ('old-snapshot',:id,'old-revision','opaque-launch',1)",
+                            "INSERT INTO workflow_runs (id,project_id,snapshot_id,sequence,request_key,request_digest,input_ciphertext,state,created_at) VALUES ('old-run',:id,'old-snapshot',1,'old-key','digest','opaque-input','completed',1)",
+                        ):
+                            db.execute(text(statement), {'id': DEFAULT_PROJECT_ID})
                     command.upgrade(config, 'head')
                     self.assertEqual(set(inspect(engine).get_table_names()) - before,
                                      {'execution_policy_revisions', 'execution_policy_heads'})
+                    with engine.connect() as db:
+                        self.assertIsNone(db.execute(text("SELECT execution_mode FROM workflow_runs WHERE id='old-run'")).scalar())
+                        self.assertEqual(db.execute(text("SELECT ciphertext FROM workflow_launch_snapshots WHERE id='old-snapshot'")).scalar(), 'opaque-launch')
+                    from sqlalchemy.exc import IntegrityError
+                    with self.assertRaises(IntegrityError), engine.begin() as db:
+                        db.execute(text("UPDATE workflow_runs SET execution_mode='unknown' WHERE id='old-run'"))
                     with sessions.begin() as db:
                         scope = ProjectScope(DEFAULT_PROJECT_ID)
                         policy = read_execution_policy(db, scope)

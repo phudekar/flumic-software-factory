@@ -10,7 +10,7 @@
 
 **Spec:** [Approved design](../../roadmap/2026-11-07-protected-execution-design.md).
 
-Date: 2026-11-07. **Implementation in progress.** The user approved the design and implementation plan. Native inline execution is underway. OpenBao prerequisite PR #68 precedes A1 (#58); gateway work reuses #39/#41–#45.
+Date: 2026-11-07. **Implementation in progress.** The user approved the design and implementation plan. Native inline execution is underway. OpenBao prerequisite PR #68 and A1 PR #69 (#58) are merged; A2 (#59) is active. Gateway work reuses #39/#41–#45.
 
 ## Global Constraints
 
@@ -34,7 +34,7 @@ Fourteen reviewable tasks, one PR at a time. Avoid implementing B2 and a paralle
 ## Preparation and backlog
 
 - [x] Reconcile the current branch, origin/main, open PRs and existing gateway issues #39/#41–#45. Existing design baseline references are historical, not an instruction to resurrect old branches.
-- [ ] Land/rebase the existing OpenBao implementation and local-bootstrap changes in separate reviewable PRs before depending on them. Verify schema, context protocol and direct regression baseline; do not silently mix unrelated uncommitted files into new PRs.
+- [x] Land/rebase the existing OpenBao implementation and local-bootstrap changes in separate reviewable PRs before depending on them. Verify schema, context protocol and direct regression baseline; do not silently mix unrelated uncommitted files into new PRs.
 - [x] Create or update issues only after backlog reconciliation, using A1–D4 identifiers and their acceptance tests. Do not duplicate the existing gateway epic; link repository/sandbox security work as dependencies.
 - [ ] Record current unittest/frontend results and changed-module coverage. Pin deterministic fixture dependencies and confirm isolated Docker/cluster ownership before starting any test workloads.
 

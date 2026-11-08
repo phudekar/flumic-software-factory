@@ -12,6 +12,7 @@ These accepted decisions explain the implemented project, Kubernetes and credent
 | 0006 | [Keep worker identity and history private across restarts](0006-private-worker-history-volumes.md) |
 | 0007 | [Use bounded action transport and explicit isolation limits](0007-container-isolation-and-observation.md) |
 | 0008 | [Use OpenBao for provider values and assignment-authorized delivery](0008-openbao-credential-authority.md) |
+| 0009 | [Version execution policy and pin each logical run](0009-execution-mode-authority.md) |
 
 Read the [overall architecture and diagram](../architecture.md) first and the [Kubernetes operator guide](../kubernetes.md) before enabling a target. Shared worker pools do not erase project ownership, and shared contracts do not imply identical runtime isolation.
 

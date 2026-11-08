@@ -416,7 +416,9 @@ def resolve_context(
     if not row.context_id:
         raise HTTPException(409, "Execution context is not pinned")
     context = resolve_pinned_context(
-        db, scope, row.context_id, settings, assignment_id=row.id, deliver=deliver
+        db, scope, row.context_id, settings, assignment_id=row.id, deliver=deliver,
+        expected_authority={'project_id': row.project_id, 'repository_id': row.repository_id,
+                            'run_id': row.run_id, 'stage_id': row.stage_id, 'execution_id': row.execution_id}
     )
     if (
         context.project_id,

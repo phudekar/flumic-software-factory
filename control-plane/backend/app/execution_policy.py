@@ -1,7 +1,7 @@
 """Versioned project policy; current direct behavior is never changed implicitly."""
 from fastapi import Depends, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field, model_validator
-from sqlalchemy import select, update
+from sqlalchemy import select, update, or_
 from sqlalchemy.exc import IntegrityError
 from factory.domain.execution import ExecutionMode, ExecutionPolicy, ExecutionPin, ExecutionPolicyError
 from app.database import Project, ExecutionPolicyHead, ExecutionPolicyRevision, WorkflowRun, Audit
@@ -67,17 +67,6 @@ def update_execution_policy(db, scope, expected_revision: str, changes: dict) ->
                            minimum_mode=revision.minimum_mode)
 
 
-def require_direct_admission(db, scope) -> None:
-    # A1 only persists policy. Until qualified admission exists, a protected
-    # default must block new work rather than silently use the old direct path.
-    project = db.scalar(select(Project).where(Project.id == scope.project_id).with_for_update())
-    if project is None:
-        raise HTTPException(404, 'Project not found')
-    policy = read_execution_policy(db, scope)
-    if resolve_execution_pin(policy, None, None).mode == 'protected':
-        raise HTTPException(409, 'Protected execution is not available on a qualified runtime yet')
-
-
 class PolicyEdit(BaseModel):
     model_config = ConfigDict(extra='forbid', strict=True)
     expected_revision: str = Field(min_length=1, max_length=120)
@@ -92,12 +81,13 @@ class PolicyEdit(BaseModel):
 
 
 def admitted_direct_count(db, scope):
-    # Until A2 adds effective mode pins, every admitted run is direct. A2 must
-    # replace this with pinned-mode filtering, never current project defaults.
+    # NULL projects pre-mode history as direct without rewriting its snapshots.
+    # This is a query projection; the authenticated snapshot remains authority.
     from sqlalchemy import func
     return db.scalar(select(func.count()).select_from(WorkflowRun).where(
         WorkflowRun.project_id == scope.project_id,
         WorkflowRun.state.not_in(('completed', 'failed', 'cancelled')),
+        or_(WorkflowRun.execution_mode.is_(None), WorkflowRun.execution_mode == 'direct'),
     ))
 
 

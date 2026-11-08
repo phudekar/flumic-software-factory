@@ -1,6 +1,6 @@
 # Direct and protected execution modes
 
-Date: 2026-11-07. Status: **design approved by the user on 2026-11-07; not implemented**.
+Date: 2026-11-07. Status: **design approved by the user on 2026-11-07; policy foundation merged, protected execution not yet available**.
 
 User-selected direction: retain direct execution and introduce a separate protected
 execution mode. This document extends the [generic LLM gateway plan](2026-10-30-litellm-integration-plan.md)

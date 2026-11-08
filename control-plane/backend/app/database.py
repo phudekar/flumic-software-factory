@@ -454,6 +454,7 @@ class WorkflowAdmission(Base):
 class WorkflowRun(ProjectOwned, Base):
     __tablename__ = "workflow_runs"
     __table_args__ = (
+        CheckConstraint("execution_mode IN ('direct', 'protected')", name="ck_workflow_run_execution_mode"),
         UniqueConstraint("project_id", "id", name="uq_workflow_run_owner"),
         UniqueConstraint("project_id", "request_key", name="uq_workflow_run_request"),
         ForeignKeyConstraint(
@@ -463,6 +464,7 @@ class WorkflowRun(ProjectOwned, Base):
         ),
     )
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=identity)
+    execution_mode: Mapped[str | None] = mapped_column(String(20), nullable=True)
     snapshot_id: Mapped[str] = mapped_column(String(36))
     sequence: Mapped[int] = mapped_column()
     request_key: Mapped[str] = mapped_column(String(120))

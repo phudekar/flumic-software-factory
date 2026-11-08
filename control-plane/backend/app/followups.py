@@ -184,12 +184,17 @@ def _launch(runtime, identifier):
         request = FollowupRequest.model_validate(
             decrypt(record.ciphertext, runtime.settings)
         )
+        from app.execution_admission import read_execution_pin
+        from app.workflow_definitions import read_definition_pin
+
+        source_pin = read_execution_pin(read_definition_pin(db, scope, source.snapshot_id, runtime.settings))
         child = runtime.store.start_pinned_run(
             scope,
             request.target.snapshot_id,
             request.command,
             key="followup-" + identifier,
             db=db,
+            parent_pin=source_pin,
         )
         runtime.enqueue(
             db,
