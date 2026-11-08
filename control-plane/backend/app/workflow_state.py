@@ -30,6 +30,7 @@ from app.database import (
 from app.projects import require_owned, ProjectScope
 from app.project_context import encrypt, decrypt
 from app.workflow_definitions import pin_definition, read_definition_pin
+from app.execution_admission import read_execution_pin, require_dispatch_mode
 from app.worker_pools import authorize_execution, LEASE_SECONDS
 from factory.workflows.definitions import WorkflowDefinition, BuiltinStage
 from factory.workflows.bindings import resolve_bindings, condition_matches, ParentOutput
@@ -188,7 +189,7 @@ class WorkflowState:
             db, ProjectScope(run.project_id), run.snapshot_id, self.settings
         )
 
-    def start_run(self, scope, revision_id, run_input, *, key, bindings=None):
+    def start_run(self, scope, revision_id, run_input, *, key, bindings=None, requested_mode=None):
         if not isinstance(run_input, dict) or len(json_bytes(run_input)) > 65536:
             raise HTTPException(
                 422, "Run input must be a JSON object of at most 64 KiB"
@@ -200,6 +201,7 @@ class WorkflowState:
                 "revision": revision_id,
                 "input": run_input,
                 **({"bindings": bindings} if bindings is not None else {}),
+                **({"execution_mode": requested_mode} if requested_mode is not None else {}),
             }
         )
         with self.sessions.begin() as db:
@@ -224,9 +226,9 @@ class WorkflowState:
                 pin = pin_project_bundle(
                     db, scope, revision_id, bindings, self.config, self.settings
                 )
-            return self._create_run(db, scope, pin, run_input, key, digest, cursor)
+            return self._create_run(db, scope, pin, run_input, key, digest, cursor, requested_mode=requested_mode, fresh_pin=True)
 
-    def start_pinned_run(self, scope, snapshot_id, run_input, *, key, db=None):
+    def start_pinned_run(self, scope, snapshot_id, run_input, *, key, db=None, requested_mode=None, parent_pin=None):
         if (
             not isinstance(run_input, dict)
             or len(json_bytes(run_input)) > 65536
@@ -234,11 +236,13 @@ class WorkflowState:
             or not 1 <= len(key) <= 120
         ):
             raise HTTPException(422, "Invalid pinned run request")
-        digest = hashed({"snapshot": snapshot_id, "input": run_input})
+        digest = hashed({"snapshot": snapshot_id, "input": run_input,
+                         **({"execution_mode": requested_mode} if requested_mode is not None else {}),
+                         **({"parent_execution_mode": parent_pin.mode} if parent_pin is not None else {})})
         if db is None:
             with self.sessions.begin() as transaction:
                 return self.start_pinned_run(
-                    scope, snapshot_id, run_input, key=key, db=transaction
+                    scope, snapshot_id, run_input, key=key, db=transaction, requested_mode=requested_mode, parent_pin=parent_pin
                 )
         cursor = transition_lock(db)
         from app.database import WorkflowLaunchSnapshot
@@ -254,12 +258,30 @@ class WorkflowState:
             if existing.request_digest != digest:
                 raise HTTPException(409, "Run key has another pinned context or input")
             return existing
-        return self._create_run(db, scope, pin, run_input, key, digest, cursor)
+        return self._create_run(db, scope, pin, run_input, key, digest, cursor, requested_mode=requested_mode, parent_pin=parent_pin)
 
-    def _create_run(self, db, scope, pin, run_input, key, digest, cursor):
-        from app.execution_policy import require_direct_admission
+    def _create_run(self, db, scope, pin, run_input, key, digest, cursor, *, requested_mode=None, parent_pin=None, fresh_pin=False):
+        from app.execution_admission import admit_execution
+        from app.database import WorkflowLaunchSnapshot
 
-        require_direct_admission(db, scope)
+        snapshot = read_definition_pin(db, scope, pin.id, self.settings)
+        if not fresh_pin and parent_pin is None and 'execution_pin' not in snapshot:
+            # A pre-mode snapshot referenced by a run is a legacy direct replay,
+            # whereas an unreferenced template still uses current project defaults.
+            if db.scalar(select(WorkflowRun.id).where(WorkflowRun.project_id == scope.project_id,
+                                                      WorkflowRun.snapshot_id == pin.id).limit(1)):
+                snapshot = {**snapshot, 'execution_pin': read_execution_pin(snapshot).model_dump(mode='json')}
+        execution_pin = admit_execution(db, scope, snapshot, requested_mode, parent_pin)
+        value = {**snapshot, 'execution_pin': execution_pin.model_dump(mode='json')}
+        if fresh_pin:
+            # Newly allocated definition pin has no run reference yet.
+            pin.ciphertext = encrypt(value, self.settings)
+        else:
+            # Triggers, follow-ups and logical replays may share a template pin.
+            pin = WorkflowLaunchSnapshot(project_id=scope.project_id,
+                workflow_revision_id=pin.workflow_revision_id, ciphertext=encrypt(value, self.settings))
+            db.add(pin)
+            db.flush()
         try:
             RunMetadata.model_validate(
                 {
@@ -287,6 +309,7 @@ class WorkflowState:
                     "Enable dynamic repository mode after draining legacy workers",
                 )
         run = WorkflowRun(
+            execution_mode=execution_pin.mode,
             project_id=scope.project_id,
             snapshot_id=pin.id,
             sequence=cursor.tick,
@@ -333,6 +356,7 @@ class WorkflowState:
         revision,
         assignment_id="pending",
         definition_id="",
+        execution_pin=None,
     ):
         raw_input = decrypt(run.input_ciphertext, self.settings)
         try:
@@ -348,6 +372,8 @@ class WorkflowState:
             # Do not let their metadata poison other projects' admission rounds.
             correlation = RunMetadata()
         return ActionContext(
+            execution_mode=execution_pin.mode if execution_pin else 'direct',
+            execution_policy_revision_id=execution_pin.policy_revision_id if execution_pin else '',
             project_id=run.project_id,
             repository_id=metadata["repository_id"],
             repository_revision_id=metadata["repository_revision_id"],
@@ -415,6 +441,7 @@ class WorkflowState:
                     metadata,
                     snapshot["workflow_revision_id"],
                     definition_id=snapshot["definition_id"],
+                    execution_pin=read_execution_pin(snapshot),
                 )
                 try:
                     if not condition_matches(stage.when, run_input, results, context):
@@ -508,6 +535,10 @@ class WorkflowState:
 
     def _admit(self, db, stage, item, inputs, origins, metadata, revision):
         scope = ProjectScope(item.project_id)
+        run = require_owned(db, scope, WorkflowRun, item.run_id)
+        snapshot = self._snapshot(db, run)
+        execution_pin = read_execution_pin(snapshot)
+        require_dispatch_mode(execution_pin)
         row = authorize_execution(
             db,
             scope,
@@ -530,7 +561,8 @@ class WorkflowState:
             metadata,
             revision,
             row.id,
-            self._snapshot(db, run)["definition_id"],
+            snapshot["definition_id"],
+            execution_pin=execution_pin,
         )
         if isinstance(stage, BuiltinStage) and stage.action != "core.echo@1":
             from factory.workflows.project_dispatch import ProjectBindings

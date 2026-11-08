@@ -88,6 +88,23 @@ distribution. Namespace/cluster administrators are trusted. Exactly-once externa
 effects, instantaneous deadline termination, automatic scaling, multi-user
 roles and verified graceful drain are not supplied by these adapters.
 
+## Execution mode policy and pinned intent
+
+Projects can save a versioned default/minimum policy for `direct` or `protected`
+execution. Admission resolves current policy once and pins effective intent to the
+logical run. Later project edits do not silently change queued runs or their later
+stages. New follow-ups and logical replays revalidate the current minimum, while
+repeated acknowledgments retain their original run.
+
+Protected execution is currently unavailable: the policy and admission boundary
+ship ahead of broker/sandbox qualification. A saved protected policy blocks
+unsupported launches, and credential delivery checks mode and assignment authority
+before reading provider values. It never selects direct execution automatically.
+Direct workers retain their existing credential-in-memory trust boundary.
+[ADR 0009](adr/0009-execution-mode-authority.md) records the decision and the
+[API guide](project-runtime-api.md#explicit-launch-mode-and-immutable-admission)
+describes mode selection, immutable snapshots and compatibility.
+
 ## OpenBao credential authority and delivery
 
 ![Credential authority and compromised-worker boundaries](images/openbao-security-boundaries.svg)

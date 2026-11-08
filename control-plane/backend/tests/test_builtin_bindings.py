@@ -151,7 +151,7 @@ class BuiltinBindingTests(unittest.TestCase):
                     self.settings,
                 )
 
-    def test_followup_launch_uses_existing_snapshot_after_live_repository_edit(self):
+    def test_followup_launch_clones_pinned_configuration_after_live_repository_edit(self):
         scope, base, repos, _, values = self.setup_bundle()
         from app.builtin_workflows import pin_project_bundle
         from app.workflow_state import WorkflowState
@@ -189,7 +189,7 @@ class BuiltinBindingTests(unittest.TestCase):
         run = store.start_pinned_run(
             scope, pin.id, {"issue_number": 2}, key="pinned-child"
         )
-        self.assertEqual(run.snapshot_id, pin.id)
+        self.assertNotEqual(run.snapshot_id, pin.id)
         self.assertEqual(
             store.start_pinned_run(
                 scope, pin.id, {"issue_number": 2}, key="pinned-child"
@@ -198,6 +198,8 @@ class BuiltinBindingTests(unittest.TestCase):
         )
         with self.sessions() as db:
             kept = read_definition_pin(db, scope, run.snapshot_id, self.settings)
+            self.assertEqual(read_definition_pin(db, scope, pin.id, self.settings), original)
+            self.assertEqual({key: value for key, value in kept.items() if key != 'execution_pin'}, original)
             self.assertEqual(
                 kept["repositories"]["backend"]["document"]["owner"], "alpha"
             )

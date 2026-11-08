@@ -188,13 +188,29 @@ def pin_context(
     return item
 
 
-def resolve_pinned_context(db, scope, identity, settings, *, assignment_id, deliver=None):
+def resolve_pinned_context(db, scope, identity, settings, *, assignment_id, deliver=None, expected_authority=None):
     """Internal only: caller must first authenticate an active eligible assignment."""
     item = require_owned(db, scope, ActionContextSnapshot, identity)
     document = decrypt(item.ciphertext, settings)
     context = ActionContext.model_validate_json(json.dumps(document["context"]))
     if context.assignment_id != assignment_id:
         raise HTTPException(404, "Resource not found")
+    if expected_authority and any(getattr(context, key) != value for key, value in expected_authority.items()):
+        raise HTTPException(409, 'Pinned context does not match execution authority')
+    from app.database import WorkflowRun
+    from app.execution_admission import read_execution_pin, require_dispatch_mode
+    from factory.domain.execution import ExecutionPin
+    from app.workflow_definitions import read_definition_pin
+
+    run = db.get(WorkflowRun, context.run_id)
+    if run is not None:
+        run = require_owned(db, scope, WorkflowRun, run.id)
+        launch = read_definition_pin(db, scope, run.snapshot_id, settings)
+        mode = read_execution_pin(launch).mode
+        if mode != context.execution_mode:
+            raise HTTPException(409, 'Context execution mode does not match launch authority')
+    require_dispatch_mode(ExecutionPin(
+        mode=context.execution_mode, policy_revision_id=context.execution_policy_revision_id or 'direct-v1'))
     credentials = {}
     for purpose, version in document["grants"].items():
         secret = require_secret(db, scope, version, purpose, context.repository_id)

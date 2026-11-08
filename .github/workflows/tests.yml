@@ -116,7 +116,7 @@ jobs:
             unset CONTROL_TEST_DATABASE_URL CONTROL_MIGRATION_TEST_URL
           fi
           mkdir -p output/ci-execution-policy
-          python -m coverage run --branch --source=app.execution_policy,factory.domain.execution --data-file=output/ci-execution-policy/data -m unittest discover -s control-plane/backend/tests -q
+          python -m coverage run --branch --source=app.execution_policy,app.execution_admission,factory.domain.execution --data-file=output/ci-execution-policy/data -m unittest discover -s control-plane/backend/tests -q
       - name: Report execution-policy branch coverage
         if: always()
         run: |

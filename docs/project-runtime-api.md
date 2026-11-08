@@ -203,3 +203,40 @@ Schema downgrade is deliberately conservative: any historical protected revision
 blocks removal of the policy tables, even when the current policy is direct.
 Changing the current policy does not erase that history. Use a verified backup and
 explicit rollback procedure rather than deleting policy records to force downgrade.
+
+
+### Explicit launch mode and immutable admission
+
+`POST /api/v1/projects/{project_id}/workflow-runs` accepts optional
+`execution_mode: "direct" | "protected"`. Omission uses the project default;
+`direct` can override a protected default only when the project minimum allows
+it. A protected minimum rejects direct requests. Protected execution itself remains
+unavailable until the broker/sandbox runtime is qualified, so requesting it returns
+409 rather than falling back.
+
+Each new run pins its resolved mode and policy revision in its encrypted launch
+snapshot. List/detail responses expose `execution_mode` and
+`execution_policy_revision_id` from that snapshot, not today's project defaults.
+The nullable database mode projection is only for efficient active-direct counts;
+old NULL rows and snapshots without mode metadata describe direct execution.
+Existing encrypted snapshots and run request digests are not rewritten.
+
+New trigger and follow-up launches clone their template snapshots. Follow-ups
+inherit at least the source run's protected minimum and revalidate current project
+policy. A new logical replay retains the old mode, revalidates the current minimum,
+and records the new admission policy revision in a new snapshot. A repeated request
+for an existing accepted run remains an acknowledgment; changing its explicit mode
+with the same request key conflicts. Engine redelivery of that accepted run is not
+a new logical replay.
+
+Direct worker contexts omit the new mode/policy fields to preserve old strict
+clients. The server checks assignment identity and the authoritative launch mode
+before fetching or wrapping credentials. A protected context cannot use the old
+plaintext or OpenBao-wrapping delivery path; until its broker protocol ships it
+returns 409. Unknown/malformed pins, changed qualification evidence and expired
+qualification return 409. Validating a qualification digest does not register a
+runtime or make protected execution available.
+
+See [ADR 0009](adr/0009-execution-mode-authority.md) for authority and rollback
+semantics. Save a new mode on a fresh logical launch rather than modifying a
+historical run or snapshot.

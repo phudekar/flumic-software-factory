@@ -104,6 +104,8 @@ class ActionContext(Contract):
     definition_id: str = ""
     worker_id: str = ""
     executor: str = "builtin@1"
+    execution_mode: Literal["direct", "protected"] = "direct"
+    execution_policy_revision_id: str = Field(default="", max_length=120)
     job_id: str | None = None
     run_id: str
     stage_id: str
@@ -123,6 +125,9 @@ class ActionContext(Contract):
     @model_serializer(mode="wrap")
     def serialize_compatible_context(self, handler):
         value = handler(self)
+        if self.execution_mode == 'direct':
+            value.pop('execution_mode', None)
+            value.pop('execution_policy_revision_id', None)
         # Old shared workers reject unknown fields. Do not add new metadata to
         # the historical GitHub wire shape unless a launch explicitly pins it.
         if not self.repository_identity_json:
