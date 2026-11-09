@@ -1,3 +1,4 @@
+import { ExecutionModeBadge } from "./execution-mode-form";
 import { useState } from "react";
 import { Link, useLocation, useSearchParams } from "react-router-dom";
 import { AlertCircle, CheckCircle2, Circle } from "lucide-react";
@@ -64,6 +65,7 @@ export function ProjectRunInspector({ id }: { id: string }) {
   const [error, setError] = useState(""),
     [message, setMessage] = useState(""),
     [pending, setPending] = useState(false);
+  const [confirmCancel, setConfirmCancel] = useState(false);
   const { write, alive } = useWorkflowWrite();
   const navigate = (changes: Record<string, string | null>) => {
     const next = new URLSearchParams(params);
@@ -87,34 +89,70 @@ export function ProjectRunInspector({ id }: { id: string }) {
                   value.state,
                 )
               }
-              onClick={async () => {
-                setPending(true);
-                setError("");
-                try {
-                  const receipt = await write<ProjectRun>(
-                    "/workflow-runs/" + id + "/cancel",
-                    {},
-                  );
-                  if (alive.current)
-                    setMessage(
-                      ["cancelled", "completed", "failed"].includes(
-                        receipt.state,
-                      )
-                        ? "Cancellation receipt: " + receipt.state
-                        : "Cancellation requested (receipt).",
-                    );
-                } catch (e) {
-                  if (alive.current) setError(diagnostic(e));
-                } finally {
-                  if (alive.current) setPending(false);
-                }
-              }}
+              onClick={() => setConfirmCancel(true)}
             >
               Request cancellation
             </button>
           )
         }
       />
+      {confirmCancel &&
+        value &&
+        !["completed", "failed", "cancelled", "cancelling"].includes(
+          value.state,
+        ) && (
+          <div
+            className="notice"
+            role="group"
+            aria-label="Confirm run cancellation"
+          >
+            <p>
+              <strong>Cancel 1 workflow run?</strong> This affects {value.name}{" "}
+              only.
+            </p>
+            <p>
+              {value.attempts
+                ? `${value.attempts.filter((item) => ["waiting", "ready", "running"].includes(item.state)).length} known unfinished stage attempts.`
+                : "The server will reconcile current stage attempts."}{" "}
+              Already accepted provider requests or repository writes may still
+              finish.
+            </p>
+            <div className="execution-mode-actions">
+              <button onClick={() => setConfirmCancel(false)}>
+                Keep running
+              </button>
+              <button
+                className="run-cancel"
+                disabled={pending}
+                onClick={async () => {
+                  setPending(true);
+                  setConfirmCancel(false);
+                  setError("");
+                  try {
+                    const receipt = await write<ProjectRun>(
+                      "/workflow-runs/" + id + "/cancel",
+                      {},
+                    );
+                    if (alive.current)
+                      setMessage(
+                        ["cancelled", "completed", "failed"].includes(
+                          receipt.state,
+                        )
+                          ? "Cancellation receipt: " + receipt.state
+                          : "Cancellation requested (receipt).",
+                      );
+                  } catch (e) {
+                    if (alive.current) setError(diagnostic(e));
+                  } finally {
+                    if (alive.current) setPending(false);
+                  }
+                }}
+              >
+                Confirm cancellation
+              </button>
+            </div>
+          </div>
+        )}
       <Failure error={run.error || error} />
       {run.isPending && <p role="status">Loading run…</p>}
       {value && (
@@ -122,7 +160,10 @@ export function ProjectRunInspector({ id }: { id: string }) {
           <div className="project-run-summary">
             <div className="project-summary-tile">
               <span>Run status</span>
-              <Status value={value.state} />
+              <div className="run-state-badges">
+                <Status value={value.state} />
+                <ExecutionModeBadge mode={value.execution_mode ?? "direct"} />
+              </div>
               <small>Execution state; business outcome is separate.</small>
             </div>
             <div className="project-summary-tile">

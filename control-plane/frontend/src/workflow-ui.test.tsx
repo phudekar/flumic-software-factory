@@ -111,6 +111,14 @@ function fixtures(
       const custom = extra?.(path, options);
       if (custom !== undefined) return custom;
       if (path.endsWith("/auth/session")) return json({ csrf: "test" });
+      if (path.endsWith("/execution-policy"))
+        return json({
+          revision_id: "direct-v1",
+          default_mode: "direct",
+          minimum_mode: "direct",
+          admitted_direct_runs: 0,
+          protected_execution_available: false,
+        });
       if (path === "/api/v1/projects")
         return json([
           { id: "a", name: "Alpha", slug: "alpha" },
@@ -305,6 +313,11 @@ it("shows the pinned graph, retry attempts, skipped stages and unknown usage wit
   fireEvent.click(screen.getByRole("button", { name: "Configuration" }));
   expect(screen.getAllByText(/pinned-model/).length).toBeGreaterThan(0);
   fireEvent.click(screen.getByRole("button", { name: "Request cancellation" }));
+  expect(cancelled).toBe(false);
+  expect(
+    screen.getByRole("group", { name: "Confirm run cancellation" }),
+  ).toHaveTextContent("1 workflow run");
+  fireEvent.click(screen.getByRole("button", { name: "Confirm cancellation" }));
   await screen.findByText(
     "Cancellation requested; execution may still be running.",
   );
@@ -556,6 +569,10 @@ it.each(["terminal refresh", "later polling"])(
     await screen.findByText("pending");
     fireEvent.click(
       screen.getByRole("button", { name: "Request cancellation" }),
+    );
+    expect(requested).toBe(false);
+    fireEvent.click(
+      screen.getByRole("button", { name: "Confirm cancellation" }),
     );
     if (mode === "later polling") {
       await screen.findByText(
@@ -911,3 +928,61 @@ it.each(["view=models", "stage=load&execution=e1&detail=models"])(
     await screen.findByText("Busy stage model");
   },
 );
+
+it("sends an explicit direct launch override while keeping the project default separate", async () => {
+  let sent: Record<string, unknown> | undefined;
+  fixtures((path, options) => {
+    if (path.endsWith("/execution-policy"))
+      return json({
+        revision_id: "policy",
+        default_mode: "protected",
+        minimum_mode: "direct",
+        admitted_direct_runs: 0,
+        protected_execution_available: false,
+      });
+    if (path.endsWith("/workflow-runs") && options?.method === "POST") {
+      sent = JSON.parse(String(options.body));
+      return json(receipt, 202);
+    }
+  });
+  mount("/projects/a/workflow-revisions/r1");
+  await screen.findByLabelText("Run execution mode");
+  fireEvent.change(screen.getByLabelText("Default repository"), {
+    target: { value: "backend" },
+  });
+  expect(
+    screen.getByRole("button", { name: "Run saved revision" }),
+  ).toBeDisabled();
+  fireEvent.change(screen.getByLabelText("Run execution mode"), {
+    target: { value: "direct" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Run saved revision" }));
+  await waitFor(() => expect(sent?.execution_mode).toBe("direct"));
+});
+
+it("shows a run's pinned mode rather than a changed project default", async () => {
+  fixtures((path) => {
+    if (path.endsWith("/execution-policy"))
+      return json({
+        revision_id: "now-protected",
+        default_mode: "protected",
+        minimum_mode: "protected",
+        admitted_direct_runs: 1,
+        protected_execution_available: false,
+      });
+    if (path.endsWith("/workflow-runs/run-1"))
+      return json({
+        ...receipt,
+        execution_mode: "direct",
+        execution_policy_revision_id: "then-direct",
+      });
+  });
+  mount("/projects/a/runs/run-1");
+  await screen.findByText("pending");
+  expect(
+    screen.getByText("Direct", { selector: ".execution-mode-badge" }),
+  ).toBeVisible();
+  expect(
+    screen.queryByText("Protected", { selector: ".execution-mode-badge" }),
+  ).not.toBeInTheDocument();
+});

@@ -78,6 +78,7 @@ function mount(
       return json({ detail: "Dispatch unavailable" }, 503);
     }
     if (url.endsWith("/auth/session")) return json({ csrf: "test" });
+    if (url.endsWith("/execution-policy")) return json({revision_id:"direct-v1", default_mode:"direct", minimum_mode:"direct", admitted_direct_runs:0, protected_execution_available:false});
     if (url === "/api/v1/projects")
       return json([{ id: "a", name: "Alpha", slug: "alpha" }]);
     if (url.endsWith("/repositories")) {

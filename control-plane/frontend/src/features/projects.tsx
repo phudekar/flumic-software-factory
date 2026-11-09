@@ -1,3 +1,4 @@
+import { ExecutionModeForm } from "./execution-mode-form";
 import { ProjectConfigEditor } from "./project-config-editor";
 import { localTimestamp } from "../components/project-format";
 import { RepositoryHandover } from "./repository-handover";
@@ -1008,6 +1009,7 @@ export function ProjectConfiguration() {
         description="Project defaults merge with repository overrides, then workflow and stage overrides. New runs pin immutable revisions."
       />
       <Failure error={error || revisions.error || revision.error} />
+      <ExecutionModeForm />
       <Section title="Project defaults">
         <form
           className="editor-body"

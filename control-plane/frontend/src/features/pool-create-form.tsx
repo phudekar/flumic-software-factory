@@ -1,3 +1,4 @@
+import { ExecutionModeBadge } from "./execution-mode-form";
 import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { api } from "../api";
@@ -60,6 +61,13 @@ export function PoolCreateForm({
   }, [catalog.data, role]);
   return (
     <Section title="Create shared worker pool">
+      <div className="editor-body execution-mode-actions">
+        <ExecutionModeBadge mode="direct" />
+        <small>
+          Protected capacity requires a qualified runtime and is not available
+          in this release.
+        </small>
+      </div>
       <Failure error={error || catalog.error || configuration.error} />
       <form
         ref={formRef}
