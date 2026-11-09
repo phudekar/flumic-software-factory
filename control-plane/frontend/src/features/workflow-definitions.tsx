@@ -1,3 +1,10 @@
+import {
+  ExecutionModeChoice,
+  executionModeBlocker,
+  isExecutionPolicy,
+  type ModeSelection,
+} from "./execution-mode-form";
+import type { ExecutionPolicy } from "../workflow-api";
 import { GuidedIssueInput, useIssueFollowups } from "./guided-issue-input";
 import { TemplateInstallForm } from "./template-install-form";
 import {
@@ -557,6 +564,12 @@ function RevisionView({ revisionId }: { revisionId: string }) {
   );
 }
 function RunDefinition({ revision }: { revision: DefinitionRevision }) {
+  const executionPolicy = useProjectData<ExecutionPolicy>("/execution-policy");
+  const [executionMode, setExecutionMode] = useState<ModeSelection>("project");
+  const policy = isExecutionPolicy(executionPolicy.data)
+    ? executionPolicy.data
+    : undefined;
+  const modeBlocker = executionModeBlocker(policy, executionMode);
   const project = useProjectId(),
     navigate = useNavigate(),
     repositories = useProjectData<Repository[]>("/repositories");
@@ -601,6 +614,7 @@ function RunDefinition({ revision }: { revision: DefinitionRevision }) {
           setPending(true);
           setError("");
           try {
+            if (modeBlocker) throw new Error(modeBlocker);
             if (
               repository !== revision.document.default_repository ||
               !ownsDefault
@@ -631,6 +645,9 @@ function RunDefinition({ revision }: { revision: DefinitionRevision }) {
                 );
             }
             const body = {
+              ...(executionMode !== "project"
+                ? { execution_mode: executionMode }
+                : {}),
               revision_id: revision.id,
               input: guided
                 ? { issue_number: Number(issue) }
@@ -658,6 +675,14 @@ function RunDefinition({ revision }: { revision: DefinitionRevision }) {
           Revision {revision.id}. Repository selection confirms this saved
           definition's default; it does not rewrite it.
         </p>
+        <Failure error={executionPolicy.error} />
+        <ExecutionModeChoice
+          policy={policy}
+          value={executionMode}
+          onChange={setExecutionMode}
+          disabled={pending}
+          loading={executionPolicy.isPending}
+        />
         <label>
           Default repository
           <select
@@ -771,6 +796,7 @@ function RunDefinition({ revision }: { revision: DefinitionRevision }) {
           className="primary"
           disabled={
             pending ||
+            !!modeBlocker ||
             (guided && !validGuided) ||
             !ownsDefault ||
             repository !== revision.document.default_repository

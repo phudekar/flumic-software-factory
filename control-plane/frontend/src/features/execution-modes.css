@@ -1,0 +1,95 @@
+.execution-mode-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--line, #344154);
+  border-radius: 999px;
+  padding: 4px 9px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  color: var(--text, #d7e2f1);
+}
+.execution-mode-badge.protected {
+  color: #74dcc9;
+  border-color: #39776e;
+}
+.execution-mode-options,
+.execution-mode-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+.execution-mode-options > div {
+  border: 1px solid var(--line, #344154);
+  padding: 16px;
+  border-radius: 10px;
+}
+.execution-mode-options strong {
+  display: inline-block;
+  margin-left: 8px;
+  vertical-align: top;
+}
+.execution-mode-options p {
+  color: var(--muted, #a6b5ca);
+  margin: 10px 0 0;
+}
+.execution-policy form,
+.execution-mode-choice {
+  display: grid;
+  gap: 14px;
+}
+.execution-mode-fields label,
+.execution-mode-choice label {
+  display: grid;
+  gap: 7px;
+}
+.execution-mode-consent {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  line-height: 1.5;
+}
+.execution-mode-consent input {
+  width: auto;
+  margin-top: 5px;
+  flex: none;
+}
+.execution-mode-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.execution-policy details {
+  margin-top: 12px;
+}
+.execution-mode-choice small {
+  color: var(--muted, #a6b5ca);
+}
+.run-state-badges {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+@media (max-width: 680px) {
+  .execution-mode-options,
+  .execution-mode-fields {
+    grid-template-columns: 1fr;
+  }
+}
+/* Keep the policy controls separate from the surrounding generic editor form layout. */
+.project-space .editor-body.execution-policy form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: stretch;
+  width: 100%;
+}
+.execution-policy .execution-mode-fields label,
+.execution-policy label.execution-mode-consent {
+  max-width: none;
+}
+.execution-policy label.execution-mode-consent {
+  flex-direction: row;
+}

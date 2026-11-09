@@ -66,7 +66,17 @@ export interface Execution {
   worker_id: string | null;
   job_id: string | null;
 }
+export type ExecutionMode = "direct" | "protected";
+export interface ExecutionPolicy {
+  revision_id: string;
+  default_mode: ExecutionMode;
+  minimum_mode: ExecutionMode;
+  admitted_direct_runs: number;
+  protected_execution_available: boolean;
+}
 export interface ProjectRun {
+  execution_mode?: ExecutionMode;
+  execution_policy_revision_id?: string;
   id: string;
   project_id: string;
   name: string;

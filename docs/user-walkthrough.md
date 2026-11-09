@@ -161,7 +161,9 @@ while editing a credential or behavior override.
 1. Open the project's **Configuration** page.
 2. Review the existing configuration rather than replacing it with an empty JSON
    document. It includes worker behavior, tasks, labels and model settings.
-3. For milestone A, leave it unchanged. Echo does not require provider models.
+3. For milestone A, keep the existing configuration and the **Direct** execution
+   default. Echo does not require provider models. See [execution modes](#execution-modes-and-existing-runs)
+   for how policy affects new and existing runs.
 4. Before B, check the `simple` and `developer` profiles' models, coding backend,
    prompts, timeouts and output limits against your accounts and repository.
 
@@ -292,7 +294,8 @@ not the screenshot's revision UUIDs.
 ```
 
 4. Keep **Follow-up bindings JSON** as `{}` for this echo-only workflow.
-5. Click **Run saved revision** once. The UI opens the new project run.
+5. Leave **Execution mode** set to **Use project default** (Direct), then click
+   **Run saved revision** once. The UI opens the new project run.
 
 **Checkpoint:** you have a project run ID and a queued/dispatch receipt. This is
 acceptance, not completion. Repeated submission from a newly opened form can
@@ -802,6 +805,36 @@ are retired; monitoring does not require another worker fleet.
   that other projects use. Keep data/backups and credentials according to policy.
 - **End your session:** sign out of the browser when
   done. Session variables are not a substitute for a private secret manager.
+
+### Execution modes and existing runs
+
+Open **Configuration → Execution policy** to see the project default, minimum,
+runtime readiness and how many admitted Direct runs will retain their authorization.
+
+![Execution policy showing Direct as the default and Protected as unavailable](images/execution-policy-overview.png)
+
+*Example project captured in an isolated preview.*
+
+- **Default** applies when a launch uses the project default. With a Direct
+  minimum, an explicit Direct choice is still allowed if the default is Protected.
+- **Minimum** applies to every new admission. A Protected minimum requires all
+  new runs to use Protected, including explicit launches.
+- **Readiness** determines whether Protected can launch. Protected execution is
+  unavailable in this release. Saving it as a default blocks launches using that
+  default. Requiring it as the minimum blocks all new admissions until a qualified
+  runtime is available.
+
+![Editing the default while keeping Direct allowed](images/execution-policy-edit.png)
+
+The run inspector shows the mode pinned at admission. Changing the policy does
+not change or cancel admitted runs. To stop an individual run, open it and choose
+**Request cancellation**, review the run and unfinished attempt count, then confirm and read
+the cancellation receipt. An effect already accepted by an external system can
+still complete.
+
+![A completed example run with its pinned Direct mode](images/execution-mode-run.png)
+
+*The fixture completes Echo directly, so it has no live dispatch or captured worker logs.*
 
 ### Troubleshooting checkpoints
 
