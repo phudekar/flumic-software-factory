@@ -74,6 +74,15 @@ jobs:
       - name: Run worker tests
         run: python -m unittest discover -s tests -q
 
+  gateway:
+    name: LiteLLM transport contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check pinned LiteLLM against an isolated fake upstream
+        run: ./scripts/test-gateway-contracts.sh
+
   backend:
     name: Backend (${{ matrix.database }})
     runs-on: ubuntu-latest

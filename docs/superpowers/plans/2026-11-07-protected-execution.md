@@ -10,7 +10,7 @@
 
 **Spec:** [Approved design](../../roadmap/2026-11-07-protected-execution-design.md).
 
-Date: 2026-11-07. **Implementation in progress.** The user approved the design and implementation plan. Native inline execution is underway. OpenBao prerequisite PR #68, A1 PR #69 (#58) and A2 PR #70 (#59) are merged; A3 (#60) is active. Gateway work reuses #39/#41–#45.
+Date: 2026-11-07. **Implementation in progress.** The user approved the design and implementation plan. Native inline execution is underway. OpenBao prerequisite PR #68, A1 PR #69 (#58) and A2 PR #70 (#59), and A3 PR #71 (#60) are merged. B1 (#41) is active. Gateway work reuses #39/#41–#45.
 
 ## Global Constraints
 

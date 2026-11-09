@@ -213,10 +213,12 @@ class TelemetryTests(unittest.TestCase):
     def test_api_success_records_provider_usage(self):
         from model_client import ModelClient
 
-        client = ModelClient.__new__(ModelClient)
+        from factory.adapters.openai_inference import OpenAITransport
+
+        sdk = Mock()
+        client = ModelClient(transport=OpenAITransport(sdk))
         client.model = "gpt-4.1-mini"
-        client.client = Mock()
-        client.client.chat.completions.create.return_value = SimpleNamespace(
+        sdk.chat.completions.create.return_value = SimpleNamespace(
             model="reported-model",
             choices=[SimpleNamespace(message=SimpleNamespace(content='{"ok":true}'))],
             usage=SimpleNamespace(
