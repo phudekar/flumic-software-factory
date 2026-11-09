@@ -13,6 +13,7 @@ These accepted decisions explain the implemented project, Kubernetes and credent
 | 0007 | [Use bounded action transport and explicit isolation limits](0007-container-isolation-and-observation.md) |
 | 0008 | [Use OpenBao for provider values and assignment-authorized delivery](0008-openbao-credential-authority.md) |
 | 0009 | [Version execution policy and pin each logical run](0009-execution-mode-authority.md) |
+| 0010 | [Separate model inference from stage behavior](0010-model-transport-boundary.md) |
 
 Read the [overall architecture and diagram](../architecture.md) first and the [Kubernetes operator guide](../kubernetes.md) before enabling a target. Shared worker pools do not erase project ownership, and shared contracts do not imply identical runtime isolation.
 

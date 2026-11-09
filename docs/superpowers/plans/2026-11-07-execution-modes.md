@@ -91,7 +91,7 @@ Use append-only `ExecutionPolicyRevision` project-owned rows and a current-polic
 - [x] **Step 3: Implement the owned behavior.** Add grouped controls and route-readiness summaries; no YAML-only security switch. Require an explicit administrator action for emergency cancellation, with scope/count preview. UI disabling is advisory; server tests remain authoritative.
 - [x] **Step 4: Verify.** Run `npm test --prefix control-plane/frontend -- execution-mode-form.test.tsx`. Expect zero failures and no unexpected skips. Include the relevant existing direct-mode regression suite; do not claim runtime qualification from unit tests.
 - [x] **Step 5: Document and review.** Add screenshots from deterministic fixtures to `docs/user-walkthrough.md`; label protected execution unavailable until the release gates actually pass. Run `just ui-build` and `just docs-check`. Review the diff against the approved design, inspect changed security branches and resolve important findings.
-- [ ] **Step 6: Commit and integrate.** Commit message: `feat: guide execution mode selection and readiness`. Open one PR linked to the reconciled backlog, monitor required CI, merge only after checks pass, and close only the issue actually delivered. Keep subsequent capabilities unavailable until their release gates pass.
+- [x] **Step 6: Commit and integrate.** Commit message: `feat: guide execution mode selection and readiness`. Open one PR linked to the reconciled backlog, monitor required CI, merge only after checks pass, and close only the issue actually delivered. Keep subsequent capabilities unavailable until their release gates pass.
 
 
 ## Public-behavior test shape

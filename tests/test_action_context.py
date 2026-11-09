@@ -24,7 +24,7 @@ class ActionCredentialTests(unittest.TestCase):
             model = model_client.ModelClient(
                 api_key="sk-" + name, settings=Settings(repository=name + "/repo")
             )
-            return github.repository, github._token, model.client.api_key
+            return github.repository, github._token, model.transport._client.api_key
 
         with ThreadPoolExecutor(max_workers=2) as pool:
             try:
@@ -139,7 +139,7 @@ class ActionCredentialTests(unittest.TestCase):
                 return (
                     gh.repository,
                     gh._token,
-                    model.client.api_key,
+                    model.transport._client.api_key,
                     redact({"private-gh-" + name: "private-model-" + name}),
                     str(home),
                 )

@@ -7,6 +7,7 @@ from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "worker"))
 
+from factory.adapters.openai_inference import OpenAITransport
 from model_client import (
     IssueWorkPlan,
     ModelClient,
@@ -17,7 +18,8 @@ from model_client import (
 
 class ModelClientTests(unittest.TestCase):
     def setUp(self):
-        self.client = ModelClient.__new__(ModelClient)
+        self.sdk = Mock()
+        self.client = ModelClient(transport=OpenAITransport(self.sdk))
 
     def test_model_file_limit_uses_utf8_bytes_and_logs_filename(self):
         self.client.max_file_bytes = 12
@@ -55,11 +57,10 @@ class ModelClientTests(unittest.TestCase):
         from factory.configuration import TaskSettings, task_context
 
         self.client.model = "profile-model"
-        self.client.client = Mock()
-        self.client.client.responses.input_tokens.count.return_value = SimpleNamespace(
+        self.sdk.responses.input_tokens.count.return_value = SimpleNamespace(
             input_tokens=42
         )
-        self.client.client.chat.completions.create.return_value = SimpleNamespace(
+        self.sdk.chat.completions.create.return_value = SimpleNamespace(
             usage=None, choices=[SimpleNamespace(message=SimpleNamespace(content="{}"))]
         )
         with (
@@ -69,30 +70,28 @@ class ModelClientTests(unittest.TestCase):
             self.assertEqual(
                 self.client._complete([{"role": "user", "content": "Task"}]), "{}"
             )
-        count_args = self.client.client.responses.input_tokens.count.call_args.kwargs
-        generation_args = self.client.client.chat.completions.create.call_args.kwargs
+        count_args = self.sdk.responses.input_tokens.count.call_args.kwargs
+        generation_args = self.sdk.chat.completions.create.call_args.kwargs
         self.assertEqual(count_args["model"], "task-specific-model")
         self.assertEqual(count_args["input"], generation_args["messages"])
         self.assertEqual(count_args["model"], generation_args["model"])
 
     def test_counting_failure_does_not_generate(self):
         self.client.model = "configured-model"
-        self.client.client = Mock()
-        self.client.client.responses.input_tokens.count.side_effect = RuntimeError(
+        self.sdk.responses.input_tokens.count.side_effect = RuntimeError(
             "private"
         )
         with patch("tiktoken.encoding_for_model", side_effect=KeyError):
             with self.assertRaisesRegex(ValueError, "Provider token counting failed"):
                 self.client._complete([{"role": "user", "content": "Task"}])
-        self.client.client.chat.completions.create.assert_not_called()
+        self.sdk.chat.completions.create.assert_not_called()
 
     def test_provider_failure_keeps_type_and_status_without_response_body(self):
         class RateLimitError(Exception):
             status_code = 429
 
         self.client.model = "gpt-4.1-mini"
-        self.client.client = Mock()
-        self.client.client.chat.completions.create.side_effect = RateLimitError(
+        self.sdk.chat.completions.create.side_effect = RateLimitError(
             "private provider response body"
         )
         with self.assertRaises(ModelError) as raised:
@@ -130,8 +129,7 @@ class ModelClientTests(unittest.TestCase):
             ),
         )
         self.client.model = "gpt-5-nano"
-        self.client.client = Mock()
-        self.client.client.chat.completions.create.return_value = response
+        self.sdk.chat.completions.create.return_value = response
 
         with self.assertLogs("issue-worker.model", level="WARNING") as captured:
             with self.assertRaisesRegex(ModelError, "empty response"):
@@ -147,8 +145,7 @@ class ModelClientTests(unittest.TestCase):
 
     def test_empty_completion_without_choices_raises_model_error(self):
         self.client.model = "gpt-5-nano"
-        self.client.client = Mock()
-        self.client.client.chat.completions.create.return_value = SimpleNamespace(
+        self.sdk.chat.completions.create.return_value = SimpleNamespace(
             id="chatcmpl-empty",
             model="gpt-5-nano",
             choices=[],

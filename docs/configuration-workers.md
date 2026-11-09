@@ -33,6 +33,26 @@ Credentials belong in project credential versions, never non-secret documents.
 See the [Control Pane guide](control-plane.md), [project context compiler](../control-plane/backend/app/project_context.py),
 and [action composition root](../worker/factory/bootstrap.py).
 
+## Model transport qualification
+
+Running workers use the existing Direct model settings. The gateway transport is
+available for isolated contract tests. Project selection and admission binding
+are later integration steps.
+
+A fixture connection uses an HTTPS endpoint such as
+`https://gateway.example/v1`, an inference credential reference, and an
+explicit alias map such as `planning → gpt-4.1-mini`. The alias is sent to the
+gateway. The named tokenizer is used for a local context estimate before
+inference. Use a revision that matches the gateway's upstream routing. Gateway
+reported usage is kept separate from the estimate.
+
+Run `just test-gateway-contracts` to test the pinned LiteLLM image with a
+fake upstream over an isolated Docker network. The fixture checks TLS,
+authentication rejection, JSON-object and completion limit forwarding, and
+reported usage. The temporary fixture uses its own synthetic master key.
+It does not qualify project keys, strict JSON Schema, remote token counting, or
+CLI protocols. See [ADR 0010](adr/0010-model-transport-boundary.md).
+
 ## Repository, execution and registration
 
 ### `repository`

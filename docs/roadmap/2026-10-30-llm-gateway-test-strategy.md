@@ -173,3 +173,18 @@ The coverage gate must include subprocess workers and reconnect/restart scenario
 - [ ] Validate migration/rollback on disposable persisted state, not just fresh installation.
 - [ ] Run all required CI gates without unexpected skips; link evidence to #41–#45.
 - [ ] Update architecture/ADR/configuration/onboarding docs with current safe screenshots; no diagrams implying unimplemented support.
+
+
+## B1 transport evidence
+
+The `just test-gateway-contracts` fixture ran on Linux/arm64 using LiteLLM OSS
+v1.106.6 at digest
+`sha256:37e2dafb088a7723beb998590682957386dfc83ffea1848486f8e0e5cfac0b06`.
+It verifies fixture CA trust, invalid-key rejection, forwarding of JSON-object
+and completion limit parameters, and reported prompt/completion usage. The fake
+OpenAI upstream rejects unexpected model, parameters, or authentication.
+
+The context preflight uses an explicit tokenizer mapping. LiteLLM documents
+that its counting endpoints can return estimates or fallbacks. This fixture
+does not treat those endpoints as budget authority.
+[LiteLLM tokenization documentation](https://docs.litellm.ai/docs/tokenize)

@@ -46,6 +46,10 @@ openbao-down:
 gateway-up *args:
     ./scripts/start-gateway.sh "$@"
 
+# Qualify the pinned gateway with TLS and a fake upstream.
+test-gateway-contracts:
+    ./scripts/test-gateway-contracts.sh
+
 gateway-down *args:
     ./scripts/gateway-compose.sh down "$@"
 

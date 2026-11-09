@@ -3,8 +3,10 @@ from __future__ import annotations
 import json
 import logging
 import os
+from uuid import uuid4
 
-from factory.application.telemetry import ModelUsage, model_call, record_conversation
+from factory.application.model_sessions import ModelRequest, ModelTransport
+from factory.application.telemetry import model_call, record_conversation
 from factory.configuration import current_task
 
 from openai import OpenAI
@@ -15,7 +17,8 @@ from factory.domain.safety import (
     assert_safe_text,
     is_allowed_source_path,
 )
-from factory.adapters.token_budget import MAX_COMPLETION_TOKENS, count_request_tokens
+from factory.adapters.openai_inference import OpenAITransport
+from factory.adapters.token_budget import MAX_COMPLETION_TOKENS
 
 from factory.domain.models import (  # noqa: F401
     MAX_PATCH_FILES,
@@ -45,7 +48,12 @@ class ModelClient:
     max_completion_tokens = MAX_COMPLETION_TOKENS
 
     def __init__(
-        self, *, max_patch_iterations: int = MAX_PATCH_ITERATIONS, settings=None, api_key: str | None = None
+        self,
+        *,
+        max_patch_iterations: int = MAX_PATCH_ITERATIONS,
+        settings=None,
+        api_key: str | None = None,
+        transport: ModelTransport | None = None,
     ) -> None:
         self.max_patch_iterations = _parse_max_patch_iterations(
             str(max_patch_iterations)
@@ -59,9 +67,6 @@ class ModelClient:
             settings.max_file_bytes if settings else MAX_SOURCE_FILE_BYTES
         )
         self.max_patch_files = self.max_patch_iterations * self.max_files_per_iteration
-        key = os.environ.get("OPENAI_API_KEY") if api_key is None else api_key
-        if not key:
-            raise ModelError("OPENAI_API_KEY is required")
         self.model = (
             settings.openai_model
             if settings
@@ -70,11 +75,16 @@ class ModelClient:
         if settings:
             self.max_context_tokens = settings.max_context_tokens
             self.max_completion_tokens = settings.max_completion_tokens
-        self.client = OpenAI(
-            api_key=key,
-            max_retries=settings.api_max_retries if settings else 2,
-            timeout=settings.api_timeout_seconds if settings else 90.0,
-        )
+        if transport is None:
+            key = os.environ.get("OPENAI_API_KEY") if api_key is None else api_key
+            if not key:
+                raise ModelError("OPENAI_API_KEY is required")
+            transport = OpenAITransport(OpenAI(
+                api_key=key,
+                max_retries=settings.api_max_retries if settings else 2,
+                timeout=settings.api_timeout_seconds if settings else 90.0,
+            ))
+        self.transport = transport
 
     def triage(
         self,
@@ -413,11 +423,6 @@ class ModelClient:
             )
         return plan
 
-    def _count_input_tokens(self, model, messages):
-        return self.client.responses.input_tokens.count(
-            model=model, input=messages
-        ).input_tokens
-
     def _complete(self, messages: list[dict[str, str]]) -> str:
         task = current_task()
         model = task.model or self.model
@@ -435,70 +440,37 @@ class ModelClient:
             else:
                 system["content"] += guidance
         assert_safe_text(*(message["content"] for message in messages))
-        request_tokens = count_request_tokens(
-            messages,
-            model,
+        request = ModelRequest(
+            model=model,
+            messages=messages,
             max_context_tokens=self.max_context_tokens,
             max_completion_tokens=self.max_completion_tokens,
-            remote_counter=self._count_input_tokens,
+            request_id=uuid4().hex,
         )
-        with model_call("openai", model) as call:
+        assessment = self.transport.assess_tokens(request)
+        with model_call(self.transport.provider, model) as call:
             record_conversation(request=messages)
-            try:
-                response = self.client.chat.completions.create(
-                    model=model,
-                    messages=messages,
-                    response_format={"type": "json_object"},
-                    max_completion_tokens=self.max_completion_tokens,
-                )
-            except Exception as error:
-                # Preserve useful failure classification without copying provider
-                # response bodies, prompts or request headers into normal logs.
-                details = [type(error).__name__]
-                status = getattr(error, "status_code", None)
-                if isinstance(status, int) and not isinstance(status, bool):
-                    details.append(f"HTTP {status}")
-                raise ModelError(
-                    "Model request failed (" + ", ".join(details) + ")"
-                ) from None
-            usage = getattr(response, "usage", None)
+            response = self.transport.infer(request)
+            usage = response.usage
             if usage is not None:
-                prompt_details = getattr(usage, "prompt_tokens_details", None)
-                completion_details = getattr(usage, "completion_tokens_details", None)
-                call.record(
-                    ModelUsage(
-                        input_tokens=usage.prompt_tokens,
-                        output_tokens=usage.completion_tokens,
-                        cached_input_tokens=getattr(
-                            prompt_details, "cached_tokens", None
-                        ),
-                        reasoning_tokens=getattr(
-                            completion_details, "reasoning_tokens", None
-                        ),
-                        response_model=response.model,
-                    )
-                )
-            choices = response.choices
-            choice = choices[0] if choices else None
-            message = choice.message if choice else None
-            content = message.content if message else None
+                call.record(usage)
+            content = response.content
             record_conversation(response=content)
             if not content:
-                usage = getattr(response, "usage", None)
                 logger.warning(
                     "Model returned no text content: configured_model=%s response_model=%s "
                     "response_id=%s choices=%d finish_reason=%s refusal_present=%s "
                     "request_tokens=%d prompt_tokens=%s completion_tokens=%s total_tokens=%s",
                     self.model,
-                    response.model,
-                    response.id,
-                    len(choices),
-                    choice.finish_reason if choice else None,
-                    bool(message and message.refusal),
-                    request_tokens,
-                    usage.prompt_tokens if usage else None,
-                    usage.completion_tokens if usage else None,
-                    usage.total_tokens if usage else None,
+                    response.response_model,
+                    response.response_id,
+                    response.choice_count,
+                    response.finish_reason,
+                    response.refused,
+                    assessment.input_tokens,
+                    usage.input_tokens if usage else None,
+                    usage.output_tokens if usage else None,
+                    response.total_tokens,
                 )
                 raise ModelError("Model returned an empty response")
             assert_safe_text(content)
