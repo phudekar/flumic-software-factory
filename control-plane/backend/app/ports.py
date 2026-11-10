@@ -2,6 +2,21 @@
 
 from typing import Protocol, TYPE_CHECKING
 from contextlib import contextmanager
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True)
+class ConnectionCapabilities:
+    available_aliases: tuple[str, ...]
+    missing_aliases: tuple[str, ...]
+
+
+class GatewayVerificationError(Exception):
+    """Gateway discovery failed without exposing the upstream response."""
+
+
+class GatewayAdministration(Protocol):
+    def verify(self, endpoint: str, aliases: tuple[str, ...], token: str) -> ConnectionCapabilities: ...
 
 
 class RuntimePending(RuntimeError):

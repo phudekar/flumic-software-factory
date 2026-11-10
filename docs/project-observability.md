@@ -154,3 +154,18 @@ bounded private spool. If a completion arrives while redaction values are
 unavailable, the controller withholds output and records a cancelled terminal
 receipt. This preserves a terminal acknowledgement without automatically
 repeating provider effects. See [OpenBao failure handling](openbao.md#failure-and-revocation).
+
+### Brokered model request accounting
+
+The trusted broker derives project, run, stage, and attempt from the assigned
+capability. It generates the gateway correlation ID from its reservation, so
+caller-supplied IDs cannot claim another project's attribution. The reservation
+records token allowance, dispatch state, and actual tokens when the gateway
+reports both input and output counts. The ledger stores request digests and
+does not retain prompts, completions, or key values. Reconciliation will join
+these observations with worker history before they contribute to project totals.
+
+A known gateway rejection releases reserved tokens while consuming one request.
+An uncertain outcome holds the reservation for reconciliation. A repeated
+logical request returns a conflict after dispatch, with no second gateway call.
+The token allowance does not represent a hard dollar cap.

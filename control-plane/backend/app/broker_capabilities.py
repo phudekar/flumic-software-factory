@@ -135,6 +135,13 @@ def _authenticate(db, bearer, audience, settings):
     return capability, scope
 
 
+def authorize_operation(db, bearer: str, audience: str, operation: str, *, settings) -> CapabilityScope:
+    _, scope = _authenticate(db, bearer, audience, settings)
+    if operation not in scope.operations:
+        raise CapabilityDenied("Operation is outside the capability")
+    return scope
+
+
 def _valid_tokens(count):
     return type(count) is int and 0 <= count <= MAX_ALLOWANCE
 

@@ -210,3 +210,14 @@ Without `just`, run the corresponding scripts; logs/down use
 `scripts/observability-compose.sh` followed by the Compose command. The resource
 collector uses `scripts/compose-command.sh -f compose.resource-metrics.yaml`.
 Use `just --dry-run gateway-up` to inspect a shortcut without starting services.
+
+### TLS for a Control Pane gateway connection
+
+The standalone LiteLLM Compose profile provides a local HTTP service. For a
+Control Pane connection revision, put a TLS reverse proxy in front of the
+gateway and use the approved HTTPS URL ending in `/v1`. Use a certificate
+trusted by the Control Pane container. Keep the gateway service and its
+database on private networks, with access limited to the trusted Control Pane
+and the operator's administration path. Keep gateway inference retries
+disabled for qualified broker routes so a single dispatch does not become
+multiple provider calls.

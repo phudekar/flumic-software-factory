@@ -224,7 +224,8 @@ class PolicyMigrationTests(unittest.TestCase):
                     command.upgrade(config, 'head')
                     self.assertEqual(set(inspect(engine).get_table_names()) - before,
                                      {'execution_policy_revisions', 'execution_policy_heads',
-                                      'broker_capabilities', 'broker_reservations'})
+                                      'broker_capabilities', 'broker_reservations',
+                                      'gateway_connection_revisions'})
                     with engine.connect() as db:
                         self.assertFalse(db.execute(text("SELECT broker_revoked FROM execution_assignments WHERE id='old-assignment'")).scalar_one())
                         self.assertIsNone(db.execute(text("SELECT execution_mode FROM workflow_runs WHERE id='old-run'")).scalar())

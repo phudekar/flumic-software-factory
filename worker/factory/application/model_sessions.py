@@ -39,9 +39,10 @@ class ModelResponse:
 
 
 class ModelTransportError(ModelError):
-    def __init__(self, message: str, *, uncertain: bool = False) -> None:
+    def __init__(self, message: str, *, uncertain: bool = False, status_code: int | None = None) -> None:
         super().__init__(message)
         self.uncertain = uncertain
+        self.status_code = status_code
 
 
 class ModelTransport(Protocol):

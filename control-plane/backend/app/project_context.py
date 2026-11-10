@@ -33,7 +33,7 @@ from factory.settings import compatible_settings
 class SecretEdit(BaseModel):
     model_config = ConfigDict(extra="forbid")
     name: str = Field(pattern=r"^[a-z][a-z0-9-]{0,99}$")
-    purpose: str = Field(pattern=r"^(github|gitlab|openai|anthropic)$")
+    purpose: str = Field(pattern=r"^(github|gitlab|openai|anthropic|gateway-inference|gateway-management)$")
     value: SecretStr = Field(min_length=1, max_length=16384)
     repository_id: str | None = None
     parent_id: str | None = None
@@ -267,6 +267,8 @@ def install(app, sessions, settings):
         from app.workflow_state import transition_lock
 
         use_openbao = bool(settings.openbao_address)
+        if body.purpose.startswith("gateway-") and not use_openbao:
+            raise HTTPException(503, "OpenBao is required for gateway credentials")
         value = body.value.get_secret_value()
         with sessions.begin() as db:
             scope = request_scope(request, db)

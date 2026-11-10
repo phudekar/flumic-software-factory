@@ -255,3 +255,25 @@ The [credential sequence](architecture.md#openbao-credential-authority-and-deliv
 shows storage, authorization, worker unwrap and start acknowledgement.
 [ADR 0008](adr/0008-openbao-credential-authority.md) records the alternatives,
 operational costs and migration guarantees.
+
+### Gateway credential versions
+
+Gateway connections use two project-scoped credential purposes. Store the
+restricted model API key as `gateway-inference` and the catalog discovery key
+as `gateway-management`. Both require OpenBao. Keep the gateway's provider
+credentials in the gateway's configured secret store. The Flumic deployment
+reads only the referenced OpenBao version for the operation it performs.
+
+An administrator can create a connection revision with
+`POST /api/v1/projects/{project_id}/gateway-connections`. Supply an approved
+HTTPS endpoint ending in `/v1`, an `inference_credential_id`, and an
+`aliases` object mapping allowed gateway model names to their tokenizer models.
+Set `management_credential_id` to use the revision's `/verify` endpoint.
+Verification reports which configured aliases appear in the gateway catalog.
+It does not run inference.
+
+To rotate a key, create a new OpenBao-backed credential version and then create
+a connection revision with the prior revision as `parent_id`. An administrator
+can revoke the old credential version to block new dispatch claims that use it.
+A dispatch already claimed may still finish. The gateway manages the upstream
+keys and gateway-side rate and spending policies.
