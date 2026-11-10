@@ -364,6 +364,7 @@ class Assignment(ProjectOwned, Base):
     claim_hash: Mapped[str | None] = mapped_column(String(64))
     expires_at: Mapped[float | None] = mapped_column(Float)
     started_at: Mapped[float | None] = mapped_column(Float)
+    broker_revoked: Mapped[bool] = mapped_column(default=False, server_default=false())
     context_id: Mapped[str | None] = mapped_column(
         ForeignKey("action_context_snapshots.id")
     )
@@ -371,6 +372,52 @@ class Assignment(ProjectOwned, Base):
     result_ciphertext: Mapped[str | None] = mapped_column(Text)
     result_digest: Mapped[str | None] = mapped_column(String(64))
     created_at: Mapped[float] = mapped_column(Float, default=time.time)
+
+
+class BrokerCapability(Base):
+    __tablename__ = "broker_capabilities"
+    __table_args__ = (
+        UniqueConstraint("assignment_id", "audience", name="uq_broker_assignment_audience"),
+        ForeignKeyConstraint(
+            ["project_id", "assignment_id"],
+            ["execution_assignments.project_id", "execution_assignments.id"],
+            name="fk_broker_assignment",
+        ),
+        CheckConstraint(
+            "audience IN ('model', 'repository') OR audience LIKE 'mcp:_%'",
+            name="ck_broker_audience",
+        ),
+    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=identity)
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), index=True)
+    assignment_id: Mapped[str] = mapped_column(String(36))
+    audience: Mapped[str] = mapped_column(String(104))
+    scope: Mapped[dict] = mapped_column(JSON)
+    bearer_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    expires_at: Mapped[float] = mapped_column(Float)
+    revoked: Mapped[bool] = mapped_column(default=False)
+    limits: Mapped[dict] = mapped_column(JSON)
+
+
+class BrokerReservation(Base):
+    __tablename__ = "broker_reservations"
+    __table_args__ = (
+        UniqueConstraint("capability_id", "request_id", name="uq_broker_logical_request"),
+        CheckConstraint(
+            "state IN ('reserved', 'dispatched', 'uncertain', 'completed', 'rejected')",
+            name="ck_broker_reservation_state",
+        ),
+        CheckConstraint("input_tokens >= 0 AND output_tokens >= 0", name="ck_broker_tokens"),
+    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=identity)
+    capability_id: Mapped[str] = mapped_column(ForeignKey("broker_capabilities.id"))
+    request_id: Mapped[str] = mapped_column(String(120))
+    request_digest: Mapped[str] = mapped_column(String(64))
+    operation: Mapped[str] = mapped_column(String(120))
+    input_tokens: Mapped[int]
+    output_tokens: Mapped[int]
+    state: Mapped[str] = mapped_column(String(20), default="reserved")
+    actual_usage: Mapped[dict | None] = mapped_column(JSON)
 
 
 class WorkflowDefinitionRecord(ProjectOwned, Base):

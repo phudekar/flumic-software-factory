@@ -105,6 +105,27 @@ Direct workers retain their existing credential-in-memory trust boundary.
 [API guide](project-runtime-api.md#explicit-launch-mode-and-immutable-admission)
 describes mode selection, immutable snapshots and compatibility.
 
+### Protected broker allowance ledger
+
+The trusted supervisor can issue a bearer for a live protected stage assignment.
+The Control Plane stores its hash and binds it to the project, run, stage,
+attempt and broker audience. Its lifetime is at most five minutes and ends
+earlier if the assignment lease or stage deadline ends. Renewal rotates the
+bearer while preserving the request IDs and allowances. A process that obtains
+a stage bearer can exercise the operations permitted by that audience and the
+broker's operation policy until authority expires or is revoked. Each approved
+MCP server uses a separate audience and an explicit set of delegated operations.
+MCP model delegation requires a shared stage model allowance before it can be
+enabled.
+
+The broker reserves request count, concurrency and input/output tokens before
+dispatch. It records a single dispatch claim before calling upstream.
+Cancellation revokes the capability and stops new dispatch claims. A request
+whose dispatch claim already committed may still reach the provider and incur
+cost. An uncertain outcome holds its allowance until the broker reconciles it.
+The ledger tracks token allowances and does not enforce a hard USD ceiling.
+Protected execution still requires the qualified runtime and broker endpoints.
+
 ## OpenBao credential authority and delivery
 
 ![Credential authority and compromised-worker boundaries](images/openbao-security-boundaries.svg)

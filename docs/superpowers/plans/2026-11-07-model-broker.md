@@ -10,7 +10,7 @@
 
 **Spec:** [Approved direct/protected design](../../roadmap/2026-11-07-protected-execution-design.md). Read the [delivery index](2026-11-07-protected-execution.md) first.
 
-**Status:** Plan only. No tasks completed. Proposed interfaces below are new unless identified as existing.
+**Status:** B1 merged in PR #72. B2 is in progress. Proposed interfaces below are new unless identified as existing.
 
 ## Global Constraints
 
@@ -51,23 +51,28 @@ Depends on A1/A2. Reconcile existing issues #39, #41–#45 and the existing gate
 - [x] **Step 3: Implement the owned behavior.** Separate prompt/schema/task behavior from transport and retry ownership. Reuse the existing gateway plan connection/descriptor model instead of introducing competing route records. Record exact image digest, protocol features and OSS capability report in fixture qualification output.
 - [x] **Step 4: Verify.** Run `.venv/bin/python -m unittest discover -s tests -p test_model_sessions.py -v`. Expect zero failures and no unexpected skips. Include the relevant existing direct-mode regression suite; do not claim runtime qualification from unit tests.
 - [x] **Step 5: Document and review.** Update `docs/configuration-workers.md`, gateway route examples and the existing gateway capability matrix. Add an explicit opt-in real gateway fixture command. Review the diff against the approved design, inspect changed security branches and resolve important findings.
-- [ ] **Step 6: Commit and integrate.** Commit message: `refactor: introduce qualified model session transports`. Open one PR linked to the reconciled backlog, monitor required CI, merge only after checks pass, and close only the issue actually delivered. Keep subsequent capabilities unavailable until their release gates pass.
+- [x] **Step 6: Commit and integrate.** Commit message: `refactor: introduce qualified model session transports`. Open one PR linked to the reconciled backlog, monitor required CI, merge only after checks pass, and close only the issue actually delivered. Keep subsequent capabilities unavailable until their release gates pass.
 
 ### Task B2: Transactional scoped capability and allowance ledger
 
 **Files:**
 - Create: `worker/factory/domain/broker.py`, `control-plane/backend/app/broker_capabilities.py`
-- Modify: `control-plane/backend/app/database.py`, next additive migration, cancellation transitions in `workflow_runs.py`
+- Modify: `control-plane/backend/app/database.py`, next additive migration, cancellation transitions in `workflow_state.py`
 - Test: `control-plane/backend/tests/test_broker_capabilities.py`
 
-**Interfaces:** Produce `issue_capability(db, scope: CapabilityScope, limits: SessionLimits) -> str`, `reserve_request(db, bearer: str, audience: str, request_id: str, input_tokens: int, output_limit: int) -> Reservation`, `settle_request(db, reservation_id: str, actual_usage: dict | None, outcome: Literal["completed", "rejected", "uncertain"]) -> None`, `revoke_assignment(db, assignment_id: str) -> None`. Reservation records identify scope, logical request, attempt, reserved allowance and outcome.
+**Interfaces:** Produce `issue_capability(db, scope: CapabilityScope, limits: SessionLimits) -> str`, `reserve_request(db, bearer: str, audience: str, request_id: str, input_tokens: int, output_limit: int) -> Reservation`, `settle_request(db, reservation_id: str, actual_usage: dict | None, outcome: Literal["completed", "rejected", "uncertain"]) -> None`, `revoke_assignment(db, assignment_id: str) -> None`. Reservation records identify scope, operation, logical request, trusted request digest, attempt, reserved allowance and outcome. The trusted facade commits `mark_dispatched` before calling the provider.
 
-- [ ] **Step 1: Add failing behavior tests.** `test_wrong_project_stage_attempt_audience_denied`, `test_expiry_cannot_exceed_lease`, `test_concurrent_reservations_cannot_overspend`, `test_revocation_fences_new_requests`, `test_duplicate_request_does_not_double_dispatch`, `test_unknown_outcome_retains_reservation` run against real disposable PostgreSQL with parallel sessions. Verify only token hashes persist.
-- [ ] **Step 2: Run the focused test command below and confirm the new assertions fail against the current behavior.** A missing dependency is not the expected red result.
-- [ ] **Step 3: Implement the owned behavior.** Use transactional row locks/constraints for quota and idempotency, not process-local counters. Mark external dispatch before sending so response loss remains uncertain. Renew by issuing a new bounded capability only after active assignment checks; revoke old capability atomically and reconcile in-flight reservations independently.
-- [ ] **Step 4: Verify.** Run `PYTHONPATH=worker:control-plane/backend .venv/bin/python -m unittest discover -s control-plane/backend/tests -p test_broker_capabilities.py -v`. Expect zero failures and no unexpected skips. Include the relevant existing direct-mode regression suite; do not claim runtime qualification from unit tests.
-- [ ] **Step 5: Document and review.** Document five-minute maximum lifetime, live cancellation semantics and absence of guaranteed hard USD ceiling. Explain that stolen sandbox identities retain only permitted operations. Review the diff against the approved design, inspect changed security branches and resolve important findings.
+- [x] **Step 1: Add failing behavior tests.** `test_wrong_project_stage_attempt_audience_denied`, `test_expiry_cannot_exceed_lease`, `test_concurrent_reservations_cannot_overspend`, `test_revocation_fences_new_requests`, `test_duplicate_request_does_not_double_dispatch`, `test_unknown_outcome_retains_reservation` run against real disposable PostgreSQL with parallel sessions. Verify only token hashes persist.
+- [x] **Step 2: Run the focused test command below and confirm the new assertions fail against the current behavior.** A missing dependency is not the expected red result.
+- [x] **Step 3: Implement the owned behavior.** Use transactional row locks/constraints for quota and idempotency, not process-local counters. Mark external dispatch before sending so response loss remains uncertain. Renew by issuing a new bounded capability only after active assignment checks; revoke old capability atomically and reconcile in-flight reservations independently.
+- [x] **Step 4: Verify.** Run `PYTHONPATH=worker:control-plane/backend .venv/bin/python -m unittest discover -s control-plane/backend/tests -p test_broker_capabilities.py -v`. Expect zero failures and no unexpected skips. Include the relevant existing direct-mode regression suite; do not claim runtime qualification from unit tests.
+- [x] **Step 5: Document and review.** Document five-minute maximum lifetime, live cancellation semantics and absence of guaranteed hard USD ceiling. Explain that stolen sandbox identities retain only permitted operations. Review the diff against the approved design, inspect changed security branches and resolve important findings.
 - [ ] **Step 6: Commit and integrate.** Commit message: `feat: add scoped broker capabilities and request reservations`. Open one PR linked to the reconciled backlog, monitor required CI, merge only after checks pass, and close only the issue actually delivered. Keep subsequent capabilities unavailable until their release gates pass.
+
+Verification covered independent PostgreSQL transactions for concurrent reservation,
+single dispatch, and cancellation racing dispatch. Review reproduced stopped-worker
+authority and split model allowances before the fixes. B2 blocks MCP model
+delegation pending D3 shared accounting.
 
 ### Task B3: Trusted model-session facade and generic gateway management
 

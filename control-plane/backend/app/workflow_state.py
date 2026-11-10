@@ -27,6 +27,7 @@ from app.database import (
     Revision,
     Operation,
 )
+from app.broker_capabilities import revoke_run
 from app.projects import require_owned, ProjectScope
 from app.project_context import encrypt, decrypt
 from app.workflow_definitions import pin_definition, read_definition_pin
@@ -744,6 +745,7 @@ class WorkflowState:
             if run.state in {"completed", "failed", "cancelled"}:
                 return RunAdvance(state=run.state)
             run.state = "cancelling"
+            revoke_run(db, run.project_id, run.id)
             for item in self._latest(db, run).values():
                 if item.state in TERMINAL:
                     continue

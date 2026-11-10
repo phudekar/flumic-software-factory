@@ -44,6 +44,21 @@ configure TLS, service authentication, worker network access and paired backups.
 [Credential sequence and failure handling](/flumic-software-factory/handbook/architecture/#openbao-credential-authority-and-delivery) ·
 [OpenBao setup and migration](/flumic-software-factory/handbook/openbao/)
 
+## Protected broker authority
+
+A protected stage uses a short-lived bearer scoped to its project, run, stage
+attempt, broker audience, and allowed operations. The Control Pane stores only
+the bearer hash. The bearer expires within five minutes and can expire earlier
+when the assignment lease or stage deadline ends. Renewal rotates the bearer and
+keeps the same allowance.
+
+The broker reserves request count, concurrency, and tokens before dispatch.
+Cancellation prevents new dispatch claims. A request whose claim already
+committed may still reach the provider and incur cost. The broker holds the
+allowance for uncertain requests until it can reconcile the outcome. The ledger
+does not enforce a hard dollar limit. Protected execution remains unavailable
+until the broker endpoints and runtime pass qualification.
+
 ## Accepted decisions
 
 [Read the ADR index](/flumic-software-factory/architecture/decisions/) for the choices, alternatives and operational costs behind project boundaries, native adapters, transactional authority, fencing, cleanup, storage and isolation.
