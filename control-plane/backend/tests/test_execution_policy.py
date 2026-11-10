@@ -212,6 +212,9 @@ class PolicyMigrationTests(unittest.TestCase):
                     with engine.begin() as db:
                         db.execute(text("UPDATE projects SET name='Legacy' WHERE id=:id"), {'id': DEFAULT_PROJECT_ID})
                         for statement in (
+                            "INSERT INTO repository_connections (id,project_id,alias,provider,host,owner,name,overrides,created_at) VALUES ('old-repo',:id,'old','github','github.com','fixture','repo','{}',1)",
+                            "INSERT INTO worker_pools (id,name,profile,created_at) VALUES ('old-pool','old','{}',1)",
+                            "INSERT INTO execution_assignments (id,project_id,repository_id,pool_id,run_id,stage_id,execution_id,role,executor,action,status,input_ciphertext,created_at) VALUES ('old-assignment',:id,'old-repo','old-pool','old-run','echo','old-attempt','simple','builtin@1','core.echo@1','completed','opaque-input',1)",
                             "INSERT INTO workflow_definitions (id,project_id,name,created_at) VALUES ('old-definition',:id,'Old workflow',1)",
                             "INSERT INTO workflow_definition_revisions (id,project_id,definition_id,digest,graph_ciphertext,created_at) VALUES ('old-revision',:id,'old-definition','digest','opaque-graph',1)",
                             "INSERT INTO workflow_launch_snapshots (id,project_id,workflow_revision_id,ciphertext,created_at) VALUES ('old-snapshot',:id,'old-revision','opaque-launch',1)",
@@ -220,8 +223,10 @@ class PolicyMigrationTests(unittest.TestCase):
                             db.execute(text(statement), {'id': DEFAULT_PROJECT_ID})
                     command.upgrade(config, 'head')
                     self.assertEqual(set(inspect(engine).get_table_names()) - before,
-                                     {'execution_policy_revisions', 'execution_policy_heads'})
+                                     {'execution_policy_revisions', 'execution_policy_heads',
+                                      'broker_capabilities', 'broker_reservations'})
                     with engine.connect() as db:
+                        self.assertFalse(db.execute(text("SELECT broker_revoked FROM execution_assignments WHERE id='old-assignment'")).scalar_one())
                         self.assertIsNone(db.execute(text("SELECT execution_mode FROM workflow_runs WHERE id='old-run'")).scalar())
                         self.assertEqual(db.execute(text("SELECT ciphertext FROM workflow_launch_snapshots WHERE id='old-snapshot'")).scalar(), 'opaque-launch')
                     from sqlalchemy.exc import IntegrityError
@@ -234,6 +239,16 @@ class PolicyMigrationTests(unittest.TestCase):
                         self.assertEqual(db.execute(text('SELECT name FROM projects WHERE id=:id'), {'id': DEFAULT_PROJECT_ID}).scalar(), 'Legacy')
                     command.downgrade(config, 'e201f1000013')
                     command.upgrade(config, 'head')
+                    from app.database import BrokerCapability
+                    with sessions.begin() as db:
+                        db.add(BrokerCapability(id="test-broker", project_id=DEFAULT_PROJECT_ID,
+                                                assignment_id="old-assignment", audience="model",
+                                                bearer_hash="a" * 64, expires_at=1, revoked=True,
+                                                scope={}, limits={}))
+                    with self.assertRaisesRegex(RuntimeError, 'protected broker ledger'):
+                        command.downgrade(config, 'e201f1000015')
+                    with engine.begin() as db:
+                        db.execute(text("DELETE FROM broker_capabilities WHERE id='test-broker'"))
                     with sessions.begin() as db:
                         update_execution_policy(db, scope, policy.revision_id,
                                                 {'default_mode':'protected','minimum_mode':'protected'})
