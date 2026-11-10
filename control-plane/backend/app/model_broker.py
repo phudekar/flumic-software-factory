@@ -185,7 +185,7 @@ def _worker_inference(sessions, identifier, body, request, settings):
 
 
 def install(app, sessions, settings):
-    @app.post(INFERENCE_PATH)
+    @app.post("/api/v1/model-broker/inference")
     async def inference(request: Request):
         scheme, _, bearer = request.headers.get("authorization", "").partition(" ")
         if scheme.lower() != "bearer" or not bearer:

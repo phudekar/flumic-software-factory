@@ -60,10 +60,9 @@ def public(row):
 
 
 def install(app, sessions, settings, administration: GatewayAdministration):
-    path = "/api/v1/projects/{project_id}/gateway-connections"
     project = [Depends(project_parameter)]
 
-    @app.get(path, dependencies=project)
+    @app.get("/api/v1/projects/{project_id}/gateway-connections", dependencies=project)
     def list_connections(request: Request):
         with sessions() as db:
             scope = request_scope(request, db)
@@ -71,13 +70,13 @@ def install(app, sessions, settings, administration: GatewayAdministration):
                 GatewayConnectionRevision.project_id == scope.project_id,
             ).order_by(GatewayConnectionRevision.created_at.desc(), GatewayConnectionRevision.id))]
 
-    @app.get(path + "/{revision_id}", dependencies=project)
+    @app.get("/api/v1/projects/{project_id}/gateway-connections/{revision_id}", dependencies=project)
     def read_connection(revision_id: str, request: Request):
         with sessions() as db:
             scope = request_scope(request, db)
             return public(require_owned(db, scope, GatewayConnectionRevision, revision_id))
 
-    @app.post(path, dependencies=project, status_code=201)
+    @app.post("/api/v1/projects/{project_id}/gateway-connections", dependencies=project, status_code=201)
     def create_connection(body: GatewayConnectionEdit, request: Request):
         from app.workflow_state import transition_lock
 
@@ -95,7 +94,7 @@ def install(app, sessions, settings, administration: GatewayAdministration):
             inference_descriptor(row)
             return public(row)
 
-    @app.post(path + "/{revision_id}/verify", dependencies=project)
+    @app.post("/api/v1/projects/{project_id}/gateway-connections/{revision_id}/verify", dependencies=project)
     def verify_connection(revision_id: str, request: Request):
         with sessions() as db:
             scope = request_scope(request, db)
