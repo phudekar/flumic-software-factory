@@ -10,7 +10,7 @@
 
 **Spec:** [Approved direct/protected design](../../roadmap/2026-11-07-protected-execution-design.md). Read the [delivery index](2026-11-07-protected-execution.md) first.
 
-**Status:** B1 merged in PR #72. B2 is in progress. Proposed interfaces below are new unless identified as existing.
+**Status:** B1 merged in PR #72. B2 merged in PR #73. B3 is in progress. Proposed interfaces below are new unless identified as existing.
 
 ## Global Constraints
 
@@ -67,7 +67,7 @@ Depends on A1/A2. Reconcile existing issues #39, #41–#45 and the existing gate
 - [x] **Step 3: Implement the owned behavior.** Use transactional row locks/constraints for quota and idempotency, not process-local counters. Mark external dispatch before sending so response loss remains uncertain. Renew by issuing a new bounded capability only after active assignment checks; revoke old capability atomically and reconcile in-flight reservations independently.
 - [x] **Step 4: Verify.** Run `PYTHONPATH=worker:control-plane/backend .venv/bin/python -m unittest discover -s control-plane/backend/tests -p test_broker_capabilities.py -v`. Expect zero failures and no unexpected skips. Include the relevant existing direct-mode regression suite; do not claim runtime qualification from unit tests.
 - [x] **Step 5: Document and review.** Document five-minute maximum lifetime, live cancellation semantics and absence of guaranteed hard USD ceiling. Explain that stolen sandbox identities retain only permitted operations. Review the diff against the approved design, inspect changed security branches and resolve important findings.
-- [ ] **Step 6: Commit and integrate.** Commit message: `feat: add scoped broker capabilities and request reservations`. Open one PR linked to the reconciled backlog, monitor required CI, merge only after checks pass, and close only the issue actually delivered. Keep subsequent capabilities unavailable until their release gates pass.
+- [x] **Step 6: Commit and integrate.** Commit message: `feat: add scoped broker capabilities and request reservations`. Open one PR linked to the reconciled backlog, monitor required CI, merge only after checks pass, and close only the issue actually delivered. Keep subsequent capabilities unavailable until their release gates pass.
 
 Verification covered independent PostgreSQL transactions for concurrent reservation,
 single dispatch, and cancellation racing dispatch. Review reproduced stopped-worker

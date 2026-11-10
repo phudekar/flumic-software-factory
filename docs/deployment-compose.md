@@ -210,3 +210,20 @@ Without `just`, run the corresponding scripts; logs/down use
 `scripts/observability-compose.sh` followed by the Compose command. The resource
 collector uses `scripts/compose-command.sh -f compose.resource-metrics.yaml`.
 Use `just --dry-run gateway-up` to inspect a shortcut without starting services.
+
+### TLS for a Control Pane gateway connection
+
+The standalone LiteLLM Compose profile provides a local HTTP service. For a
+Control Pane connection revision, put a TLS reverse proxy in front of the
+gateway and use the approved HTTPS URL ending in `/v1`. Use a certificate
+trusted by the Control Pane container. Keep the gateway service and its
+database on private networks, with access limited to the trusted Control Pane
+and the operator's administration path. Keep gateway inference retries
+disabled for qualified broker routes so a single dispatch does not become
+multiple provider calls.
+
+To test the worker path with the pinned LiteLLM image and a fake provider, run
+`FLUMIC_GATEWAY_WORKER_TEST_IMAGE=software-factory-control:local ./scripts/test-gateway-contracts.sh`.
+The image supplies the backend Python dependencies. The script mounts the
+current checkout and uses a separate Docker network, a fixture TLS certificate,
+and fixture credentials.

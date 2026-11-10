@@ -54,6 +54,7 @@ class ModelClient:
         settings=None,
         api_key: str | None = None,
         transport: ModelTransport | None = None,
+        gateway_alias: str | None = None,
     ) -> None:
         self.max_patch_iterations = _parse_max_patch_iterations(
             str(max_patch_iterations)
@@ -85,6 +86,7 @@ class ModelClient:
                 timeout=settings.api_timeout_seconds if settings else 90.0,
             ))
         self.transport = transport
+        self.gateway_alias = gateway_alias
 
     def triage(
         self,
@@ -425,7 +427,7 @@ class ModelClient:
 
     def _complete(self, messages: list[dict[str, str]]) -> str:
         task = current_task()
-        model = task.model or self.model
+        model = self.gateway_alias or task.model or self.model
         messages = [dict(message) for message in messages]
         if task.additional_system_prompt:
             guidance = (

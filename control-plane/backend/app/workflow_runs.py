@@ -26,6 +26,8 @@ class StartRun(BaseModel):
     input: dict = Field(default_factory=dict)
     bindings: dict[str, dict[str, str]] | None = None
     execution_mode: Literal["direct", "protected"] | None = None
+    gateway_revision_id: str | None = Field(default=None, min_length=1, max_length=36)
+    gateway_alias: str | None = Field(default=None, min_length=1, max_length=120)
 
 
 class SeedBuiltins(BaseModel):
@@ -81,7 +83,8 @@ class DynamicRuntime:
     def launch(self, scope, body, key):
         run = self.store.start_run(
             scope, body.revision_id, body.input, key=key, bindings=body.bindings,
-            requested_mode=body.execution_mode
+            requested_mode=body.execution_mode, gateway_revision_id=body.gateway_revision_id,
+            gateway_alias=body.gateway_alias
         )
         # A crash between pinning and this transaction is repaired by the outbox
         # scan. Retrying the project-qualified request returns the original pin.
@@ -300,6 +303,9 @@ class DynamicRuntime:
         execution_pin = read_execution_pin(pin)
         result['execution_mode'] = execution_pin.mode
         result['execution_policy_revision_id'] = execution_pin.policy_revision_id
+        if execution_pin.route_revision_id:
+            result["gateway_revision_id"] = execution_pin.route_revision_id
+            result["gateway_alias"] = execution_pin.gateway_alias
         result["revision_id"] = pin["workflow_revision_id"]
         result["definition_id"] = pin["definition_id"]
         result["name"] = pin["definition"]["name"]

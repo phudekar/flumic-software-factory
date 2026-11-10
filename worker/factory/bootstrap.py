@@ -35,7 +35,7 @@ def repository_adapter(identity, *, token, max_file_bytes, check_policy):
 
 
 @contextmanager
-def action_service(context, *, dispatch, state, observer=None, workspace_root=None):
+def action_service(context, *, dispatch, state, observer=None, workspace_root=None, model_transport=None):
     """Fresh service for a trusted resolved context; callers supply scoped state/dispatch.
 
     This is intentionally separate from legacy bootstrap: shared actions must not
@@ -73,6 +73,14 @@ def action_service(context, *, dispatch, state, observer=None, workspace_root=No
             os.chown(home / "workspaces", AGENT_UID, AGENT_GID)
         kwargs = {"credentials": credentials, "agent_home": home}
 
+        def agent(factory):
+            if model_transport is not None and factory in {
+                "factory.adapters.agents:openai_model", "factory.adapters.agents:api_coding",
+            }:
+                return partial(load_factory(factory), settings, **kwargs,
+                               transport=model_transport, gateway_alias=context.gateway_alias)
+            return partial(load_factory(factory), settings, **kwargs)
+
         def repository_client(repository):
             if repository != settings.repository:
                 raise ValueError("Repository does not match action context")
@@ -88,13 +96,9 @@ def action_service(context, *, dispatch, state, observer=None, workspace_root=No
             yield FactoryService(
                 repository=settings.repository,
                 repositories=repository_client,
-                planner=partial(
-                    load_factory(settings.planner_factory), settings, **kwargs
-                ),
-                reviewer=partial(
-                    load_factory(settings.reviewer_factory), settings, **kwargs
-                ),
-                coding_agent=partial(load_factory(coding_path), settings, **kwargs),
+                planner=agent(settings.planner_factory),
+                reviewer=agent(settings.reviewer_factory),
+                coding_agent=agent(coding_path),
                 dispatch=dispatch,
                 state=state,
                 observer=observer or LoggingObserver(),
@@ -134,6 +138,15 @@ def run_builtin(
     if action == "core.echo@1":
         return ActionCatalog(service_factory=service_factory).execute(
             action, context, inputs, dispatch=None, state=None, observer=observer
+        )
+    if context.gateway_alias:
+        from factory.adapters.broker_inference import BrokerInferenceTransport
+
+        service_factory = partial(
+            service_factory,
+            model_transport=BrokerInferenceTransport(
+                context.gateway_alias, context.gateway_tokenizer, transport.infer_model,
+            ),
         )
     bindings = ProjectBindings.model_validate_json(context.followup_bindings_json)
     dispatch = ProjectDispatch(context, bindings, transport)

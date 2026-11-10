@@ -57,6 +57,7 @@ class MembershipEdit(BaseModel):
 class Registration(BaseModel):
     model_config = ConfigDict(extra="forbid")
     protocol: str
+    model_broker: bool = Field(default=False, strict=True)
     providers: list[Literal["github", "gitlab"]] = Field(
         default_factory=lambda: ["github"], min_length=1, max_length=2
     )
@@ -140,6 +141,7 @@ def authorize_execution(
     executor,
     action,
     input,
+    gateway_model=False,
 ):
     """Trusted scheduler boundary. Run/graph admission adds its own checks in #7.
 
@@ -170,6 +172,7 @@ def authorize_execution(
         executor=executor,
         action=action,
         input_ciphertext=encrypt(input, settings),
+        gateway_model=gateway_model,
     )
     db.add(row)
     db.flush()
@@ -180,7 +183,8 @@ def eligibility(db, worker, assignment, settings=None):
     membership(db, assignment.project_id, assignment.pool_id)
     pool = pool_record(db, assignment.pool_id)
     if (
-        worker.pool_id != pool.id
+        (assignment.gateway_model and worker.capabilities.get("model_broker") is not True)
+        or worker.pool_id != pool.id
         or worker.protocol != PROTOCOL
         or worker.registered_at is None
         or worker.desired_state in {"removed", "stopped"}

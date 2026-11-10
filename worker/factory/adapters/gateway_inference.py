@@ -62,6 +62,27 @@ class LLMConnectionRevision:
         object.__setattr__(self, "aliases", MappingProxyType(aliases))
 
 
+def assess_gateway_tokens(connection: LLMConnectionRevision, request: ModelRequest) -> TokenAssessment:
+    if (
+        type(request.max_completion_tokens) is not int
+        or type(request.max_context_tokens) is not int
+        or not 0 < request.max_completion_tokens <= request.max_context_tokens
+    ):
+        raise ValueError("Gateway token limits must be positive and within the context budget")
+    tokenizer = connection.aliases.get(request.model)
+    if tokenizer is None:
+        raise ValueError("Model alias has no qualified tokenizer")
+    chat_response_format(request)
+    count = count_request_tokens(
+        request.messages,
+        tokenizer,
+        max_context_tokens=request.max_context_tokens,
+        max_completion_tokens=request.max_completion_tokens,
+    )
+    return TokenAssessment(count, "qualified_local_tokenizer")
+
+
+
 class GatewayTransport:
     provider = "gateway"
 
@@ -75,23 +96,7 @@ class GatewayTransport:
         self._client = client
 
     def assess_tokens(self, request: ModelRequest) -> TokenAssessment:
-        if (
-            type(request.max_completion_tokens) is not int
-            or type(request.max_context_tokens) is not int
-            or not 0 < request.max_completion_tokens <= request.max_context_tokens
-        ):
-            raise ValueError("Gateway token limits must be positive and within the context budget")
-        tokenizer = self._connection.aliases.get(request.model)
-        if tokenizer is None:
-            raise ValueError("Model alias has no qualified tokenizer")
-        chat_response_format(request)
-        count = count_request_tokens(
-            request.messages,
-            tokenizer,
-            max_context_tokens=request.max_context_tokens,
-            max_completion_tokens=request.max_completion_tokens,
-        )
-        return TokenAssessment(count, "qualified_local_tokenizer")
+        return assess_gateway_tokens(self._connection, request)
 
     def infer(self, request: ModelRequest) -> ModelResponse:
         self.assess_tokens(request)
@@ -130,7 +135,8 @@ class GatewayTransport:
             if not response.is_success:
                 raise ModelTransportError(
                     f"Gateway request failed (HTTP {response.status_code})",
-                    uncertain=response.status_code >= 500,
+                    uncertain=response.status_code >= 500 or response.status_code == 408,
+                    status_code=response.status_code,
                 )
             if response.headers.get("Content-Encoding", "identity").lower() != "identity":
                 raise ModelTransportError("Unexpected gateway response encoding", uncertain=True)

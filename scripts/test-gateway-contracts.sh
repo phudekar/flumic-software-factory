@@ -51,8 +51,21 @@ if ! docker exec -e TIKTOKEN_CACHE_DIR=/fixture -e PYTHONPATH=/worker "$name-pro
     exit 1
 fi
 
+expected_requests=1
+if [[ -n "${FLUMIC_GATEWAY_WORKER_TEST_IMAGE:-}" ]]; then
+    docker run --rm --network "container:$name-proxy" \
+        -e FLUMIC_TEST_LITELLM_ENDPOINT=https://127.0.0.1:4000/v1 \
+        -e FLUMIC_TEST_LITELLM_CA_FILE=/fixture/server.crt \
+        -e TIKTOKEN_CACHE_DIR=/fixture -e PYTHONDONTWRITEBYTECODE=1 \
+        -e PYTHONPATH=/repo/worker:/repo/control-plane/backend:/repo/control-plane/backend/tests \
+        -v "$fixture:/fixture:ro" -v "$PWD:/repo:ro" -w /repo \
+        --entrypoint python "$FLUMIC_GATEWAY_WORKER_TEST_IMAGE" \
+        -m unittest test_model_broker.DirectGatewayWorkerTests.test_real_local_litellm_worker_dispatch -v
+    expected_requests=2
+fi
+
 upstream_requests="$(docker logs "$name-upstream" 2>&1 | grep -c 'POST /v1/chat/completions' || true)"
-if [[ "$upstream_requests" != 1 ]]; then
-    echo "Expected one fake upstream completion, observed $upstream_requests" >&2
+if [[ "$upstream_requests" != "$expected_requests" ]]; then
+    echo "Expected $expected_requests fake upstream completions, observed $upstream_requests" >&2
     exit 1
 fi

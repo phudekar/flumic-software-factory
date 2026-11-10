@@ -29,6 +29,7 @@ class ExecutionPin(FrozenContract):
     mode: ExecutionMode
     policy_revision_id: str = Field(min_length=1, max_length=120)
     route_revision_id: str | None = None
+    gateway_alias: str | None = None
     target_qualification_id: str | None = None
     target_qualification_digest: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
     tool_policy_revision_id: str | None = None

@@ -40,6 +40,7 @@ class SharedWorkerTests(unittest.TestCase):
                 "factory_protocol": "shared-v1",
                 "factory_pool": "pool",
                 "factory_role": "simple",
+                "factory_model_broker": "v1",
             },
         )
         self.assertEqual(len(registered), 1)

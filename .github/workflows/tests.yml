@@ -80,7 +80,11 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      - name: Check pinned LiteLLM against an isolated fake upstream
+      - name: Build the Control Pane test image
+        run: docker build -f control-plane/Dockerfile -t flumic-gateway-worker-test .
+      - name: Check pinned LiteLLM and the worker assignment path against an isolated fake upstream
+        env:
+          FLUMIC_GATEWAY_WORKER_TEST_IMAGE: flumic-gateway-worker-test
         run: ./scripts/test-gateway-contracts.sh
 
   backend:

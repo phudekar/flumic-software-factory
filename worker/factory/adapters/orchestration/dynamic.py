@@ -30,6 +30,15 @@ def labels(**values):
     ]
 
 
+def action_labels(route):
+    return labels(
+        factory_protocol="shared-v1",
+        factory_pool=route.pool_id,
+        factory_role=route.role,
+        **({"factory_model_broker": "v1"} if route.model_broker else {}),
+    )
+
+
 def action_name(pool_id, role):
     return f"flumic-shared-action-v1-{pool_id}-{role}"
 
@@ -107,11 +116,7 @@ def register_coordinator(
             return await task.aio_run(
                 command,
                 child_key=key,
-                desired_worker_labels=labels(
-                    factory_protocol="shared-v1",
-                    factory_pool=route.pool_id,
-                    factory_role=route.role,
-                ),
+                desired_worker_labels=action_labels(route),
             )
 
         async def sleep():

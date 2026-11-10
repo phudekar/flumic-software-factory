@@ -65,12 +65,14 @@ class CLICodingAgent:
         )
 
 
-def openai_model(settings, *, credentials=None, agent_home=None):
+def openai_model(settings, *, credentials=None, agent_home=None, transport=None, gateway_alias=None):
     from model_client import ModelClient
 
     return ModelClient(
         max_patch_iterations=settings.max_patch_iterations,
         settings=settings,
+        transport=transport,
+        gateway_alias=gateway_alias,
         **(
             {"api_key": credentials.get("openai", "")}
             if credentials is not None

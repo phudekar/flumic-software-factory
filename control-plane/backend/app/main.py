@@ -162,6 +162,13 @@ def create_app(settings=None, sessions=None, runtime=None, workflow=None):
     from app.project_context import install as install_project_context
 
     install_project_context(app, sessions, settings)
+    from app.adapters.litellm_management import LiteLLMAdministration
+    from app.gateway_connections import install as install_gateway_connections
+
+    install_gateway_connections(app, sessions, settings, LiteLLMAdministration())
+    from app.model_broker import INFERENCE_PATH, install as install_model_broker
+
+    install_model_broker(app, sessions, settings)
     from app.repository_validation import install as install_repository_validation
 
     install_repository_validation(app, sessions, settings, row)
@@ -232,6 +239,7 @@ def create_app(settings=None, sessions=None, runtime=None, workflow=None):
                     r"/api/v1/hooks/gitlab/[0-9a-f-]{36}", request.url.path
                 )
             )
+            and not (request.method == "POST" and request.url.path == INFERENCE_PATH)
             and request.url.path
             not in {
                 "/api/v1/auth/login",

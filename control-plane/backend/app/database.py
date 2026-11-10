@@ -365,12 +365,43 @@ class Assignment(ProjectOwned, Base):
     expires_at: Mapped[float | None] = mapped_column(Float)
     started_at: Mapped[float | None] = mapped_column(Float)
     broker_revoked: Mapped[bool] = mapped_column(default=False, server_default=false())
+    gateway_model: Mapped[bool] = mapped_column(default=False, server_default=false())
     context_id: Mapped[str | None] = mapped_column(
         ForeignKey("action_context_snapshots.id")
     )
     input_ciphertext: Mapped[str] = mapped_column(Text)
     result_ciphertext: Mapped[str | None] = mapped_column(Text)
     result_digest: Mapped[str | None] = mapped_column(String(64))
+    created_at: Mapped[float] = mapped_column(Float, default=time.time)
+
+
+class GatewayConnectionRevision(ProjectOwned, Base):
+    __tablename__ = "gateway_connection_revisions"
+    __table_args__ = (
+        UniqueConstraint("project_id", "id", name="uq_gateway_connection_revision_owner"),
+        ForeignKeyConstraint(
+            ["project_id", "parent_id"],
+            ["gateway_connection_revisions.project_id", "gateway_connection_revisions.id"],
+            name="fk_gateway_connection_parent",
+        ),
+        ForeignKeyConstraint(
+            ["project_id", "inference_credential_id"],
+            ["secret_versions.project_id", "secret_versions.id"],
+            name="fk_gateway_inference_credential",
+        ),
+        ForeignKeyConstraint(
+            ["project_id", "management_credential_id"],
+            ["secret_versions.project_id", "secret_versions.id"],
+            name="fk_gateway_management_credential",
+        ),
+    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=identity)
+    parent_id: Mapped[str | None] = mapped_column(String(36))
+    endpoint: Mapped[str] = mapped_column(String(500))
+    inference_credential_id: Mapped[str] = mapped_column(String(36))
+    management_credential_id: Mapped[str | None] = mapped_column(String(36))
+    aliases: Mapped[dict] = mapped_column(JSON)
+    timeout_seconds: Mapped[float] = mapped_column(Float)
     created_at: Mapped[float] = mapped_column(Float, default=time.time)
 
 
