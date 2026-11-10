@@ -232,7 +232,8 @@ class ActionCatalog:
                 args.publish, settings.repository, identity=context.repository_identity
             )
         for purpose in self.purposes(action, settings):
-            context.credential(purpose)
+            if purpose != "openai" or not context.gateway_alias:
+                context.credential(purpose)
         common = {
             "repository": settings.repository,
             "factory_run_id": context.factory_run_id or context.run_id,

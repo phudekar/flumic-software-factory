@@ -49,6 +49,7 @@ class ActionRoute(Contract):
     attempt: int = Field(ge=1)
     pool_id: str = Field(min_length=1, max_length=120)
     role: Literal["simple", "developer"]
+    model_broker: bool = Field(default=False, exclude_if=lambda value: not value)
 
 
 class RunAdvance(Contract):
@@ -106,6 +107,8 @@ class ActionContext(Contract):
     executor: str = "builtin@1"
     execution_mode: Literal["direct", "protected"] = "direct"
     execution_policy_revision_id: str = Field(default="", max_length=120)
+    gateway_alias: str | None = None
+    gateway_tokenizer: str | None = None
     job_id: str | None = None
     run_id: str
     stage_id: str
@@ -128,6 +131,9 @@ class ActionContext(Contract):
         if self.execution_mode == 'direct':
             value.pop('execution_mode', None)
             value.pop('execution_policy_revision_id', None)
+        if self.gateway_alias is None:
+            value.pop("gateway_alias", None)
+            value.pop("gateway_tokenizer", None)
         # Old shared workers reject unknown fields. Do not add new metadata to
         # the historical GitHub wire shape unless a launch explicitly pins it.
         if not self.repository_identity_json:

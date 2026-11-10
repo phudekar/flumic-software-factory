@@ -191,3 +191,156 @@ class ModelBrokerTests(unittest.TestCase):
         ):
             self.assertEqual(self.infer().status_code, 503)
             upstream.assert_not_called()
+
+
+class DirectGatewayWorkerTests(unittest.TestCase):
+    setUp = capabilities.BrokerCapabilitiesTests.setUp
+    tearDown = capabilities.BrokerCapabilitiesTests.tearDown
+    setup_graph = capabilities.BrokerCapabilitiesTests.setup_graph
+    publish = capabilities.BrokerCapabilitiesTests.publish
+    worker = capabilities.BrokerCapabilitiesTests.worker
+    credential = gateways.GatewayConnectionTests.credential
+
+    def worker_transport(self, endpoint):
+        from app.workflow_state import WorkflowState
+        from factory.adapters.broker_inference import BrokerInferenceTransport
+        from factory.shared_worker import BoundTransport, SharedRequestError
+        from test_builtin_bindings import BuiltinBindingTests
+        import test_api as fixtures
+
+        project, base, repos, pools, revisions = BuiltinBindingTests.setup_bundle(
+            self, credentials=True,
+        )
+        for kind in ("issue", "feedback"):
+            with self.sessions() as db:
+                revision = db.get(models.WorkflowRevision, revisions[kind])
+                document = decrypt(revision.graph_ciphertext, self.settings)
+                definition_id = revision.definition_id
+            for stage in document["stages"]:
+                if stage["role"] == "developer":
+                    stage["overrides"]["developer_agent"] = "api"
+            updated = self.client.put(base + "/workflow-definitions/" + definition_id, json={
+                "parent_id": revisions[kind], "document": document,
+            })
+            self.assertEqual(updated.status_code, 200, updated.text)
+            revisions[kind] = updated.json()["revision_id"]
+        self.project_id = project.project_id
+        credential = self.credential("gateway-inference")
+        route = self.client.post(base + "/gateway-connections", json={
+            "endpoint": endpoint,
+            "inference_credential_id": credential,
+            "aliases": {"planning": "gpt-4.1-mini"},
+        })
+        self.assertEqual(route.status_code, 201, route.text)
+        _, headers = self.worker({"id": pools["simple"]})
+        registration = {
+            "protocol": "shared-v1", "pool_id": pools["simple"], "role": "simple",
+            "normal_slots": 2, "durable_slots": 16, "executors": ["builtin@1"],
+            "actions": ["issue.load@1", "issue.plan@1"],
+        }
+        registered = self.client.post("/api/v1/shared-worker/register", headers=headers, json={
+            **registration, "model_broker": True,
+        })
+        self.assertEqual(registered.status_code, 200, registered.text)
+        _, old_headers = self.worker({"id": pools["simple"]}, "old-worker")
+        old = self.client.post("/api/v1/shared-worker/register", headers=old_headers, json=registration)
+        self.assertEqual(old.status_code, 200, old.text)
+        store = WorkflowState(
+            self.sessions, self.settings, fixtures.Configurations(self.settings.root),
+        )
+        store.enable_dynamic_repository(project, repos["backend"]["id"])
+        run = self.client.post(base + "/workflow-runs", json={
+            "revision_id": revisions["issue"], "input": {"issue_number": 2},
+            "bindings": {repos["backend"]["id"]: revisions}, "execution_mode": "direct",
+            "gateway_revision_id": route.json()["id"], "gateway_alias": "planning",
+        })
+        self.assertEqual(run.status_code, 202, run.text)
+        run_id = run.json()["id"]
+        first = store.advance_run(project, run_id).ready[0]
+        store.finish_execution(project, first.execution_id,
+                               output={"issue_number": 2, "state": "open", "labels": []},
+                               confirmed_terminal=True)
+        advance = store.advance_run(project, run_id)
+        plan = advance.ready[0]
+        from factory.adapters.orchestration.dynamic import action_labels
+
+        route = advance.routes[plan.execution_id]
+        self.assertEqual(
+            {label.key: label.value for label in action_labels(route)}["factory_model_broker"],
+            "v1",
+        )
+        old_claim = self.client.post("/api/v1/shared-worker/claim", headers=old_headers, json={
+            **plan.model_dump(), "claim_key": "old-worker-claim-key",
+        })
+        self.assertEqual(old_claim.status_code, 409, old_claim.text)
+        claim = self.client.post("/api/v1/shared-worker/claim", headers=headers, json={
+            **plan.model_dump(), "claim_key": "test-worker-claim-key",
+        })
+        self.assertEqual(claim.status_code, 200, claim.text)
+        claimed = claim.json()
+        prefix = "/api/v1/shared-worker/assignments/" + claimed["assignment_id"]
+        delivered = self.client.post(prefix + "/context", headers=headers, json={
+            "lease_token": claimed["lease_token"],
+        })
+        self.assertEqual(delivered.status_code, 200, delivered.text)
+        self.assertEqual(delivered.json()["credentials"], {"github": "private-github"})
+        context = delivered.json()["context"]
+        self.assertEqual(context["gateway_alias"], "planning")
+
+        def request(path, body, *, timeout):
+            response = self.client.post(path, headers=headers, json=body)
+            if response.status_code != 200:
+                raise SharedRequestError(response.status_code)
+            return response.json()
+
+        from types import SimpleNamespace
+
+        bound = BoundTransport(SimpleNamespace(request=request), claimed["assignment_id"], claimed["lease_token"])
+        return BrokerInferenceTransport(context["gateway_alias"], context["gateway_tokenizer"], bound.infer_model)
+
+    def request(self):
+        from factory.application.model_sessions import ModelRequest
+
+        return ModelRequest(
+            model="planning", messages=[{"role": "user", "content": "Return fixture JSON"}],
+            max_context_tokens=2000, max_completion_tokens=100, request_id="worker-fixture",
+        )
+
+    def test_worker_gateway_route_uses_real_launch_and_assignment(self):
+        transport = self.worker_transport("https://gateway.example/v1")
+        with (
+            patch("app.model_broker.read_credential", return_value="fixture-key"),
+            patch("app.model_broker.GatewayTransport.infer", return_value=ModelResponse(
+                content='{"fixture":true}', usage=ModelUsage(input_tokens=18, output_tokens=5),
+                usage_source="gateway_reported",
+            )) as upstream,
+        ):
+            self.assertEqual(transport.infer(self.request()).usage.output_tokens, 5)
+            with self.assertRaises(ModelTransportError):
+                transport.infer(self.request())
+            upstream.assert_called_once()
+
+    def test_real_local_litellm_worker_dispatch(self):
+        import os
+        import ssl
+        import json
+        import httpx
+        from factory.adapters.gateway_inference import GatewayTransport
+
+        endpoint = os.environ.get("FLUMIC_TEST_LITELLM_ENDPOINT")
+        if not endpoint:
+            self.skipTest("requires isolated local LiteLLM fixture")
+        transport = self.worker_transport(endpoint)
+        context = ssl.create_default_context(cafile=os.environ["FLUMIC_TEST_LITELLM_CA_FILE"])
+        with (
+            httpx.Client(verify=context, trust_env=False) as client,
+            patch("app.model_broker.read_credential", return_value="sk-flumic-fixture"),
+            patch("app.model_broker.GatewayTransport", side_effect=lambda connection, token: (
+                GatewayTransport(connection, token, client=client)
+            )),
+        ):
+            result = transport.infer(self.request())
+            self.assertEqual(json.loads(result.content), {"fixture": True})
+            self.assertEqual((result.usage.input_tokens, result.usage.output_tokens), (18, 5))
+            with self.assertRaises(ModelTransportError):
+                transport.infer(self.request())

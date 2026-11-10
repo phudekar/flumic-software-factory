@@ -76,7 +76,7 @@ class SharedControl:
                 self, Path(env["FACTORY_SHARED_HISTORY_ROOT"])
             )
 
-    def request(self, path, body=None):
+    def request(self, path, body=None, *, timeout=15):
         request = urllib.request.Request(
             self.endpoint + path,
             data=json.dumps(body, allow_nan=False).encode()
@@ -85,7 +85,7 @@ class SharedControl:
             headers=self.headers,
         )
         try:
-            with urllib.request.urlopen(request, timeout=15) as response:
+            with urllib.request.urlopen(request, timeout=timeout) as response:
                 raw = response.read(2 * 1048576 + 1)
             if len(raw) > 2 * 1048576:
                 raise ValueError("Worker response exceeds size limit")
@@ -154,6 +154,7 @@ class SharedControl:
             "/api/v1/shared-worker/register",
             {
                 "protocol": settings.protocol,
+                "model_broker": True,
                 "providers": ["github", "gitlab"]
                 if shutil.which("git")
                 else ["github"],
@@ -351,6 +352,21 @@ class BoundTransport:
             {"lease_token": self.proof, **body},
         )
 
+    def infer_model(self, body):
+        from factory.application.model_sessions import ModelTransportError
+
+        try:
+            return self.control.request(
+                "/api/v1/shared-worker/assignments/" + self.identifier + "/model-inference",
+                {"lease_token": self.proof, "request": body},
+                timeout=310,
+            )
+        except SharedRequestError as error:
+            raise ModelTransportError(
+                "Model broker request failed", uncertain=error.status is None or error.status >= 500,
+                status_code=error.status,
+            ) from None
+
     def get_state(self, context, key):
         return self.call("state", operation="get", key=key)["value"]
 
@@ -384,6 +400,7 @@ def build_shared_worker(hatchet, settings, control):
         "factory_protocol": "shared-v1",
         "factory_pool": settings.pool_id,
         "factory_role": settings.role,
+        "factory_model_broker": "v1",
     }
 
     from factory.adapters.orchestration.dynamic import register_action

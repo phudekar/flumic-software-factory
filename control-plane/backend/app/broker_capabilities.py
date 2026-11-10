@@ -1,6 +1,8 @@
 """Trusted broker ledger. Callers own the transaction and commit before dispatch."""
+from base64 import urlsafe_b64encode
 from dataclasses import dataclass
 from hashlib import sha256
+import hmac
 import json
 import re
 import secrets
@@ -56,12 +58,12 @@ def _active_scope(db, scope: CapabilityScope, settings):
     run = db.get(WorkflowRun, assignment.run_id, populate_existing=True)
     if (
         attempt is None or run is None or attempt.state != "running"
-        or run.state != "running" or run.execution_mode != "protected"
+        or run.state != "running"
         or attempt.assignment_id != assignment.id or attempt.stage_id != assignment.stage_id
         or attempt.run_id != run.id
         or not (attempt.project_id == run.project_id == assignment.project_id)
     ):
-        raise CapabilityDenied("Assignment is outside an active protected attempt")
+        raise CapabilityDenied("Assignment is outside an active brokered attempt")
     worker = db.get(Worker, assignment.worker_id, populate_existing=True, with_for_update=True)
     if worker is None:
         raise CapabilityDenied("Assignment worker is inactive")
@@ -70,8 +72,13 @@ def _active_scope(db, scope: CapabilityScope, settings):
     except HTTPException:
         raise CapabilityDenied("Assignment worker is inactive") from None
     launch = read_definition_pin(db, ProjectScope(run.project_id), run.snapshot_id, settings)
-    if read_execution_pin(launch).mode != "protected":
-        raise CapabilityDenied("Launch is outside an active protected attempt")
+    pin = read_execution_pin(launch)
+    direct_gateway = (
+        pin.mode == "direct" and assignment.gateway_model and scope.audience == "model"
+        and pin.route_revision_id and pin.gateway_alias
+    )
+    if pin.mode != run.execution_mode or (pin.mode != "protected" and not direct_gateway):
+        raise CapabilityDenied("Launch is outside an active brokered attempt")
     deadline = assignment_deadline(db, assignment, settings)
     expiry = min(assignment.expires_at, deadline) if deadline is not None else assignment.expires_at
     now = time.time()
@@ -86,6 +93,28 @@ def _active_scope(db, scope: CapabilityScope, settings):
 
 def issue_capability(db, scope: CapabilityScope, limits: SessionLimits, *, settings) -> str:
     """Trusted supervisor only. Rotate the bearer without replacing its allowance."""
+    return _store_capability(db, scope, limits, secrets.token_urlsafe(32), settings)
+
+
+def worker_model_capability(db, scope: CapabilityScope, limits: SessionLimits, *, settings) -> str:
+    """Server-only credential for an already authenticated Direct assignment.
+
+    Renewing one worker request must not invalidate a concurrent request before
+    the allowance ledger can arbitrate it. This bearer never crosses the wire.
+    """
+    assignment = db.get(Assignment, scope.assignment_id)
+    run = db.get(WorkflowRun, scope.run_id)
+    if assignment is None or not assignment.gateway_model or run is None or run.execution_mode != "direct":
+        raise CapabilityDenied("Assignment has no Direct gateway route")
+    digest = hmac.digest(
+        settings.encryption_key.encode(),
+        ("flumic/direct-model-broker/v1/" + scope.assignment_id).encode(),
+        "sha256",
+    )
+    return _store_capability(db, scope, limits, urlsafe_b64encode(digest).decode().rstrip("="), settings)
+
+
+def _store_capability(db, scope, limits, bearer, settings):
     if scope.audience.startswith("mcp:") and any(
         operation.startswith("model.") for operation in scope.operations
     ):
@@ -98,7 +127,6 @@ def issue_capability(db, scope: CapabilityScope, limits: SessionLimits, *, setti
     ).execution_options(populate_existing=True))
     policy = limits.model_dump()
     identity = scope.model_dump(mode="json")
-    bearer = secrets.token_urlsafe(32)
     if capability is None:
         capability = BrokerCapability(project_id=scope.project_id, assignment_id=scope.assignment_id,
                                       audience=scope.audience, limits=policy, scope=identity)

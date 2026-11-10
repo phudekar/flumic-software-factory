@@ -365,6 +365,7 @@ class Assignment(ProjectOwned, Base):
     expires_at: Mapped[float | None] = mapped_column(Float)
     started_at: Mapped[float | None] = mapped_column(Float)
     broker_revoked: Mapped[bool] = mapped_column(default=False, server_default=false())
+    gateway_model: Mapped[bool] = mapped_column(default=False, server_default=false())
     context_id: Mapped[str | None] = mapped_column(
         ForeignKey("action_context_snapshots.id")
     )

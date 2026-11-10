@@ -240,3 +240,20 @@ runtime or make protected execution available.
 See [ADR 0009](adr/0009-execution-mode-authority.md) for authority and rollback
 semantics. Save a new mode on a fresh logical launch rather than modifying a
 historical run or snapshot.
+
+### Select a gateway for a Direct run
+
+An administrator can pass `gateway_revision_id` and `gateway_alias` together
+when launching a Direct workflow. The run pins both values. Every supported
+SDK model stage uses the selected alias. Set `developer_agent: api` for coding
+stages in workflows that use a gateway. Admission rejects CLI coding stages
+and aliases outside the selected connection.
+
+Deploy the new Control Pane before rolling out shared workers with broker
+support. Workers register that capability on startup, and only those workers
+can claim gateway stages. Workers authenticate with their existing assignment
+lease, while the Control Pane resolves the gateway inference key from OpenBao.
+The worker receives no gateway key. Each assignment permits up to 32 gateway
+requests and one in-flight request, within the pinned stage token limits.
+Existing Direct runs without a gateway selection continue to use their
+provider configuration.

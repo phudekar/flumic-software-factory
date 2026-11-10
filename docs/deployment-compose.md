@@ -221,3 +221,9 @@ database on private networks, with access limited to the trusted Control Pane
 and the operator's administration path. Keep gateway inference retries
 disabled for qualified broker routes so a single dispatch does not become
 multiple provider calls.
+
+To test the worker path with the pinned LiteLLM image and a fake provider, run
+`FLUMIC_GATEWAY_WORKER_TEST_IMAGE=software-factory-control:local ./scripts/test-gateway-contracts.sh`.
+The image supplies the backend Python dependencies. The script mounts the
+current checkout and uses a separate Docker network, a fixture TLS certificate,
+and fixture credentials.

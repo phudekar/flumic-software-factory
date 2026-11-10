@@ -190,7 +190,10 @@ class WorkflowState:
             db, ProjectScope(run.project_id), run.snapshot_id, self.settings
         )
 
-    def start_run(self, scope, revision_id, run_input, *, key, bindings=None, requested_mode=None):
+    def start_run(self, scope, revision_id, run_input, *, key, bindings=None,
+                  requested_mode=None, gateway_revision_id=None, gateway_alias=None):
+        if (gateway_revision_id is None) != (gateway_alias is None):
+            raise HTTPException(422, "Select both a gateway revision and an alias")
         if not isinstance(run_input, dict) or len(json_bytes(run_input)) > 65536:
             raise HTTPException(
                 422, "Run input must be a JSON object of at most 64 KiB"
@@ -203,6 +206,8 @@ class WorkflowState:
                 "input": run_input,
                 **({"bindings": bindings} if bindings is not None else {}),
                 **({"execution_mode": requested_mode} if requested_mode is not None else {}),
+                **({"gateway_revision_id": gateway_revision_id, "gateway_alias": gateway_alias}
+                   if gateway_revision_id is not None else {}),
             }
         )
         with self.sessions.begin() as db:
@@ -227,7 +232,8 @@ class WorkflowState:
                 pin = pin_project_bundle(
                     db, scope, revision_id, bindings, self.config, self.settings
                 )
-            return self._create_run(db, scope, pin, run_input, key, digest, cursor, requested_mode=requested_mode, fresh_pin=True)
+            return self._create_run(db, scope, pin, run_input, key, digest, cursor, requested_mode=requested_mode, fresh_pin=True,
+                                    gateway_revision_id=gateway_revision_id, gateway_alias=gateway_alias)
 
     def start_pinned_run(self, scope, snapshot_id, run_input, *, key, db=None, requested_mode=None, parent_pin=None):
         if (
@@ -261,7 +267,8 @@ class WorkflowState:
             return existing
         return self._create_run(db, scope, pin, run_input, key, digest, cursor, requested_mode=requested_mode, parent_pin=parent_pin)
 
-    def _create_run(self, db, scope, pin, run_input, key, digest, cursor, *, requested_mode=None, parent_pin=None, fresh_pin=False):
+    def _create_run(self, db, scope, pin, run_input, key, digest, cursor, *, requested_mode=None, parent_pin=None, fresh_pin=False,
+                    gateway_revision_id=None, gateway_alias=None):
         from app.execution_admission import admit_execution
         from app.database import WorkflowLaunchSnapshot
 
@@ -273,6 +280,34 @@ class WorkflowState:
                                                       WorkflowRun.snapshot_id == pin.id).limit(1)):
                 snapshot = {**snapshot, 'execution_pin': read_execution_pin(snapshot).model_dump(mode='json')}
         execution_pin = admit_execution(db, scope, snapshot, requested_mode, parent_pin)
+        if gateway_revision_id is not None:
+            execution_pin = execution_pin.model_copy(update={
+                "route_revision_id": gateway_revision_id, "gateway_alias": gateway_alias,
+            })
+        elif parent_pin and parent_pin.route_revision_id:
+            execution_pin = execution_pin.model_copy(update={
+                "route_revision_id": parent_pin.route_revision_id, "gateway_alias": parent_pin.gateway_alias,
+            })
+        if execution_pin.route_revision_id:
+            from app.gateway_connections import pin_gateway_stages
+
+            snapshot = pin_gateway_stages(
+                db, scope, snapshot, execution_pin, require_model=gateway_revision_id is not None,
+            )
+            if gateway_revision_id is not None:
+                from factory.workflows.project_dispatch import ProjectBindings
+
+                checked = {pin.id}
+                for stage in snapshot["stages"].values():
+                    if not stage.get("followup_bindings_json"):
+                        continue
+                    bindings = ProjectBindings.model_validate_json(stage["followup_bindings_json"])
+                    for target in (bindings.issue, bindings.feedback, bindings.verify):
+                        if target.snapshot_id in checked:
+                            continue
+                        followup = read_definition_pin(db, scope, target.snapshot_id, self.settings)
+                        pin_gateway_stages(db, scope, followup, execution_pin)
+                        checked.add(target.snapshot_id)
         value = {**snapshot, 'execution_pin': execution_pin.model_dump(mode='json')}
         if fresh_pin:
             # Newly allocated definition pin has no run reference yet.
@@ -375,6 +410,8 @@ class WorkflowState:
         return ActionContext(
             execution_mode=execution_pin.mode if execution_pin else 'direct',
             execution_policy_revision_id=execution_pin.policy_revision_id if execution_pin else '',
+            gateway_alias=metadata.get("gateway_alias"),
+            gateway_tokenizer=metadata.get("gateway_tokenizer"),
             project_id=run.project_id,
             repository_id=metadata["repository_id"],
             repository_revision_id=metadata["repository_revision_id"],
@@ -502,7 +539,7 @@ class WorkflowState:
         db.flush()
         return ready
 
-    def _capacity(self, db, stage, project_id, provider="github"):
+    def _capacity(self, db, stage, project_id, provider="github", *, gateway=False):
         if db.get(ProjectPool, (project_id, stage.pool_id)) is None:
             return False
         pool = db.get(WorkerPool, stage.pool_id)
@@ -522,7 +559,8 @@ class WorkflowState:
         capacity = sum(
             pool.profile["normal_slots"]
             for worker in workers
-            if worker.capabilities.get("role") == stage.role
+            if (not gateway or worker.capabilities.get("model_broker") is True)
+            and worker.capabilities.get("role") == stage.role
             and provider in worker.capabilities.get("providers", ["github"])
             and action in worker.capabilities.get("actions", [])
             and stage.executor + "@1" in worker.capabilities.get("executors", [])
@@ -553,6 +591,7 @@ class WorkflowState:
             executor=metadata["executor"],
             action=metadata["action"],
             input=inputs,
+            gateway_model=bool(metadata.get("gateway_alias")),
         )
         run = db.get(WorkflowRun, item.run_id)
         context = self._context(
@@ -577,6 +616,8 @@ class WorkflowState:
             ):
                 raise ValueError("Pinned follow-up bindings cross repository scope")
         purposes = set(self.purposes(stage, context.settings))
+        if context.gateway_alias:
+            purposes.discard("openai")
         grants = {
             purpose: metadata["secret_versions"].get(purpose) for purpose in purposes
         }
@@ -665,6 +706,7 @@ class WorkflowState:
                             ready[0],
                             project,
                             ready[4].get("repository_provider", "github"),
+                            gateway=bool(ready[4].get("gateway_alias")),
                         ):
                             candidate = ready
                             break
@@ -728,6 +770,7 @@ class WorkflowState:
                     attempt=item.generation,
                     pool_id=assignment.pool_id,
                     role=assignment.role,
+                    model_broker=assignment.gateway_model,
                 )
             if run.state == "cancelling":
                 ready, routes = [], {}

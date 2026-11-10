@@ -112,3 +112,51 @@ def install(app, sessions, settings, administration: GatewayAdministration):
             ))
         except GatewayVerificationError:
             raise HTTPException(502, "Gateway model discovery failed") from None
+
+
+def pin_gateway_stages(db, scope, snapshot, pin, *, require_model=False):
+    """Compile the explicit run selection onto supported SDK stages."""
+    from types import SimpleNamespace
+    from factory.adapters.token_budget import MAX_COMPLETION_TOKENS, MAX_CONTEXT_TOKENS
+    from factory.workflows.actions import minimum_purposes
+    import json
+
+    row = require_owned(db, scope, GatewayConnectionRevision, pin.route_revision_id)
+    require_gateway_credential(db, scope, row.inference_credential_id, INFERENCE_PURPOSE)
+    connection = inference_descriptor(row)
+    tokenizer = connection.aliases.get(pin.gateway_alias)
+    if tokenizer is None:
+        raise HTTPException(422, "Select an approved gateway model alias")
+
+    stages = {}
+    for stage_id, metadata in snapshot["stages"].items():
+        stage = dict(metadata)
+        stages[stage_id] = stage
+        if stage["executor"] != "builtin@1":
+            continue
+        settings = SimpleNamespace(
+            **{"repository_provider": "github", **json.loads(stage["settings_json"])}
+        )
+        try:
+            purposes = minimum_purposes(stage["action"], settings)
+        except ValueError:
+            raise HTTPException(422, "Gateway routing requires supported SDK stages") from None
+        if not ({"openai", "anthropic"} & set(purposes)):
+            continue
+        if stage["action"] in {"change.implement@1", "pull.feedback@1"} and (
+            settings.coding_factory or {
+                "api": "factory.adapters.agents:api_coding",
+                "codex": "factory.adapters.agents:codex_coding",
+                "claude": "factory.adapters.agents:claude_coding",
+            }[settings.developer_agent]
+        ) != "factory.adapters.agents:api_coding":
+            raise HTTPException(422, "Gateway routing does not support CLI coding stages")
+        if (settings.max_context_tokens > MAX_CONTEXT_TOKENS
+                or settings.max_completion_tokens > MAX_COMPLETION_TOKENS):
+            raise HTTPException(422, "Stage exceeds the gateway token limits")
+        stage["gateway_alias"] = pin.gateway_alias
+        stage["gateway_tokenizer"] = tokenizer
+
+    if require_model and not any(stage.get("gateway_alias") for stage in stages.values()):
+        raise HTTPException(422, "Workflow has no supported model stages")
+    return {**snapshot, "stages": stages}

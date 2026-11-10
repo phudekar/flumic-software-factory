@@ -8,6 +8,10 @@ branch_labels = depends_on = None
 
 
 def upgrade():
+    op.add_column(
+        "execution_assignments",
+        sa.Column("gateway_model", sa.Boolean(), nullable=False, server_default=sa.false()),
+    )
     op.create_table(
         "gateway_connection_revisions",
         sa.Column("id", sa.String(36), primary_key=True),
@@ -44,3 +48,4 @@ def downgrade():
     if op.get_bind().scalar(sa.text("SELECT 1 FROM gateway_connection_revisions LIMIT 1")):
         raise RuntimeError("Retain gateway connection revisions or perform a verified rollback first")
     op.drop_table("gateway_connection_revisions")
+    op.drop_column("execution_assignments", "gateway_model")
